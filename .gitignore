@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+*.sqlite
+instance/
+.env
+*.env
+.env.local
+.env.production
+venv/
+env/
+.venv/
+dist/
+build/
+*.egg-info/
+
+# Quart/Flask secrets
+config.py
+
+# Storage and uploads
+storage/
+uploads/
+temp/
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+*.sql
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
