@@ -1,15 +1,24 @@
 # Types for Leads & Clients
 TYPE_OPTIONS = [
     "None",
-    "Oil & Gas",
-    "Secondary Containment",
-    "Tanks",
-    "Pipe",
-    "Rental",
-    "Food and Beverage",
-    "Bridge",
-    "Culvert",
+    "Retail",
+    "Wholesale",
+    "Services",
+    "Manufacturing",
+    "Construction",
+    "Real Estate",
+    "Healthcare",
+    "Technology",
+    "Education",
+    "Finance & Insurance",
+    "Hospitality",
+    "Transportation & Logistics",
+    "Non-Profit",
+    "Government",
 ]
+
+
+
 
 # Lead-specific statuses
 LEAD_STATUS_OPTIONS = ["open", "qualified", "proposal", "closed"]
