@@ -11,13 +11,36 @@ from .leads import (
     LeadUpdateSchema,
     LeadResponseSchema,
     LeadListResponseSchema,
-    LeadAssignSchema
+    LeadAssignSchema,
+)
+from .clients import (
+    ClientCreateSchema,
+    ClientUpdateSchema,
+    ClientResponseSchema,
+    ClientListResponseSchema,
+)
+from .contacts import ContactCreateSchema, ContactUpdateSchema
+from .projects import (
+    ProjectCreateSchema,
+    ProjectUpdateSchema,
+    ProjectResponseSchema,
+    ProjectListResponseSchema,
 )
 
 __all__ = [
     "LeadCreateSchema",
-    "LeadUpdateSchema", 
+    "LeadUpdateSchema",
     "LeadResponseSchema",
     "LeadListResponseSchema",
-    "LeadAssignSchema"
+    "LeadAssignSchema",
+    "ClientCreateSchema",
+    "ClientUpdateSchema",
+    "ClientResponseSchema",
+    "ClientListResponseSchema",
+    "ContactCreateSchema",
+    "ContactUpdateSchema",
+    "ProjectCreateSchema",
+    "ProjectUpdateSchema",
+    "ProjectResponseSchema",
+    "ProjectListResponseSchema",
 ]

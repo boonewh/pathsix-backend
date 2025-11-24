@@ -1,8 +1,10 @@
 from quart import Blueprint, request, jsonify
+from pydantic import ValidationError
 from app.models import Contact
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
 from app.utils.phone_utils import clean_phone_number
+from app.schemas.contacts import ContactCreateSchema, ContactUpdateSchema
 
 contacts_bp = Blueprint("contacts", __name__, url_prefix="/api/contacts")
 
@@ -49,23 +51,28 @@ async def list_contacts():
 @requires_auth()
 async def create_contact():
     user = request.user
-    data = await request.get_json()
+    raw_data = await request.get_json()
+
+    try:
+        data = ContactCreateSchema(**raw_data)
+    except ValidationError as e:
+        return jsonify({"error": "Validation failed", "details": e.errors()}), 400
 
     session = SessionLocal()
     try:
         contact = Contact(
             tenant_id=user.tenant_id,
-            client_id=data.get("client_id"),
-            lead_id=data.get("lead_id"),
-            first_name=data.get("first_name"),
-            last_name=data.get("last_name"),
-            title=data.get("title"),
-            email=data.get("email"),
-            phone=clean_phone_number(data.get("phone")) if data.get("phone") else None,
-            phone_label=data.get("phone_label"),
-            secondary_phone=clean_phone_number(data.get("secondary_phone")) if data.get("secondary_phone") else None,
-            secondary_phone_label=data.get("secondary_phone_label"),
-            notes=data.get("notes"),
+            client_id=data.client_id,
+            lead_id=data.lead_id,
+            first_name=data.first_name,
+            last_name=data.last_name,
+            title=data.title,
+            email=str(data.email) if data.email else None,
+            phone=clean_phone_number(data.phone) if data.phone else None,
+            phone_label=data.phone_label,
+            secondary_phone=clean_phone_number(data.secondary_phone) if data.secondary_phone else None,
+            secondary_phone_label=data.secondary_phone_label,
+            notes=data.notes,
         )
         session.add(contact)
         session.commit()
@@ -80,7 +87,12 @@ async def create_contact():
 @requires_auth()
 async def update_contact(contact_id):
     user = request.user
-    data = await request.get_json()
+    raw_data = await request.get_json()
+
+    try:
+        data = ContactUpdateSchema(**raw_data)
+    except ValidationError as e:
+        return jsonify({"error": "Validation failed", "details": e.errors()}), 400
 
     session = SessionLocal()
     try:
@@ -92,18 +104,20 @@ async def update_contact(contact_id):
         if not contact:
             return jsonify({"error": "Contact not found"}), 404
 
+        update_data = data.model_dump(exclude_unset=True)
+
         for field in [
             "first_name", "last_name", "title", "email",
             "phone_label", "secondary_phone_label", "notes"
         ]:
-            if field in data:
-                setattr(contact, field, data[field])
+            if field in update_data:
+                setattr(contact, field, update_data[field])
 
         # Handle phone fields separately with cleaning
-        if "phone" in data:
-            contact.phone = clean_phone_number(data["phone"]) if data["phone"] else None
-        if "secondary_phone" in data:
-            contact.secondary_phone = clean_phone_number(data["secondary_phone"]) if data["secondary_phone"] else None
+        if "phone" in update_data:
+            contact.phone = clean_phone_number(update_data["phone"]) if update_data["phone"] else None
+        if "secondary_phone" in update_data:
+            contact.secondary_phone = clean_phone_number(update_data["secondary_phone"]) if update_data["secondary_phone"] else None
 
         session.commit()
         return jsonify({"message": "Contact updated"})

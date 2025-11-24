@@ -1,37 +1,32 @@
-"""
-Pydantic validation schemas for Lead entity.
-Step 1A of validation implementation.
-"""
-
-from typing import Optional
+"""Pydantic validation schemas for Client entity."""
 from datetime import datetime
-from pydantic import BaseModel, Field, EmailStr, ConfigDict, field_validator
-from app.constants import LEAD_STATUS_OPTIONS, TYPE_OPTIONS, PHONE_LABELS
+from typing import Optional
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+
+from app.constants import CLIENT_STATUS_OPTIONS, PHONE_LABELS, TYPE_OPTIONS
 
 
-class LeadCreateSchema(BaseModel):
-    """Schema for creating a new lead via POST /api/leads"""
+class ClientCreateSchema(BaseModel):
+    """Schema for creating a new client."""
 
     model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True)
 
-    # Required fields
-    name: str = Field(..., min_length=1, max_length=100, description="Company name")
-
-    # Optional fields
-    contact_person: Optional[str] = Field(None, max_length=100, description="Contact person name")
-    contact_title: Optional[str] = Field(None, max_length=100, description="Contact person title")
-    email: Optional[EmailStr] = Field(None, description="Contact email address")
-    phone: Optional[str] = Field(None, max_length=20, description="Primary phone number")
-    phone_label: Optional[str] = Field("work", description="Primary phone label")
-    secondary_phone: Optional[str] = Field(None, max_length=20, description="Secondary phone number")
-    secondary_phone_label: Optional[str] = Field(None, description="Secondary phone label")
-    address: Optional[str] = Field(None, max_length=255, description="Street address")
-    city: Optional[str] = Field(None, max_length=100, description="City")
-    state: Optional[str] = Field(None, max_length=100, description="State/Province")
-    zip: Optional[str] = Field(None, max_length=20, description="ZIP/Postal code")
-    notes: Optional[str] = Field(None, description="Additional notes")
-    type: Optional[str] = Field("None", description="Business type/category")
-    lead_status: Optional[str] = Field("open", description="Lead status")
+    name: str = Field(..., min_length=1, max_length=100)
+    contact_person: Optional[str] = Field(None, max_length=100)
+    contact_title: Optional[str] = Field(None, max_length=100)
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = Field(None, max_length=20)
+    phone_label: Optional[str] = Field("work")
+    secondary_phone: Optional[str] = Field(None, max_length=20)
+    secondary_phone_label: Optional[str] = None
+    address: Optional[str] = Field(None, max_length=255)
+    city: Optional[str] = Field(None, max_length=100)
+    state: Optional[str] = Field(None, max_length=100)
+    zip: Optional[str] = Field(None, max_length=20)
+    notes: Optional[str] = None
+    type: Optional[str] = Field("None")
+    status: Optional[str] = Field("new")
 
     @field_validator("type")
     @classmethod
@@ -42,13 +37,13 @@ class LeadCreateSchema(BaseModel):
             raise ValueError(f"type must be one of: {', '.join(TYPE_OPTIONS)}")
         return value
 
-    @field_validator("lead_status")
+    @field_validator("status")
     @classmethod
-    def validate_lead_status(cls, value: Optional[str]) -> str:
+    def validate_status(cls, value: Optional[str]) -> str:
         if value is None or value.strip() == "":
-            return "open"
-        if value not in LEAD_STATUS_OPTIONS:
-            raise ValueError(f"lead_status must be one of: {', '.join(LEAD_STATUS_OPTIONS)}")
+            return "new"
+        if value not in CLIENT_STATUS_OPTIONS:
+            raise ValueError(f"status must be one of: {', '.join(CLIENT_STATUS_OPTIONS)}")
         return value
 
     @field_validator("phone_label", "secondary_phone_label")
@@ -71,12 +66,11 @@ class LeadCreateSchema(BaseModel):
         raise TypeError("phone values must be strings")
 
 
-class LeadUpdateSchema(BaseModel):
-    """Schema for updating an existing lead via PUT /api/leads/{id}"""
+class ClientUpdateSchema(BaseModel):
+    """Schema for updating an existing client."""
 
     model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True)
 
-    # All fields optional for updates
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     contact_person: Optional[str] = Field(None, max_length=100)
     contact_title: Optional[str] = Field(None, max_length=100)
@@ -91,7 +85,7 @@ class LeadUpdateSchema(BaseModel):
     zip: Optional[str] = Field(None, max_length=20)
     notes: Optional[str] = None
     type: Optional[str] = None
-    lead_status: Optional[str] = None
+    status: Optional[str] = None
 
     @field_validator("type")
     @classmethod
@@ -102,13 +96,13 @@ class LeadUpdateSchema(BaseModel):
             raise ValueError(f"type must be one of: {', '.join(TYPE_OPTIONS)}")
         return value
 
-    @field_validator("lead_status")
+    @field_validator("status")
     @classmethod
-    def validate_lead_status(cls, value: Optional[str]) -> Optional[str]:
+    def validate_status(cls, value: Optional[str]) -> Optional[str]:
         if value is None or value.strip() == "":
             return value
-        if value not in LEAD_STATUS_OPTIONS:
-            raise ValueError(f"lead_status must be one of: {', '.join(LEAD_STATUS_OPTIONS)}")
+        if value not in CLIENT_STATUS_OPTIONS:
+            raise ValueError(f"status must be one of: {', '.join(CLIENT_STATUS_OPTIONS)}")
         return value
 
     @field_validator("phone_label", "secondary_phone_label")
@@ -131,8 +125,8 @@ class LeadUpdateSchema(BaseModel):
         raise TypeError("phone values must be strings")
 
 
-class LeadResponseSchema(BaseModel):
-    """Schema for lead data in API responses"""
+class ClientResponseSchema(BaseModel):
+    """Schema for serializing client responses."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -151,28 +145,18 @@ class LeadResponseSchema(BaseModel):
     zip: Optional[str]
     notes: Optional[str]
     type: Optional[str]
-    lead_status: str
+    status: str
     created_at: datetime
-    converted_on: Optional[datetime]
     assigned_to: Optional[int]
     assigned_to_name: Optional[str]
 
 
-class LeadListResponseSchema(BaseModel):
-    """Schema for paginated lead list responses"""
-
+class ClientListResponseSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    leads: list[LeadResponseSchema]
+    clients: list[ClientResponseSchema]
     total: int
     page: int
     per_page: int
     sort_order: str
-
-
-class LeadAssignSchema(BaseModel):
-    """Schema for assigning leads to users"""
-
-    assigned_to: int = Field(..., description="User ID to assign the lead to")
-
-    model_config = ConfigDict(validate_assignment=True)
+    activity_filter: Optional[str]

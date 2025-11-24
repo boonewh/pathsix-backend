@@ -60,6 +60,7 @@ passlib==1.7.4
 pillow==11.1.0
 platformdirs==4.3.6
 priority==2.0.0
+pydantic==2.9.2
 psycopg2-binary==2.9.10
 pycparser==2.22
 Pygments==2.19.1

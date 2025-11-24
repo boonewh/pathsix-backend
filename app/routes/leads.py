@@ -246,7 +246,7 @@ async def update_lead(lead_id):
             return jsonify({"error": "Lead not found"}), 404
 
         # Update fields that were provided and validated
-        update_data = data.dict(exclude_unset=True)
+        update_data = data.model_dump(exclude_unset=True)
         
         for field, value in update_data.items():
             if field in ["phone", "secondary_phone"]:
