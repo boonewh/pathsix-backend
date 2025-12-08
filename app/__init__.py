@@ -33,7 +33,7 @@ def create_app():
     # ✅ Add CORS *before* anything else
     app = cors(
         app,
-        allow_origin=["https://pathsix-crm.vercel.app", "https://test-crm-six.vercel.app", "http://localhost:5173", "http://localhost:5174", "http://localhost:5175"],
+        allow_origin=["https://pathsix-crm.vercel.app", "https://test-crm-six.vercel.app", "https://pathsixdesigns-crm.vercel.app", "http://localhost:5173", "http://localhost:5174", "http://localhost:5175"],
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],          # ← add this
