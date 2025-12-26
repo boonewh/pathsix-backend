@@ -8,6 +8,10 @@ primary_region = "ord"
 
 [build]
 
+[processes]
+  app = "hypercorn asgi:app --bind 0.0.0.0:8000"
+  worker = "python scripts/run_worker.py"
+
 [http_service]
   internal_port = 8000
   force_https = true
