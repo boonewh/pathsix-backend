@@ -21,6 +21,8 @@ from app.utils.logging_utils import logger
 admin_backups_bp = Blueprint("admin_backups", __name__, url_prefix="/api/admin/backups")
 
 
+@admin_backups_bp.route("", methods=["GET"])
+@admin_backups_bp.route("", methods=["GET"])
 @admin_backups_bp.route("/", methods=["GET"])
 @requires_auth(roles=["admin"])
 async def list_backups():
@@ -51,6 +53,8 @@ async def list_backups():
         session.close()
 
 
+@admin_backups_bp.route("", methods=["POST"])
+@admin_backups_bp.route("", methods=["POST"])
 @admin_backups_bp.route("/", methods=["POST"])
 @requires_auth(roles=["admin"])
 async def create_backup():
@@ -59,8 +63,10 @@ async def create_backup():
     session = SessionLocal()
 
     try:
-        # Create backup record
+        # Create backup record with a temporary filename (will be updated by worker)
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         backup = Backup(
+            filename=f"manual_backup_{timestamp}.sql.gpg",
             backup_type="manual",
             status="pending",
             created_by=user.id,
@@ -142,7 +148,9 @@ async def restore_backup(backup_id: int):
         # Step 1: Create pre-restore safety backup
         logger.info(f"[Admin] Creating pre-restore safety backup before restoring {backup_id}")
 
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         safety_backup = Backup(
+            filename=f"pre_restore_{timestamp}.sql.gpg",
             backup_type="pre_restore",
             status="pending",
             created_by=user.id,
@@ -243,24 +251,68 @@ async def delete_backup(backup_id: int):
 @admin_backups_bp.route("/restores", methods=["GET"])
 @requires_auth(roles=["admin"])
 async def list_restores():
-    """List all restore operations."""
-    session = SessionLocal()
+    """
+    List all restore operations from B2 restore logs.
 
+    Since restore operations wipe the database (including the restore records),
+    we fetch restore history from JSON logs stored in B2 at:
+    restore_logs/YYYY/MM/restore_YYYYMMDD_HHMMSS.json
+    """
     try:
+        from app.utils.backup_storage import get_backup_storage
+        import json
+
+        storage = get_backup_storage()
+
+        # List all files in restore_logs/ prefix
+        restore_log_files = storage.list_files(prefix="restore_logs/")
+
+        if not restore_log_files:
+            return jsonify({
+                "restores": [],
+                "total": 0
+            })
+
+        # Download and parse each restore log
+        restores = []
+        for log_key in restore_log_files:
+            try:
+                # Download log file content
+                import tempfile
+                with tempfile.NamedTemporaryFile(mode='w+b', delete=False, suffix='.json') as tmp:
+                    tmp_path = tmp.name
+
+                download_success = storage.download_file(log_key, tmp_path)
+                if download_success:
+                    with open(tmp_path, 'r') as f:
+                        restore_log = json.load(f)
+                        restores.append(restore_log)
+
+                    import os
+                    os.remove(tmp_path)
+            except Exception as parse_err:
+                logger.warning(f"Failed to parse restore log {log_key}: {str(parse_err)}")
+                continue
+
+        # Sort by restore_date descending (most recent first)
+        restores.sort(key=lambda x: x.get('restore_date', ''), reverse=True)
+
+        # Apply pagination
         limit = request.args.get("limit", 50, type=int)
         offset = request.args.get("offset", 0, type=int)
 
-        query = session.query(BackupRestore).order_by(BackupRestore.started_at.desc())
-
-        total = query.count()
-        restores = query.limit(limit).offset(offset).all()
+        paginated_restores = restores[offset:offset + limit]
 
         return jsonify({
-            "restores": [r.to_dict() for r in restores],
-            "total": total,
+            "restores": paginated_restores,
+            "total": len(restores),
             "limit": limit,
             "offset": offset
         })
 
-    finally:
-        session.close()
+    except Exception as e:
+        logger.error(f"Failed to fetch restore logs from B2: {str(e)}")
+        return jsonify({
+            "error": "Failed to fetch restore history",
+            "details": str(e)
+        }), 500

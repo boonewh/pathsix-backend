@@ -4,9 +4,10 @@ Restore job: download from B2 → verify checksum → GPG decrypt → pg_restore
 import os
 import subprocess
 import hashlib
+import json
 from datetime import datetime
 from app.database import SessionLocal
-from app.models import Backup, BackupRestore
+from app.models import Backup, BackupRestore, User
 from app.config import (
     SQLALCHEMY_DATABASE_URI,
     BACKUP_GPG_PASSPHRASE
@@ -21,9 +22,10 @@ def run_restore_job(restore_id: int):
     1. Download encrypted backup from B2
     2. Verify SHA-256 checksum
     3. Decrypt with GPG
-    4. Run pg_restore with --clean and --if-exists
-    5. Update restore record
-    6. Cleanup local files
+    4. Log restore metadata to B2 (for audit trail that survives restore)
+    5. Run pg_restore with --clean and --if-exists
+    6. Update restore record (will likely fail since record was wiped)
+    7. Cleanup local files
     """
     session = SessionLocal()
     restore = None
@@ -118,8 +120,65 @@ def run_restore_job(restore_id: int):
 
         logger.info(f"[Restore] Decryption completed: {local_decrypted_path}")
 
-        # Step 4: Run pg_restore
-        logger.info(f"[Restore] Starting pg_restore")
+        # Step 4: Log restore metadata to B2 (before pg_restore wipes the database)
+        logger.info(f"[Restore] Logging restore metadata to B2")
+
+        # Get user info before we close the session
+        user = session.query(User).filter_by(id=restore.restored_by).first()
+        user_email = user.email if user else "unknown"
+
+        # Get safety backup info if it exists
+        safety_backup = None
+        safety_backup_filename = None
+        if restore.pre_restore_backup_id:
+            safety_backup = session.query(Backup).filter_by(id=restore.pre_restore_backup_id).first()
+            safety_backup_filename = safety_backup.filename if safety_backup else None
+
+        restore_log = {
+            "restore_id": restore.id,
+            "restore_date": datetime.utcnow().isoformat() + "Z",
+            "user_email": user_email,
+            "user_id": restore.restored_by,
+            "backup_restored": backup.filename,
+            "backup_id": backup.id,
+            "backup_date": backup.created_at.isoformat() + "Z" if backup.created_at else None,
+            "backup_size_bytes": backup.size_bytes,
+            "backup_checksum": backup.checksum,
+            "safety_backup_created": safety_backup_filename,
+            "safety_backup_id": restore.pre_restore_backup_id,
+            "restore_started_at": restore.started_at.isoformat() + "Z" if restore.started_at else None
+        }
+
+        # Create log file path: restore_logs/YYYY/MM/restore_YYYYMMDD_HHMMSS.json
+        now = datetime.utcnow()
+        log_key = f"restore_logs/{now.year}/{now.month:02d}/restore_{timestamp}.json"
+
+        # Write to temporary file
+        temp_log_path = os.path.join(temp_dir, f"restore_log_{timestamp}.json")
+        with open(temp_log_path, 'w') as f:
+            json.dump(restore_log, f, indent=2)
+
+        # Upload to B2
+        try:
+            upload_success = storage.upload_file(temp_log_path, log_key)
+            if upload_success:
+                logger.info(f"[Restore] Restore log uploaded to B2: {log_key}")
+            else:
+                logger.warning(f"[Restore] Failed to upload restore log to B2")
+        except Exception as log_err:
+            logger.warning(f"[Restore] Error uploading restore log: {str(log_err)}")
+        finally:
+            # Clean up temp log file
+            if os.path.exists(temp_log_path):
+                os.remove(temp_log_path)
+
+        # Step 5: Close database sessions and run pg_restore
+        # Close the current session to avoid connection issues
+        session.close()
+
+        logger.info(f"[Restore] Starting database restore (this will cause brief downtime)")
+        logger.info(f"[Restore] Running pg_restore with --clean")
+
         restore_cmd = [
             "pg_restore",
             "--clean",           # Drop existing objects before recreating
@@ -146,14 +205,24 @@ def run_restore_job(restore_id: int):
             else:
                 logger.info(f"[Restore] pg_restore completed with warnings (expected)")
 
-        logger.info(f"[Restore] pg_restore completed")
+        logger.info(f"[Restore] Database restore completed")
 
-        # Step 5: Mark as completed
-        restore.status = "completed"
-        restore.completed_at = datetime.utcnow()
-        session.commit()
+        # Reconnect with a fresh session
+        session = SessionLocal()
 
-        logger.info(f"[Restore] Restore {restore_id} completed successfully")
+        # Step 6: Mark as completed (this will fail since the restore record was wiped, but that's OK)
+        try:
+            restore = session.query(BackupRestore).filter_by(id=restore_id).first()
+            if restore:
+                restore.status = "completed"
+                restore.completed_at = datetime.utcnow()
+                session.commit()
+                logger.info(f"[Restore] Restore {restore_id} completed successfully")
+            else:
+                # Expected - the restore record was wiped by pg_restore --clean
+                logger.info(f"[Restore] Restore {restore_id} completed (record not found after restore, as expected)")
+        except Exception as update_err:
+            logger.info(f"[Restore] Could not update restore record after pg_restore (expected): {str(update_err)}")
 
     except Exception as e:
         logger.error(f"[Restore] Restore {restore_id} failed: {str(e)}")

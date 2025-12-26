@@ -54,6 +54,22 @@ class BackupStorageBackend:
             print(f"[BackupStorage] Delete failed: {e}")
             return False
 
+    def list_files(self, prefix: str = "") -> list:
+        """List all files in B2 with optional prefix filter."""
+        try:
+            response = self.client.list_objects_v2(
+                Bucket=self.bucket,
+                Prefix=prefix
+            )
+
+            if 'Contents' not in response:
+                return []
+
+            return [obj['Key'] for obj in response['Contents']]
+        except Exception as e:
+            print(f"[BackupStorage] List files failed: {e}")
+            return []
+
 
 def get_backup_storage() -> BackupStorageBackend:
     """Factory function to create backup storage backend."""
