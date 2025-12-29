@@ -7,6 +7,7 @@ users_bp = Blueprint("users", __name__, url_prefix="/api/users")
 
 from sqlalchemy.orm import joinedload
 
+@users_bp.route("", methods=["GET"])
 @users_bp.route("/", methods=["GET"])
 @requires_auth(roles=["admin"])
 async def list_users():
@@ -33,6 +34,7 @@ async def list_users():
         session.close()
 
 
+@users_bp.route("", methods=["POST"])
 @users_bp.route("/", methods=["POST"])
 @requires_auth(roles=["admin"])
 async def create_user():

@@ -81,6 +81,15 @@ def get_backup_storage() -> BackupStorageBackend:
         BACKUP_S3_REGION
     )
 
+    if not BACKUP_S3_ENDPOINT_URL:
+        raise ValueError("BACKUP_S3_ENDPOINT_URL is not configured. Set the environment variable.")
+
+    if not BACKUP_S3_ACCESS_KEY_ID or not BACKUP_S3_SECRET_ACCESS_KEY:
+        raise ValueError("B2 credentials not configured. Set BACKUP_S3_ACCESS_KEY_ID and BACKUP_S3_SECRET_ACCESS_KEY.")
+
+    if not BACKUP_S3_BUCKET:
+        raise ValueError("BACKUP_S3_BUCKET is not configured.")
+
     return BackupStorageBackend(
         endpoint_url=BACKUP_S3_ENDPOINT_URL,
         access_key=BACKUP_S3_ACCESS_KEY_ID,

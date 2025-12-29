@@ -9,6 +9,7 @@ from app.schemas.contacts import ContactCreateSchema, ContactUpdateSchema
 contacts_bp = Blueprint("contacts", __name__, url_prefix="/api/contacts")
 
 
+@contacts_bp.route("", methods=["GET"])
 @contacts_bp.route("/", methods=["GET"])
 @requires_auth()
 async def list_contacts():
@@ -47,6 +48,7 @@ async def list_contacts():
         session.close()
 
 
+@contacts_bp.route("", methods=["POST"])
 @contacts_bp.route("/", methods=["POST"])
 @requires_auth()
 async def create_contact():

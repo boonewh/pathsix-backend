@@ -26,6 +26,7 @@ def parse_date_with_default_time(value):
 
 
 
+@projects_bp.route("", methods=["GET"])
 @projects_bp.route("/", methods=["GET"])
 @requires_auth()
 async def list_projects():
@@ -174,6 +175,7 @@ async def get_project(project_id):
         session.close()
 
 
+@projects_bp.route("", methods=["POST"])
 @projects_bp.route("/", methods=["POST"])
 @requires_auth()
 async def create_project():

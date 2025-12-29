@@ -9,6 +9,8 @@ from sqlalchemy.orm import joinedload
 accounts_bp = Blueprint("accounts", __name__, url_prefix="/api/accounts")
 
 
+@accounts_bp.route("", methods=["GET"])
+@accounts_bp.route("", methods=["GET"])
 @accounts_bp.route("/", methods=["GET"])
 @requires_auth()
 async def list_accounts():
@@ -39,6 +41,8 @@ async def list_accounts():
         session.close()
 
 
+@accounts_bp.route("", methods=["POST"])
+@accounts_bp.route("", methods=["POST"])
 @accounts_bp.route("/", methods=["POST"])
 @requires_auth()
 async def create_account():

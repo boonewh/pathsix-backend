@@ -13,6 +13,7 @@ from sqlalchemy.orm import joinedload
 
 clients_bp = Blueprint("clients", __name__, url_prefix="/api/clients")
 
+@clients_bp.route("", methods=["GET"])
 @clients_bp.route("/", methods=["GET"])
 @requires_auth()
 async def list_clients():
@@ -147,6 +148,7 @@ async def list_clients():
         session.close()
 
 
+@clients_bp.route("", methods=["POST"])
 @clients_bp.route("/", methods=["POST"])
 @requires_auth()
 async def create_client():

@@ -25,6 +25,7 @@ DEFAULT_PREFERENCES = {
     }
 }
 
+@preferences_bp.route("", methods=["GET"])
 @preferences_bp.route("/", methods=["GET"])
 @requires_auth()
 async def get_user_preferences():

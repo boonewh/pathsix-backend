@@ -13,6 +13,7 @@ from app.schemas.interactions import InteractionCreateSchema, InteractionUpdateS
 interactions_bp = Blueprint("interactions", __name__, url_prefix="/api/interactions")
 
 
+@interactions_bp.route("", methods=["GET"])
 @interactions_bp.route("/", methods=["GET"])
 @requires_auth()
 async def list_interactions():
@@ -186,6 +187,7 @@ async def list_interactions():
         session.close()
 
 
+@interactions_bp.route("", methods=["POST"])
 @interactions_bp.route("/", methods=["POST"])
 @requires_auth()
 async def create_interaction():

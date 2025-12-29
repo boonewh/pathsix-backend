@@ -12,6 +12,7 @@ reports_bp = Blueprint("reports", __name__, url_prefix="/api/reports")
 # ============================================================================
 # LEGACY ENDPOINTS (keeping for backwards compatibility)
 # ============================================================================
+@reports_bp.route("", methods=["GET"])
 @reports_bp.route("/", methods=["GET"])
 @requires_auth()
 async def get_reports():

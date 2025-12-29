@@ -149,21 +149,60 @@ def run_backup_job(backup_id: int, backup_type: str = "manual"):
 
         logger.info(f"[Backup] Upload completed")
 
-        # Step 5: Mark as completed
-        backup.status = "completed"
-        backup.completed_at = datetime.utcnow()
-        backup.database_name = db_url.split("/")[-1] if "/" in db_url else "unknown"
-        session.commit()
+        # Step 5: Mark as completed with robust error handling
+        try:
+            backup.status = "completed"
+            backup.completed_at = datetime.utcnow()
+            backup.database_name = db_url.split("/")[-1] if "/" in db_url else "unknown"
+            session.flush()  # Catch any SQL errors before commit
+            session.commit()
+            logger.info(f"[Backup] Status committed to database")
 
-        logger.info(f"[Backup] Backup {backup_id} completed successfully")
+            # Verify the commit persisted
+            session.refresh(backup)
+            if backup.status != "completed":
+                logger.error(f"[Backup] Status verification failed - expected 'completed' but got '{backup.status}'")
+                raise Exception("Status update did not persist to database")
+
+            logger.info(f"[Backup] Backup {backup_id} completed successfully (verified)")
+
+        except Exception as commit_error:
+            logger.error(f"[Backup] Failed to commit completion status: {str(commit_error)}")
+            session.rollback()
+            # Try one more time with a fresh update
+            try:
+                backup.status = "completed"
+                backup.completed_at = datetime.utcnow()
+                session.commit()
+                logger.warning(f"[Backup] Completion status committed on retry")
+            except Exception as retry_error:
+                logger.error(f"[Backup] Retry commit also failed: {str(retry_error)}")
+                raise Exception(f"Could not persist completion status: {commit_error}")
 
     except Exception as e:
         logger.error(f"[Backup] Backup {backup_id} failed: {str(e)}")
+
+        # Ensure status is always set to failed, never left in progress
         if backup:
-            backup.status = "failed"
-            backup.error_message = str(e)
-            backup.completed_at = datetime.utcnow()
-            session.commit()
+            try:
+                backup.status = "failed"
+                backup.error_message = str(e)[:500]  # Limit error message length
+                backup.completed_at = datetime.utcnow()
+                session.flush()
+                session.commit()
+                logger.info(f"[Backup] Failure status committed to database")
+            except Exception as status_error:
+                logger.error(f"[Backup] CRITICAL: Could not update failure status: {str(status_error)}")
+                # Try one last time with rollback
+                try:
+                    session.rollback()
+                    backup.status = "failed"
+                    backup.error_message = f"Backup failed: {str(e)[:400]}"
+                    backup.completed_at = datetime.utcnow()
+                    session.commit()
+                    logger.warning(f"[Backup] Failure status committed after rollback")
+                except:
+                    logger.error(f"[Backup] CRITICAL: Backup {backup_id} may be stuck in 'in_progress' state")
         raise
 
     finally:

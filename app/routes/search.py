@@ -6,6 +6,7 @@ from app.utils.auth_utils import requires_auth
 
 search_bp = Blueprint("search", __name__, url_prefix="/api/search")
 
+@search_bp.route("", methods=["GET"])
 @search_bp.route("/", methods=["GET"])
 @requires_auth()
 async def global_search():

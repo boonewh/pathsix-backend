@@ -14,6 +14,7 @@ from sqlalchemy.orm import joinedload
 leads_bp = Blueprint("leads", __name__, url_prefix="/api/leads")
 
 
+@leads_bp.route("", methods=["GET"])
 @leads_bp.route("/", methods=["GET"])
 @requires_auth()
 async def list_leads():
@@ -92,6 +93,7 @@ async def list_leads():
         session.close()
 
 
+@leads_bp.route("", methods=["POST"])
 @leads_bp.route("/", methods=["POST"])
 @requires_auth()
 async def create_lead():
