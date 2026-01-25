@@ -6,7 +6,7 @@ Step 1A of validation implementation.
 from typing import Optional
 from datetime import datetime
 from pydantic import BaseModel, Field, EmailStr, ConfigDict, field_validator
-from app.constants import LEAD_STATUS_OPTIONS, TYPE_OPTIONS, PHONE_LABELS
+from app.constants import PHONE_LABELS
 
 
 class LeadCreateSchema(BaseModel):
@@ -36,20 +36,18 @@ class LeadCreateSchema(BaseModel):
     @field_validator("type")
     @classmethod
     def validate_type(cls, value: Optional[str]) -> str:
+        """Normalize type field - permissive validation (accepts any string)"""
         if value is None or value.strip() == "":
             return "None"
-        if value not in TYPE_OPTIONS:
-            raise ValueError(f"type must be one of: {', '.join(TYPE_OPTIONS)}")
-        return value
+        return value.strip()
 
     @field_validator("lead_status")
     @classmethod
     def validate_lead_status(cls, value: Optional[str]) -> str:
+        """Normalize lead_status field - permissive validation (accepts any string)"""
         if value is None or value.strip() == "":
             return "open"
-        if value not in LEAD_STATUS_OPTIONS:
-            raise ValueError(f"lead_status must be one of: {', '.join(LEAD_STATUS_OPTIONS)}")
-        return value
+        return value.strip()
 
     @field_validator("phone_label", "secondary_phone_label")
     @classmethod
@@ -96,20 +94,18 @@ class LeadUpdateSchema(BaseModel):
     @field_validator("type")
     @classmethod
     def validate_type(cls, value: Optional[str]) -> Optional[str]:
+        """Normalize type field - permissive validation (accepts any string)"""
         if value is None or value.strip() == "":
             return value
-        if value not in TYPE_OPTIONS:
-            raise ValueError(f"type must be one of: {', '.join(TYPE_OPTIONS)}")
-        return value
+        return value.strip()
 
     @field_validator("lead_status")
     @classmethod
     def validate_lead_status(cls, value: Optional[str]) -> Optional[str]:
+        """Normalize lead_status field - permissive validation (accepts any string)"""
         if value is None or value.strip() == "":
             return value
-        if value not in LEAD_STATUS_OPTIONS:
-            raise ValueError(f"lead_status must be one of: {', '.join(LEAD_STATUS_OPTIONS)}")
-        return value
+        return value.strip()
 
     @field_validator("phone_label", "secondary_phone_label")
     @classmethod

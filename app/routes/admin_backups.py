@@ -13,7 +13,6 @@ from datetime import datetime
 from app.models import Backup, BackupRestore
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
-from app.workers import backup_queue
 from app.workers.backup_jobs import run_backup_job
 from app.workers.restore_jobs import run_restore_job
 from app.utils.logging_utils import logger
@@ -58,7 +57,12 @@ async def list_backups():
 @admin_backups_bp.route("/", methods=["POST"])
 @requires_auth(roles=["admin"])
 async def create_backup():
-    """Trigger a manual backup job."""
+    """
+    Trigger a manual backup job.
+
+    Note: Runs synchronously (may take 30-60 seconds).
+    Timeout configured to 10 minutes in fly.toml.
+    """
     user = request.user
     session = SessionLocal()
 
@@ -76,24 +80,24 @@ async def create_backup():
         session.commit()
         session.refresh(backup)
 
-        # Enqueue backup job
-        job = backup_queue.enqueue(
-            run_backup_job,
-            backup_id=backup.id,
-            backup_type="manual",
-            job_timeout='1h'
-        )
+        # Run backup job synchronously (no RQ worker needed)
+        logger.info(f"[Admin] Running manual backup {backup.id} by user {user.email}")
+        try:
+            run_backup_job(backup.id, backup_type="manual")
 
-        # Update backup with job ID
-        backup.job_id = job.id
-        session.commit()
+            # Fetch updated backup record
+            session.refresh(backup)
 
-        logger.info(f"[Admin] Manual backup {backup.id} enqueued by user {user.email}")
-
-        return jsonify({
-            "backup": backup.to_dict(),
-            "job_id": job.id
-        }), 201
+            return jsonify({
+                "message": "Backup completed successfully",
+                "backup": backup.to_dict()
+            }), 201
+        except Exception as backup_err:
+            logger.error(f"[Admin] Manual backup failed: {str(backup_err)}")
+            return jsonify({
+                "error": "Backup failed",
+                "details": str(backup_err)
+            }), 500
 
     finally:
         session.close()
@@ -129,6 +133,9 @@ async def restore_backup(backup_id: int):
     3. Restore the database
 
     DANGER: This is a destructive operation!
+
+    Note: Runs synchronously (may take 1-3 minutes).
+    Timeout configured to 10 minutes in fly.toml.
     """
     user = request.user
     session = SessionLocal()
@@ -160,47 +167,44 @@ async def restore_backup(backup_id: int):
         session.commit()
         session.refresh(safety_backup)
 
-        # Enqueue safety backup job
-        safety_job = backup_queue.enqueue(
-            run_backup_job,
-            backup_id=safety_backup.id,
-            backup_type="pre_restore",
-            job_timeout='1h'
-        )
-
-        safety_backup.job_id = safety_job.id
-        session.commit()
+        # Run safety backup synchronously (no RQ worker needed)
+        logger.info(f"[Admin] Running pre-restore safety backup {safety_backup.id}")
+        try:
+            run_backup_job(safety_backup.id, backup_type="pre_restore")
+        except Exception as backup_err:
+            logger.error(f"[Admin] Pre-restore backup failed: {str(backup_err)}")
+            return jsonify({
+                "error": "Failed to create pre-restore safety backup",
+                "details": str(backup_err)
+            }), 500
 
         # Step 2: Create restore record
         restore = BackupRestore(
             backup_id=backup_id,
             restored_by=user.id,
             pre_restore_backup_id=safety_backup.id,
-            status="in_progress",
+            status="pending",
             started_at=datetime.utcnow()
         )
         session.add(restore)
         session.commit()
         session.refresh(restore)
 
-        # Step 3: Enqueue restore job (depends on safety backup completing)
-        restore_job = backup_queue.enqueue(
-            run_restore_job,
-            restore_id=restore.id,
-            job_timeout='1h',
-            depends_on=safety_job  # Wait for safety backup to complete
-        )
-
-        logger.info(
-            f"[Admin] Restore {restore.id} enqueued by user {user.email} "
-            f"(depends on safety backup {safety_backup.id})"
-        )
-
-        return jsonify({
-            "restore": restore.to_dict(),
-            "safety_backup": safety_backup.to_dict(),
-            "restore_job_id": restore_job.id
-        }), 201
+        # Step 3: Run restore job synchronously (no RQ worker needed)
+        logger.info(f"[Admin] Running restore {restore.id} (restoring from backup {backup_id})")
+        try:
+            run_restore_job(restore.id)
+            return jsonify({
+                "message": "Restore completed successfully",
+                "restore_id": restore.id,
+                "pre_restore_backup_id": safety_backup.id
+            }), 200
+        except Exception as restore_err:
+            logger.error(f"[Admin] Restore failed: {str(restore_err)}")
+            return jsonify({
+                "error": "Restore failed",
+                "details": str(restore_err)
+            }), 500
 
     finally:
         session.close()

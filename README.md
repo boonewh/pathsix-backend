@@ -139,10 +139,11 @@ migrations/                  # Alembic database migrations
 - **Reports**: 10 comprehensive business reports
 
 ### Advanced Features
-- **Database Backups**: Automated daily backups to B2 with GPG encryption
-- **Restore System**: Point-in-time restore with automatic safety backups
+- **Database Backups**: Automated daily backups to B2 with GPG encryption (runs synchronously, no queue needed)
+- **Restore System**: Point-in-time restore with automatic safety backups (runs synchronously)
 - **Audit Trail**: Permanent restore logs in B2
 - **Monitoring**: Sentry error tracking and performance monitoring
+- **Long Operation Timeouts**: 10-minute HTTP timeout for backup/restore operations
 - **Rate Limiting**: (Future) Redis-based rate limiting
 
 ---

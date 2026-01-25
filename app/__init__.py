@@ -45,6 +45,10 @@ def create_app():
     app.config.setdefault("MAX_CONTENT_LENGTH", 20 * 1024 * 1024)  # 20 MB
     app.config.setdefault("STORAGE_VENDOR", "disk")  # "disk" | "b2"
 
+    # Extended timeout for long-running operations (backups, restores)
+    # Quart uses hypercorn under the hood - set keep_alive_timeout
+    app.config.setdefault("RESPONSE_TIMEOUT", 600)  # 10 minutes for backup/restore operations
+
     # Initialize Sentry
     if app.config.get("SENTRY_DSN"):
         sentry_sdk.init(

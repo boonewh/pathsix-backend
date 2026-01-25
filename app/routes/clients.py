@@ -6,7 +6,7 @@ from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
 from app.utils.email_utils import send_assignment_notification
 from app.utils.phone_utils import clean_phone_number
-from app.constants import TYPE_OPTIONS, PHONE_LABELS
+from app.constants import PHONE_LABELS
 from app.schemas.clients import ClientCreateSchema, ClientUpdateSchema, ClientAssignSchema
 from sqlalchemy import or_, and_, func, desc
 from sqlalchemy.orm import joinedload
@@ -303,7 +303,8 @@ async def update_client(client_id):
                 setattr(client, field, str(value) if value else None)
             else:
                 setattr(client, field, value)
-        if "type" in data and data["type"] in TYPE_OPTIONS:
+        # Permissive type validation - accept any string value
+        if "type" in data and data["type"]:
             client.type = data["type"]
 
         client.updated_by = user.id

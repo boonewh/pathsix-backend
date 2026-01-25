@@ -6,7 +6,7 @@ from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
 from app.utils.email_utils import send_assignment_notification
 from app.utils.phone_utils import clean_phone_number
-from app.constants import TYPE_OPTIONS, LEAD_STATUS_OPTIONS, PHONE_LABELS
+from app.constants import PHONE_LABELS
 from app.schemas.leads import LeadCreateSchema, LeadUpdateSchema, LeadAssignSchema
 from sqlalchemy import or_, and_
 from sqlalchemy.orm import joinedload

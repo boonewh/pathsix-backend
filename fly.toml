@@ -9,8 +9,7 @@ primary_region = "ord"
 [build]
 
 [processes]
-  app = "hypercorn asgi:app --bind 0.0.0.0:8000"
-  worker = "python scripts/run_worker.py"
+  app = "hypercorn asgi:app --bind 0.0.0.0:8000 --keep-alive 600"
 
 [http_service]
   internal_port = 8000
@@ -19,6 +18,10 @@ primary_region = "ord"
   auto_start_machines = true
   min_machines_running = 0
   processes = ["app"]
+
+  # Extended timeout for long-running backup/restore operations
+  [http_service.http_options]
+    response_timeout = "10m"  # 10 minutes for backup/restore endpoints
 
 [[vm]]
   memory = "1gb"

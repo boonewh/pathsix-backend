@@ -6,7 +6,7 @@ Step 1A of validation implementation.
 from typing import Optional
 from datetime import datetime
 from pydantic import BaseModel, Field, EmailStr, ConfigDict, field_validator
-from app.constants import PROJECT_STATUS_OPTIONS, TYPE_OPTIONS, PHONE_LABELS
+from app.constants import PHONE_LABELS
 
 
 class ProjectCreateSchema(BaseModel):
@@ -40,20 +40,18 @@ class ProjectCreateSchema(BaseModel):
     @field_validator("type")
     @classmethod
     def validate_type(cls, value: Optional[str]) -> str:
+        """Normalize type field - permissive validation (accepts any string)"""
         if value is None or value.strip() == "":
             return "None"
-        if value not in TYPE_OPTIONS:
-            raise ValueError(f"type must be one of: {', '.join(TYPE_OPTIONS)}")
-        return value
+        return value.strip()
 
     @field_validator("project_status")
     @classmethod
     def validate_project_status(cls, value: Optional[str]) -> str:
+        """Normalize project_status field - permissive validation (accepts any string)"""
         if value is None or value.strip() == "":
             return "pending"
-        if value not in PROJECT_STATUS_OPTIONS:
-            raise ValueError(f"project_status must be one of: {', '.join(PROJECT_STATUS_OPTIONS)}")
-        return value
+        return value.strip()
 
     @field_validator("primary_contact_phone_label")
     @classmethod
@@ -107,20 +105,18 @@ class ProjectUpdateSchema(BaseModel):
     @field_validator("type")
     @classmethod
     def validate_type(cls, value: Optional[str]) -> Optional[str]:
+        """Normalize type field - permissive validation (accepts any string)"""
         if value is None or value.strip() == "":
             return value
-        if value not in TYPE_OPTIONS:
-            raise ValueError(f"type must be one of: {', '.join(TYPE_OPTIONS)}")
-        return value
+        return value.strip()
 
     @field_validator("project_status")
     @classmethod
     def validate_project_status(cls, value: Optional[str]) -> Optional[str]:
+        """Normalize project_status field - permissive validation (accepts any string)"""
         if value is None or value.strip() == "":
             return value
-        if value not in PROJECT_STATUS_OPTIONS:
-            raise ValueError(f"project_status must be one of: {', '.join(PROJECT_STATUS_OPTIONS)}")
-        return value
+        return value.strip()
 
     @field_validator("primary_contact_phone_label")
     @classmethod

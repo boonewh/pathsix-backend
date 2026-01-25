@@ -8,7 +8,7 @@ from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
 from app.utils.phone_utils import clean_phone_number
 from app.utils.email_utils import send_email
-from app.constants import TYPE_OPTIONS, LEAD_STATUS_OPTIONS, PHONE_LABELS
+from app.constants import PHONE_LABELS
 
 imports_bp = Blueprint("imports", __name__, url_prefix="/api/import")
 
@@ -26,8 +26,8 @@ VALID_LEAD_FIELDS = {
     'state': {'required': False, 'type': 'string', 'max_length': 100},
     'zip': {'required': False, 'type': 'string', 'max_length': 20},
     'notes': {'required': False, 'type': 'text'},
-    'type': {'required': False, 'type': 'choice', 'choices': TYPE_OPTIONS},
-    'lead_status': {'required': False, 'type': 'choice', 'choices': LEAD_STATUS_OPTIONS}
+    'type': {'required': False, 'type': 'string'},  # Permissive - accepts any value
+    'lead_status': {'required': False, 'type': 'string'}  # Permissive - accepts any value
 }
 
 def read_file(file_storage):
@@ -125,12 +125,7 @@ async def submit_leads():
                             continue
                     elif lead_field == 'email':
                         cleaned = cleaned.lower()
-                    elif lead_field == 'type' and cleaned.lower() not in [t.lower() for t in TYPE_OPTIONS]:
-                        warnings.append(f"Unknown business type '{cleaned}' on row {idx + 2}")
-                        cleaned = "None"
-                    elif lead_field == 'lead_status' and cleaned.lower() not in [s.lower() for s in LEAD_STATUS_OPTIONS]:
-                        warnings.append(f"Unknown lead status '{cleaned}' on row {idx + 2}")
-                        cleaned = "open"
+                    # type and lead_status are permissive - accept any value
                     elif lead_field.endswith("_label") and cleaned.lower() not in [p.lower() for p in PHONE_LABELS]:
                         warnings.append(f"Unknown phone label '{cleaned}' on row {idx + 2}")
                         cleaned = "work"

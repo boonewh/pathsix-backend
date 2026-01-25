@@ -49,6 +49,7 @@ def run_restore_job(restore_id: int):
 
         # Update restore status
         restore.status = "in_progress"
+        session.flush()
         session.commit()
 
         logger.info(f"[Restore] Starting restore from backup {backup.id}")
@@ -210,14 +211,21 @@ def run_restore_job(restore_id: int):
         # Reconnect with a fresh session
         session = SessionLocal()
 
-        # Step 6: Mark as completed (this will fail since the restore record was wiped, but that's OK)
+        # Step 6: Mark as completed with robust error handling
         try:
             restore = session.query(BackupRestore).filter_by(id=restore_id).first()
             if restore:
                 restore.status = "completed"
                 restore.completed_at = datetime.utcnow()
+                session.flush()
                 session.commit()
-                logger.info(f"[Restore] Restore {restore_id} completed successfully")
+
+                # Verify the commit persisted
+                session.refresh(restore)
+                if restore.status != "completed":
+                    logger.error(f"[Restore] Status verification failed - expected 'completed' but got '{restore.status}'")
+                else:
+                    logger.info(f"[Restore] Restore {restore_id} completed successfully (verified)")
             else:
                 # Expected - the restore record was wiped by pg_restore --clean
                 logger.info(f"[Restore] Restore {restore_id} completed (record not found after restore, as expected)")
@@ -226,11 +234,28 @@ def run_restore_job(restore_id: int):
 
     except Exception as e:
         logger.error(f"[Restore] Restore {restore_id} failed: {str(e)}")
+
+        # Ensure status is always set to failed, never left in progress
         if restore:
-            restore.status = "failed"
-            restore.error_message = str(e)
-            restore.completed_at = datetime.utcnow()
-            session.commit()
+            try:
+                restore.status = "failed"
+                restore.error_message = str(e)[:500]  # Limit error message length
+                restore.completed_at = datetime.utcnow()
+                session.flush()
+                session.commit()
+                logger.info(f"[Restore] Failure status committed to database")
+            except Exception as status_error:
+                logger.error(f"[Restore] CRITICAL: Could not update failure status: {str(status_error)}")
+                # Try one last time with rollback
+                try:
+                    session.rollback()
+                    restore.status = "failed"
+                    restore.error_message = f"Restore failed: {str(e)[:400]}"
+                    restore.completed_at = datetime.utcnow()
+                    session.commit()
+                    logger.warning(f"[Restore] Failure status committed after rollback")
+                except:
+                    logger.error(f"[Restore] CRITICAL: Restore {restore_id} may be stuck in 'in_progress' state")
         raise
 
     finally:

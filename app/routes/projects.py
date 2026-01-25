@@ -6,7 +6,7 @@ from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
 from app.utils.phone_utils import clean_phone_number  
 from app.utils.email_utils import send_assignment_notification
-from app.constants import PROJECT_STATUS_OPTIONS, PHONE_LABELS
+from app.constants import PHONE_LABELS
 from app.schemas.projects import ProjectCreateSchema, ProjectUpdateSchema
 from sqlalchemy.orm import joinedload
 from sqlalchemy import or_, and_
