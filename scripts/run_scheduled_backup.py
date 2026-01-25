@@ -55,7 +55,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from datetime import datetime
 from app.database import SessionLocal
 from app.models import Backup
-from app.workers import backup_queue
 from app.workers.backup_jobs import run_backup_job
 from app.utils.logging_utils import logger
 
