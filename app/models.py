@@ -20,16 +20,52 @@ class FollowUpStatus(enum.Enum):
     rescheduled = "rescheduled"
 
 
+class Tenant(Base):
+    """
+    Multi-tenant configuration table.
+
+    Each tenant has their own branding, labels, statuses, and feature toggles.
+    The config JSON blob stores all customizable settings that the frontend needs.
+    """
+    __tablename__ = 'tenants'
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), nullable=False)  # Display name: "ASFI", "Acme Corp"
+    slug = Column(String(50), unique=True, nullable=False, index=True)  # URL-safe: "asfi", "acme"
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # JSON config blob - matches frontend CRMConfig interface
+    # Structure: { branding, labels, leads, businessTypes, regional, features, defaults }
+    config = Column(JSON, nullable=False, default=dict)
+
+    # Relationships
+    users = relationship("User", back_populates="tenant")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "slug": self.slug,
+            "is_active": self.is_active,
+            "config": self.config,
+        }
+
+    def __repr__(self):
+        return f"<Tenant {self.slug}>"
+
+
 class User(Base):
     __tablename__ = 'users'
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(Integer, nullable=False, index=True)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     email = Column(String(120), unique=True, nullable=False, index=True)
     password_hash = Column(String(128), nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     roles = relationship("Role", secondary=user_roles, back_populates="users")
+    tenant = relationship("Tenant", back_populates="users")
 
     def __repr__(self):
         return f"<User {self.email}>"

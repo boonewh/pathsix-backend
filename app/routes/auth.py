@@ -1,6 +1,7 @@
 from quart import Blueprint, request, jsonify, current_app
 from sqlalchemy.exc import SQLAlchemyError
-from app.models import User
+from sqlalchemy.orm import joinedload
+from app.models import User, Tenant
 from app.database import SessionLocal
 from app.utils.auth_utils import (
     verify_password,
@@ -29,20 +30,37 @@ async def login():
 
     session = SessionLocal()
     try:
-        user = session.query(User).filter_by(email=email).first()
+        # Load user with tenant relationship for config
+        user = session.query(User)\
+            .options(joinedload(User.tenant), joinedload(User.roles))\
+            .filter_by(email=email)\
+            .first()
         if not user or not verify_password(password, user.password_hash):
             return jsonify({"error": "Invalid credentials"}), 401
 
         token = create_token(user)
 
-        response = jsonify({
+        # Build response with tenant config
+        response_data = {
             "user": {
                 "id": user.id,
                 "email": user.email,
-                "roles": [role.name for role in user.roles]
+                "roles": [role.name for role in user.roles],
+                "tenant_id": user.tenant_id,
             },
             "token": token
-        })
+        }
+
+        # Include tenant config if available
+        if user.tenant:
+            response_data["tenant"] = {
+                "id": user.tenant.id,
+                "name": user.tenant.name,
+                "slug": user.tenant.slug,
+                "config": user.tenant.config
+            }
+
+        response = jsonify(response_data)
         response.headers["Cache-Control"] = "no-store"
         return response
     except SQLAlchemyError as e:
@@ -142,8 +160,60 @@ async def change_password():
 @requires_auth()
 async def get_me():
     user = request.user
-    return jsonify({
-        "id": user.id,
-        "email": user.email,
-        "roles": [r.name for r in user.roles]
-    })
+    session = SessionLocal()
+    try:
+        # Reload user with tenant to get config
+        user = session.query(User)\
+            .options(joinedload(User.tenant), joinedload(User.roles))\
+            .filter_by(id=user.id)\
+            .first()
+
+        response_data = {
+            "id": user.id,
+            "email": user.email,
+            "roles": [r.name for r in user.roles],
+            "tenant_id": user.tenant_id,
+        }
+
+        if user.tenant:
+            response_data["tenant"] = {
+                "id": user.tenant.id,
+                "name": user.tenant.name,
+                "slug": user.tenant.slug,
+                "config": user.tenant.config
+            }
+
+        return jsonify(response_data)
+    finally:
+        session.close()
+
+
+@auth_bp.route("/tenant/config", methods=["GET"])
+@requires_auth()
+async def get_tenant_config():
+    """
+    Get the current user's tenant configuration.
+
+    This endpoint returns the full CRM config for the user's tenant,
+    allowing the frontend to dynamically configure itself based on
+    the authenticated user's organization.
+    """
+    user = request.user
+    session = SessionLocal()
+    try:
+        tenant = session.query(Tenant).filter_by(id=user.tenant_id).first()
+
+        if not tenant:
+            return jsonify({"error": "Tenant not found"}), 404
+
+        if not tenant.is_active:
+            return jsonify({"error": "Tenant is inactive"}), 403
+
+        return jsonify({
+            "id": tenant.id,
+            "name": tenant.name,
+            "slug": tenant.slug,
+            "config": tenant.config
+        })
+    finally:
+        session.close()
