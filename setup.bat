@@ -30,7 +30,7 @@ if not exist app.db (
 
 echo.
 echo 🎯 Setup complete! You can now:
-echo    1. Create an admin user: python create_tenant_admin.py
+echo    1. Create a tenant: python create_default_tenant.py (or create_custom_tenant.py)
 echo    2. Start the server: python run.py
 echo.
 echo 🌐 Server will run on: http://localhost:8000

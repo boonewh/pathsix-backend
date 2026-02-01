@@ -65,6 +65,13 @@ async def login():
         return response
     except SQLAlchemyError as e:
         session.rollback()
+        import logging
+        logging.error(f"Login error: {e}")
+        return jsonify({"error": "Server error"}), 500
+    except Exception as e:
+        session.rollback()
+        import logging
+        logging.error(f"Login unexpected error: {e}")
         return jsonify({"error": "Server error"}), 500
     finally:
         session.close()
