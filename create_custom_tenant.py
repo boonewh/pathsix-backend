@@ -144,8 +144,8 @@ TENANT_SLUG = "pathsixsolutions"             # URL-safe identifier (lowercase, n
 TENANT_CONFIG = {
     "branding": {
         "companyName": "PathSix Solutions CRM",
-        "primaryColor": "#2563eb",      # Main brand color
-        "secondaryColor": "#64748b",    # Secondary color
+        "primaryColor": "#05133D",      # Main brand color
+        "secondaryColor": "#F59E0B",    # Secondary color
         # Logo URLs - leave empty/null to use default PathSix logos
         # Put custom logos in frontend/public/logos/ folder
         # Example: "/logos/acme-logo.png" or full URL "https://cdn.example.com/logo.png"
