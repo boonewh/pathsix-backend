@@ -127,6 +127,8 @@ DEFAULT_TENANT_CONFIG = {
         "companyName": "",  # Will be set from tenant name
         "primaryColor": "#2563eb",
         "secondaryColor": "#64748b",
+        "logo": None,        # Full logo URL (null = use default PathSix logo)
+        "logoCompact": None, # Compact/icon logo URL (null = use default)
     },
     "labels": {
         "client": "Client",

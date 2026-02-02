@@ -14,6 +14,9 @@ CREATE NEW TENANT WITH CUSTOM CONFIGURATION
 # OPTION 1: SSH INTO FLY.IO (RECOMMENDED)
 # ══════════════════════════════════════════════════════════════════════════════
 #
+# Step 0: EDIT THIS FILE to set TENANT_NAME, TENANT_SLUG, and TENANT_CONFIG before #            
+#         running. After editing, flyctl deploy. THEN SSH in.
+#
 # Step 1: Deploy latest code (if you made changes to this file)
 #         $ flyctl deploy
 #
@@ -34,6 +37,9 @@ CREATE NEW TENANT WITH CUSTOM CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════════
 # OPTION 2: DATABASE PROXY (Run locally against production DB)
 # ══════════════════════════════════════════════════════════════════════════════
+#
+# Step 0: EDIT THIS FILE to set TENANT_NAME, TENANT_SLUG, and TENANT_CONFIG before #            
+#         running. After editing, flyctl deploy. THEN proxy in.
 #
 # Step 1: In terminal 1, start the database proxy
 #         $ flyctl proxy 5432 -a pathsixsolutions-db
@@ -132,14 +138,19 @@ from app.utils.auth_utils import hash_password
 # EDIT THESE VALUES FOR YOUR NEW TENANT
 # =============================================================================
 
-TENANT_NAME = "New Company Name"  # Display name
-TENANT_SLUG = "newco"             # URL-safe identifier (lowercase, no spaces)
+TENANT_NAME = "PathSix Solutions"  # Display name
+TENANT_SLUG = "pathsixsolutions"             # URL-safe identifier (lowercase, no spaces)
 
 TENANT_CONFIG = {
     "branding": {
-        "companyName": "New Company CRM",
+        "companyName": "PathSix Solutions CRM",
         "primaryColor": "#2563eb",      # Main brand color
         "secondaryColor": "#64748b",    # Secondary color
+        # Logo URLs - leave empty/null to use default PathSix logos
+        # Put custom logos in frontend/public/logos/ folder
+        # Example: "/logos/acme-logo.png" or full URL "https://cdn.example.com/logo.png"
+        "logo": None,                   # Full logo (e.g., "/logos/tenant-logo.png")
+        "logoCompact": None,            # Compact/icon logo (e.g., "/logos/tenant-icon.png")
     },
     "labels": {
         "client": "Client",             # What to call clients
@@ -191,7 +202,8 @@ TENANT_CONFIG = {
         }
     },
     "businessTypes": [
-        "None", "Type A", "Type B", "Type C", "Other"
+        "None", "Professional Services", "Technology", "Manufacturing",
+        "Retail", "Healthcare", "Finance", "Education", "Other"
     ],
     "regional": {
         "currency": "USD",
