@@ -74,7 +74,8 @@ async def create_user():
             "id": new_user.id,
             "email": new_user.email,
             "roles": [r.name for r in new_user.roles],
-            "is_active": new_user.is_active
+            "is_active": new_user.is_active,
+            "created_at": new_user.created_at.isoformat() + "Z"
         }), 201
 
     finally:

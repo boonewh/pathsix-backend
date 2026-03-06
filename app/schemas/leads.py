@@ -32,6 +32,7 @@ class LeadCreateSchema(BaseModel):
     notes: Optional[str] = Field(None, description="Additional notes")
     type: Optional[str] = Field("None", description="Business type/category")
     lead_status: Optional[str] = Field("open", description="Lead status")
+    lead_source: Optional[str] = Field(None, max_length=50, description="Lead source (e.g. Website, Referral)")
 
     @field_validator("type")
     @classmethod
@@ -90,6 +91,7 @@ class LeadUpdateSchema(BaseModel):
     notes: Optional[str] = None
     type: Optional[str] = None
     lead_status: Optional[str] = None
+    lead_source: Optional[str] = Field(None, max_length=50)
 
     @field_validator("type")
     @classmethod
@@ -150,6 +152,7 @@ class LeadResponseSchema(BaseModel):
     lead_status: str
     created_at: datetime
     converted_on: Optional[datetime]
+    lead_source: Optional[str]
     assigned_to: Optional[int]
     assigned_to_name: Optional[str]
 

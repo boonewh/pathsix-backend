@@ -18,9 +18,13 @@ def _log_slow_query(conn, cursor, statement, parameters, context, executemany):
         )
 
 engine = create_engine(
-    SQLALCHEMY_DATABASE_URI, 
+    SQLALCHEMY_DATABASE_URI,
     echo=False,  # Don't echo all queries, we'll log slow ones only
-    future=True
+    future=True,
+    pool_pre_ping=True,     # Test connections before use, replaces stale ones
+    pool_recycle=300,        # Recycle connections every 5 minutes
+    pool_size=5,             # Base pool size
+    max_overflow=10,         # Allow up to 15 total connections
 )
 
 # Attach query timing event listener

@@ -79,8 +79,9 @@ async def list_leads():
                     else None
                 ),
                 "lead_status": l.lead_status,
+                "lead_source": l.lead_source,
                 "converted_on": l.converted_on.isoformat() + "Z" if l.converted_on else None,
-                "type": l.type  
+                "type": l.type
             } for l in leads],
             "total": total,
             "page": page,
@@ -136,6 +137,7 @@ async def create_lead():
             notes=data.notes,
             type=data.type,
             lead_status=data.lead_status,
+            lead_source=data.lead_source,
             created_at=datetime.utcnow()
         )
         
@@ -202,6 +204,7 @@ async def get_lead(lead_id):
             "notes": lead.notes,
             "created_at": lead.created_at.isoformat() + "Z",
             "lead_status": lead.lead_status,
+            "lead_source": lead.lead_source,
             "converted_on": lead.converted_on.isoformat() + "Z" if lead.converted_on else None,
             "type": lead.type,
             "contacts": [c.to_dict() for c in lead.contacts] if lead.contacts else []
@@ -441,6 +444,7 @@ async def list_all_leads_admin():
                 "assigned_to": l.assigned_to,
                 "created_at": l.created_at.isoformat() + "Z",
                 "lead_status": l.lead_status,
+                "lead_source": l.lead_source,
                 "converted_on": l.converted_on.isoformat() + "Z" if l.converted_on else None,
                 "type": l.type,
                 "assigned_to_name": (
@@ -494,6 +498,7 @@ async def list_assigned_leads():
             "assigned_to": l.assigned_to,
             "created_at": l.created_at.isoformat() + "Z",
             "lead_status": l.lead_status,
+            "lead_source": l.lead_source,
             "converted_on": l.converted_on.isoformat() + "Z" if l.converted_on else None,
             "type": l.type
         } for l in leads])

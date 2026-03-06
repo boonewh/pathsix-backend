@@ -1,7 +1,21 @@
 {
   "permissions": {
     "allow": [
-      "Read(//c/Users/William Boone/Desktop/Websites/**)"
+      "Read(//c/Users/William Boone/Desktop/Websites/**)",
+      "Bash(flyctl ssh console:*)",
+      "Bash(find:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(env:*)",
+      "WebFetch(domain:sentry.io)",
+      "WebFetch(domain:pathsix.sentry.io)",
+      "WebFetch(domain:mcp.sentry.dev)",
+      "mcp__Sentry__whoami",
+      "mcp__Sentry__find_organizations",
+      "mcp__Sentry__search_issues",
+      "mcp__Sentry__find_projects",
+      "mcp__Sentry__search_events"
     ]
   }
 }

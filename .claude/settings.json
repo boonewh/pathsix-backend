@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "additionalDirectories": [
+      "c:\\Users\\William Boone\\Desktop\\Websites\\pathsix-crm-custom\\src\\schemas",
+      "c:\\Users\\William Boone\\Desktop\\Websites\\pathsix-crm-custom\\src\\components\\ui"
+    ]
+  }
+}
