@@ -29,6 +29,15 @@ class InteractionCreateSchema(BaseModel):
     email: Optional[EmailStr] = Field(None, description="Email address used for contact")
     phone: Optional[str] = Field(None, max_length=20, description="Phone number used for contact")
 
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
     @field_validator("phone", mode="before")
     @classmethod
     def normalize_phone(cls, value: Optional[str]) -> Optional[str]:
@@ -57,6 +66,15 @@ class InteractionUpdateSchema(BaseModel):
     contact_person: Optional[str] = Field(None, max_length=100, description="Person contacted")
     email: Optional[EmailStr] = Field(None, description="Email address used for contact")
     phone: Optional[str] = Field(None, max_length=20, description="Phone number used for contact")
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
 
     @field_validator("phone", mode="before")
     @classmethod

@@ -449,6 +449,35 @@ class Backup(Base):
         return f"<Backup {self.filename} status={self.status}>"
 
 
+class Subscription(Base):
+    __tablename__ = 'subscriptions'
+
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, nullable=False, index=True)
+    client_id = Column(Integer, ForeignKey('clients.id'), nullable=False, index=True)
+
+    plan_name = Column(String(255), nullable=False)
+    price = Column(Float, nullable=False)
+    billing_cycle = Column(String(20), nullable=False)  # 'monthly' or 'yearly'
+    start_date = Column(DateTime, nullable=False)
+    renewal_date = Column(DateTime, nullable=True)  # next renewal date
+    status = Column(String(20), nullable=False, default='active')  # 'active', 'cancelled', 'paused'
+
+    notes = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(Integer, ForeignKey('users.id'), nullable=False)
+    updated_at = Column(DateTime, onupdate=datetime.utcnow)
+    updated_by = Column(Integer, ForeignKey('users.id'), nullable=True)
+    cancelled_at = Column(DateTime, nullable=True)
+
+    client = relationship("Client", backref="subscriptions")
+    created_by_user = relationship("User", foreign_keys=[created_by])
+
+    def __repr__(self):
+        return f"<Subscription {self.plan_name} client_id={self.client_id}>"
+
+
 class BackupRestore(Base):
     __tablename__ = "backup_restores"
 

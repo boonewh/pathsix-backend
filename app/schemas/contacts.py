@@ -40,6 +40,15 @@ class ContactCreateSchema(BaseModel):
             raise ValueError(f"phone label must be one of: {', '.join(PHONE_LABELS)}")
         return value
 
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
     @field_validator("phone", "secondary_phone", mode="before")
     @classmethod
     def normalize_phone(cls, value: Optional[str]) -> Optional[str]:
@@ -76,6 +85,15 @@ class ContactUpdateSchema(BaseModel):
             return value
         if value not in PHONE_LABELS:
             raise ValueError(f"phone label must be one of: {', '.join(PHONE_LABELS)}")
+        return value
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value.strip() or None
         return value
 
     @field_validator("phone", "secondary_phone", mode="before")

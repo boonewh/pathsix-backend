@@ -2,7 +2,7 @@ from quart import Blueprint, jsonify, request
 from sqlalchemy import func, and_, or_, case, distinct, cast, Date
 from datetime import datetime, timedelta
 from app.database import SessionLocal
-from app.models import Lead, Project, Client, Interaction, User, ActivityLog
+from app.models import Lead, Project, Client, Interaction, User, ActivityLog, Subscription
 from app.utils.auth_utils import requires_auth
 from dateutil.parser import parse as parse_date
 
@@ -711,6 +711,135 @@ async def revenue_forecast_report():
             } for status, data in forecast_by_status.items()],
             "total_weighted_forecast": round(total_forecast, 2),
             "lead_pipeline": [{"status": row.lead_status, "count": row.count} for row in lead_forecast]
+        })
+    finally:
+        session.close()
+
+
+# 11. SUBSCRIPTION INCOME REPORT
+@reports_bp.route("/subscriptions/income", methods=["GET"])
+@requires_auth()
+async def subscription_income_report():
+    """
+    Subscription income summary.
+    Returns monthly recurring revenue (MRR), annual recurring revenue (ARR),
+    and a breakdown by billing cycle and status.
+    Optional date filters apply to start_date.
+    """
+    user = request.user
+    session = SessionLocal()
+    try:
+        tenant_id = user.tenant_id
+        start_date = request.args.get("start_date")
+        end_date = request.args.get("end_date")
+
+        filters = [
+            Subscription.tenant_id == tenant_id,
+            Subscription.status == "active",
+        ]
+        if start_date:
+            filters.append(Subscription.start_date >= parse_date(start_date))
+        if end_date:
+            filters.append(Subscription.start_date <= parse_date(end_date))
+
+        subs = session.query(Subscription).filter(*filters).all()
+
+        monthly_revenue = sum(s.price for s in subs if s.billing_cycle == "monthly")
+        yearly_revenue = sum(s.price for s in subs if s.billing_cycle == "yearly")
+
+        # MRR: monthly subs + yearly subs / 12
+        mrr = monthly_revenue + (yearly_revenue / 12)
+        arr = (monthly_revenue * 12) + yearly_revenue
+
+        # Breakdown by client
+        client_map: dict = {}
+        for s in subs:
+            cid = s.client_id
+            if cid not in client_map:
+                client_map[cid] = {
+                    "client_id": cid,
+                    "client_name": s.client.name if s.client else None,
+                    "subscription_count": 0,
+                    "monthly_total": 0.0,
+                    "yearly_total": 0.0,
+                    "mrr": 0.0,
+                }
+            entry = client_map[cid]
+            entry["subscription_count"] += 1
+            if s.billing_cycle == "monthly":
+                entry["monthly_total"] += s.price
+                entry["mrr"] += s.price
+            else:
+                entry["yearly_total"] += s.price
+                entry["mrr"] += s.price / 12
+
+        clients_list = sorted(client_map.values(), key=lambda x: x["mrr"], reverse=True)
+
+        return jsonify({
+            "active_subscriptions": len(subs),
+            "mrr": round(mrr, 2),
+            "arr": round(arr, 2),
+            "monthly_subscription_count": sum(1 for s in subs if s.billing_cycle == "monthly"),
+            "yearly_subscription_count": sum(1 for s in subs if s.billing_cycle == "yearly"),
+            "monthly_revenue": round(monthly_revenue, 2),
+            "yearly_revenue": round(yearly_revenue, 2),
+            "by_client": clients_list,
+        })
+    finally:
+        session.close()
+
+
+# 12. UPCOMING SUBSCRIPTION RENEWALS REPORT
+@reports_bp.route("/subscriptions/upcoming-renewals", methods=["GET"])
+@requires_auth()
+async def upcoming_renewals_report():
+    """
+    Lists yearly subscriptions renewing within the next N days (default 60).
+    Monthly subs are excluded since they don't need advance reminders.
+    """
+    user = request.user
+    session = SessionLocal()
+    try:
+        tenant_id = user.tenant_id
+        days_ahead = int(request.args.get("days", 60))
+        cycle_filter = request.args.get("cycle")  # 'monthly', 'yearly', or omit for yearly only
+
+        now = datetime.utcnow()
+        future_cutoff = now + timedelta(days=days_ahead)
+
+        # Default: only yearly unless caller explicitly requests monthly
+        if cycle_filter == "monthly":
+            cycles = ["monthly"]
+        elif cycle_filter == "all":
+            cycles = ["monthly", "yearly"]
+        else:
+            cycles = ["yearly"]
+
+        subs = session.query(Subscription).filter(
+            Subscription.tenant_id == tenant_id,
+            Subscription.status == "active",
+            Subscription.billing_cycle.in_(cycles),
+            Subscription.renewal_date != None,
+            Subscription.renewal_date >= now,
+            Subscription.renewal_date <= future_cutoff,
+        ).order_by(Subscription.renewal_date.asc()).all()
+
+        return jsonify({
+            "days_ahead": days_ahead,
+            "upcoming_renewals": [
+                {
+                    "subscription_id": s.id,
+                    "client_id": s.client_id,
+                    "client_name": s.client.name if s.client else None,
+                    "plan_name": s.plan_name,
+                    "price": s.price,
+                    "billing_cycle": s.billing_cycle,
+                    "renewal_date": s.renewal_date.isoformat() + "Z" if s.renewal_date else None,
+                    "days_until_renewal": (s.renewal_date - now).days if s.renewal_date else None,
+                }
+                for s in subs
+            ],
+            "total": len(subs),
         })
     finally:
         session.close()
