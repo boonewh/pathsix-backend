@@ -229,6 +229,7 @@ class Project(Base):
     project_start = Column(DateTime, nullable=True)
     project_end = Column(DateTime, nullable=True)
     project_worth = Column(Float, nullable=True)
+    value_type = Column(String(20), nullable=True, default='one_time')  # 'one_time', 'monthly', 'yearly'
     created_at = Column(DateTime, default=datetime.utcnow)
     created_by = Column(Integer, ForeignKey('users.id'), nullable=False)
     updated_at = Column(DateTime, onupdate=datetime.utcnow)

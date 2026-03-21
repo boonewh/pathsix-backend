@@ -28,6 +28,7 @@ class ProjectCreateSchema(BaseModel):
     project_start: Optional[datetime] = Field(None, description="Project start date")
     project_end: Optional[datetime] = Field(None, description="Project end date")
     project_worth: Optional[float] = Field(None, ge=0, description="Project value/worth")
+    value_type: Optional[str] = Field('one_time', description="Value type: one_time, monthly, or yearly")
     notes: Optional[str] = Field(None, description="Additional project notes")
 
     # Primary contact fields
@@ -36,6 +37,16 @@ class ProjectCreateSchema(BaseModel):
     primary_contact_email: Optional[EmailStr] = Field(None, description="Primary contact email")
     primary_contact_phone: Optional[str] = Field(None, max_length=20, description="Primary contact phone")
     primary_contact_phone_label: Optional[str] = Field("work", description="Primary contact phone label")
+
+    @field_validator("value_type")
+    @classmethod
+    def validate_value_type(cls, value: Optional[str]) -> str:
+        valid = ['one_time', 'monthly', 'yearly']
+        if value is None or value.strip() == "":
+            return 'one_time'
+        if value not in valid:
+            raise ValueError(f"value_type must be one of: {', '.join(valid)}")
+        return value
 
     @field_validator("type")
     @classmethod
@@ -104,6 +115,7 @@ class ProjectUpdateSchema(BaseModel):
     project_start: Optional[datetime] = None
     project_end: Optional[datetime] = None
     project_worth: Optional[float] = Field(None, ge=0)
+    value_type: Optional[str] = None
     notes: Optional[str] = None
     primary_contact_name: Optional[str] = Field(None, max_length=100)
     primary_contact_title: Optional[str] = Field(None, max_length=100)
@@ -170,6 +182,7 @@ class ProjectResponseSchema(BaseModel):
     project_start: Optional[datetime]
     project_end: Optional[datetime]
     project_worth: Optional[float]
+    value_type: Optional[str]
     client_id: Optional[int]
     lead_id: Optional[int]
     client_name: Optional[str]
