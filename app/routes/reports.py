@@ -42,7 +42,7 @@ async def get_reports():
         # Converted leads
         converted_leads = session.query(func.count(Lead.id)).filter(
             *filters,
-            Lead.lead_status == "closed"
+            Lead.lead_status == "won"
         ).scalar()
 
         # Total projects
@@ -51,7 +51,7 @@ async def get_reports():
         # Won projects
         won_projects = session.query(func.count(Project.id)).filter(
             *project_filters,
-            Project.project_status == "won"
+            Project.project_status == "completed"
         ).scalar()
 
         # Lost projects
@@ -63,7 +63,7 @@ async def get_reports():
         # Total won value
         total_won_value = session.query(func.coalesce(func.sum(Project.project_worth), 0)).filter(
             *project_filters,
-            Project.project_status == "won"
+            Project.project_status == "completed"
         ).scalar()
 
         return jsonify({
@@ -103,18 +103,18 @@ async def summary_report():
 
         total_leads = session.query(func.count(Lead.id)).filter(*filters).scalar()
         converted_leads = session.query(func.count(Lead.id)).filter(
-            *filters, Lead.lead_status == "converted"
+            *filters, Lead.lead_status == "won"
         ).scalar()
 
         total_projects = session.query(func.count(Project.id)).filter(*project_filters).scalar()
         won_projects = session.query(func.count(Project.id)).filter(
-            *project_filters, Project.project_status == "won"
+            *project_filters, Project.project_status == "completed"
         ).scalar()
         lost_projects = session.query(func.count(Project.id)).filter(
             *project_filters, Project.project_status == "lost"
         ).scalar()
         total_won_value = session.query(func.coalesce(func.sum(Project.project_worth), 0)).filter(
-            *project_filters, Project.project_status == "won"
+            *project_filters, Project.project_status == "completed"
         ).scalar()
 
         return jsonify({
@@ -170,13 +170,33 @@ async def sales_pipeline():
             func.count(Project.id).label('count'),
             func.coalesce(func.sum(Project.project_worth), 0).label('total_value')
         ).filter(*project_filters).group_by(Project.project_status).all()
-        
+
+        # Value type breakdown per project status
+        project_vtype = session.query(
+            Project.project_status,
+            Project.value_type,
+            func.count(Project.id).label('count'),
+            func.coalesce(func.sum(Project.project_worth), 0).label('total_value')
+        ).filter(*project_filters).group_by(Project.project_status, Project.value_type).all()
+
+        vtype_by_status = {}
+        for row in project_vtype:
+            status = row.project_status
+            if status not in vtype_by_status:
+                vtype_by_status[status] = {}
+            vt = row.value_type or 'one_time'
+            vtype_by_status[status][vt] = {
+                'count': row.count,
+                'total_value': float(row.total_value)
+            }
+
         return jsonify({
             "leads": [{"status": row.lead_status, "count": row.count} for row in lead_pipeline],
             "projects": [{
                 "status": row.project_status,
                 "count": row.count,
-                "total_value": float(row.total_value)
+                "total_value": float(row.total_value),
+                "by_value_type": vtype_by_status.get(row.project_status, {})
             } for row in project_pipeline]
         })
     finally:
@@ -204,7 +224,7 @@ async def lead_source_report():
         results = session.query(
             Lead.lead_source,
             func.count(Lead.id).label('total_leads'),
-            func.sum(case((Lead.lead_status == 'closed', 1), else_=0)).label('converted'),
+            func.sum(case((Lead.lead_status == 'won', 1), else_=0)).label('converted'),
             func.sum(case((Lead.lead_status == 'qualified', 1), else_=0)).label('qualified')
         ).filter(*filters).group_by(Lead.lead_source).all()
         
@@ -240,15 +260,15 @@ async def conversion_rate_report():
             filters.append(Lead.created_at <= parse_date(end_date))
         
         total_leads = session.query(func.count(Lead.id)).filter(*filters).scalar()
-        converted_leads = session.query(func.count(Lead.id)).filter(*filters, Lead.lead_status == 'closed').scalar()
+        converted_leads = session.query(func.count(Lead.id)).filter(*filters, Lead.lead_status == 'won').scalar()
         overall_rate = round((converted_leads / total_leads * 100), 2) if total_leads > 0 else 0
-        
+
         by_user = []
         if "admin" in [r.name for r in user.roles]:
             user_stats = session.query(
                 Lead.assigned_to, User.email,
                 func.count(Lead.id).label('total'),
-                func.sum(case((Lead.lead_status == 'closed', 1), else_=0)).label('converted')
+                func.sum(case((Lead.lead_status == 'won', 1), else_=0)).label('converted')
             ).join(User, Lead.assigned_to == User.id).filter(*filters).group_by(Lead.assigned_to, User.email).all()
             
             by_user = [{
@@ -269,12 +289,12 @@ async def conversion_rate_report():
                 func.avg(
                     func.extract('epoch', Lead.converted_on - Lead.created_at) / 86400
                 )
-            ).filter(*filters, Lead.lead_status == 'closed', Lead.converted_on != None).scalar()
+            ).filter(*filters, Lead.lead_status == 'won', Lead.converted_on != None).scalar()
         else:
             # SQLite approach: julianday
             avg_days = session.query(
                 func.avg(func.julianday(Lead.converted_on) - func.julianday(Lead.created_at))
-            ).filter(*filters, Lead.lead_status == 'closed', Lead.converted_on != None).scalar()
+            ).filter(*filters, Lead.lead_status == 'won', Lead.converted_on != None).scalar()
         
         return jsonify({
             "overall": {
@@ -293,7 +313,7 @@ async def conversion_rate_report():
 @reports_bp.route("/revenue-by-client", methods=["GET"])
 @requires_auth()
 async def revenue_by_client():
-    """Aggregates all project totals per client."""
+    """Aggregates all project totals per client, with value_type breakdown."""
     user = request.user
     session = SessionLocal()
     try:
@@ -301,23 +321,47 @@ async def revenue_by_client():
         start_date = request.args.get("start_date")
         end_date = request.args.get("end_date")
         limit = int(request.args.get("limit", 50))
-        
+
         filters = [Project.tenant_id == tenant_id, Project.deleted_at == None]
         if start_date:
             filters.append(Project.created_at >= parse_date(start_date))
         if end_date:
             filters.append(Project.created_at <= parse_date(end_date))
-        
+
         client_revenue = session.query(
             Client.id, Client.name,
             func.count(Project.id).label('project_count'),
-            func.coalesce(func.sum(case((Project.project_status == 'won', Project.project_worth), else_=0)), 0).label('won_value'),
-            func.coalesce(func.sum(case((Project.project_status == 'pending', Project.project_worth), else_=0)), 0).label('pending_value'),
+            func.coalesce(func.sum(case((Project.project_status == 'completed', Project.project_worth), else_=0)), 0).label('won_value'),
+            func.coalesce(func.sum(case((Project.project_status == 'active', Project.project_worth), else_=0)), 0).label('pending_value'),
             func.coalesce(func.sum(Project.project_worth), 0).label('total_value')
         ).join(Project, Client.id == Project.client_id).filter(*filters).group_by(
             Client.id, Client.name
         ).order_by(func.sum(Project.project_worth).desc()).limit(limit).all()
-        
+
+        client_ids = [row.id for row in client_revenue]
+
+        # Per-client value_type breakdown for won projects
+        vtype_rows = session.query(
+            Project.client_id,
+            Project.value_type,
+            func.coalesce(func.sum(case((Project.project_status == 'completed', Project.project_worth), else_=0)), 0).label('won_value'),
+        ).filter(*filters, Project.client_id.in_(client_ids)).group_by(
+            Project.client_id, Project.value_type
+        ).all()
+
+        vtype_map = {}
+        for row in vtype_rows:
+            cid = row.client_id
+            if cid not in vtype_map:
+                vtype_map[cid] = {}
+            vt = row.value_type or 'one_time'
+            vtype_map[cid][vt] = float(row.won_value)
+
+        def calc_mrr(breakdown):
+            monthly = breakdown.get('monthly', 0)
+            yearly = breakdown.get('yearly', 0)
+            return round(monthly + yearly / 12, 2)
+
         return jsonify({
             "clients": [{
                 "client_id": row.id,
@@ -325,7 +369,9 @@ async def revenue_by_client():
                 "project_count": row.project_count,
                 "won_value": float(row.won_value),
                 "pending_value": float(row.pending_value),
-                "total_value": float(row.total_value)
+                "total_value": float(row.total_value),
+                "value_type_breakdown": vtype_map.get(row.id, {}),
+                "mrr": calc_mrr(vtype_map.get(row.id, {})),
             } for row in client_revenue]
         })
     finally:
@@ -448,7 +494,7 @@ async def follow_up_report():
         ).outerjoin(Interaction, Lead.id == Interaction.lead_id).filter(
             Lead.tenant_id == tenant_id,
             Lead.deleted_at == None,
-            Lead.lead_status.in_(['open', 'qualified']),
+            Lead.lead_status.in_(['open', 'qualified', 'proposal']),
             ~Lead.id.in_(recent_lead_interactions)
         ).group_by(Lead.id, Lead.name).all()
         
@@ -553,7 +599,7 @@ async def project_performance_report():
         ).filter(*filters).group_by(Project.project_status).all()
         
         total_projects = session.query(func.count(Project.id)).filter(*filters).scalar()
-        won_projects = session.query(func.count(Project.id)).filter(*filters, Project.project_status == 'won').scalar()
+        won_projects = session.query(func.count(Project.id)).filter(*filters, Project.project_status == 'completed').scalar()
         win_rate = round((won_projects / total_projects * 100), 2) if total_projects > 0 else 0
         
         # Calculate average project duration (database-agnostic)
@@ -564,12 +610,12 @@ async def project_performance_report():
                 func.avg(
                     func.extract('epoch', Project.project_end - Project.project_start) / 86400
                 )
-            ).filter(*filters, Project.project_start != None, Project.project_end != None, Project.project_status == 'won').scalar()
+            ).filter(*filters, Project.project_start != None, Project.project_end != None, Project.project_status == 'completed').scalar()
         else:
             # SQLite approach: julianday
             avg_duration = session.query(
                 func.avg(func.julianday(Project.project_end) - func.julianday(Project.project_start))
-            ).filter(*filters, Project.project_start != None, Project.project_end != None, Project.project_status == 'won').scalar()
+            ).filter(*filters, Project.project_start != None, Project.project_end != None, Project.project_status == 'completed').scalar()
         
         avg_value = session.query(func.avg(Project.project_worth)).filter(*filters, Project.project_worth != None).scalar()
         
@@ -664,52 +710,98 @@ async def upcoming_tasks_report():
 @reports_bp.route("/revenue-forecast", methods=["GET"])
 @requires_auth()
 async def revenue_forecast_report():
-    """Predicts likely future income based on weighted pipeline stages."""
+    """
+    Predicts likely future income based on weighted pipeline stages.
+    Monthly projects are annualized (x12) for forecast comparisons.
+    Includes MRR/ARR from won projects.
+    """
     user = request.user
     session = SessionLocal()
     try:
         tenant_id = user.tenant_id
-        
-        WEIGHTS = {'pending': 0.3, 'won': 1.0, 'lost': 0.0}
-        
+
+        WEIGHTS = {'active': 0.3, 'completed': 1.0, 'lost': 0.0}
+
         projects = session.query(
-            Project.project_status, Project.project_worth
+            Project.project_status, Project.project_worth, Project.value_type
         ).filter(
             Project.tenant_id == tenant_id,
             Project.deleted_at == None,
             Project.project_worth != None
         ).all()
-        
+
         forecast_by_status = {}
         total_forecast = 0
-        
+        total_mrr = 0.0
+        total_arr = 0.0
+
         for project in projects:
             status = project.project_status
             worth = float(project.project_worth or 0)
+            value_type = project.value_type or 'one_time'
             weight = WEIGHTS.get(status, 0)
-            weighted_value = worth * weight
-            
+
+            # Annualize for forecast: monthly recurring × 12, yearly and one-time as-is
+            annualized = worth * 12 if value_type == 'monthly' else worth
+            weighted_value = annualized * weight
+
             if status not in forecast_by_status:
-                forecast_by_status[status] = {'count': 0, 'total_value': 0, 'weighted_value': 0, 'weight': weight}
-            
-            forecast_by_status[status]['count'] += 1
-            forecast_by_status[status]['total_value'] += worth
-            forecast_by_status[status]['weighted_value'] += weighted_value
+                forecast_by_status[status] = {
+                    'count': 0,
+                    'total_value': 0,
+                    'annualized_value': 0,
+                    'weighted_value': 0,
+                    'weight': weight,
+                    'by_type': {}
+                }
+
+            entry = forecast_by_status[status]
+            entry['count'] += 1
+            entry['total_value'] += worth
+            entry['annualized_value'] += annualized
+            entry['weighted_value'] += weighted_value
+
+            if value_type not in entry['by_type']:
+                entry['by_type'][value_type] = {'count': 0, 'total_value': 0, 'annualized_value': 0}
+            entry['by_type'][value_type]['count'] += 1
+            entry['by_type'][value_type]['total_value'] += worth
+            entry['by_type'][value_type]['annualized_value'] += annualized
+
             total_forecast += weighted_value
-        
+
+            # MRR/ARR only from completed projects
+            if status == 'completed':
+                if value_type == 'monthly':
+                    total_mrr += worth
+                    total_arr += worth * 12
+                elif value_type == 'yearly':
+                    total_mrr += worth / 12
+                    total_arr += worth
+
         lead_forecast = session.query(
             Lead.lead_status, func.count(Lead.id).label('count')
         ).filter(Lead.tenant_id == tenant_id, Lead.deleted_at == None).group_by(Lead.lead_status).all()
-        
+
         return jsonify({
             "projects": [{
                 "status": status,
                 "count": data['count'],
                 "total_value": round(data['total_value'], 2),
+                "annualized_value": round(data['annualized_value'], 2),
                 "weighted_value": round(data['weighted_value'], 2),
-                "weight": data['weight']
+                "weight": data['weight'],
+                "by_type": {
+                    vt: {
+                        "count": vdata['count'],
+                        "total_value": round(vdata['total_value'], 2),
+                        "annualized_value": round(vdata['annualized_value'], 2),
+                    }
+                    for vt, vdata in data['by_type'].items()
+                }
             } for status, data in forecast_by_status.items()],
             "total_weighted_forecast": round(total_forecast, 2),
+            "mrr_from_projects": round(total_mrr, 2),
+            "arr_from_projects": round(total_arr, 2),
             "lead_pipeline": [{"status": row.lead_status, "count": row.count} for row in lead_forecast]
         })
     finally:

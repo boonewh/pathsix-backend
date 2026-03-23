@@ -98,20 +98,16 @@ async def list_leads():
 @leads_bp.route("/", methods=["POST"])
 @requires_auth()
 async def create_lead():
-    print("DEBUG: create_lead function called!")
     user = request.user
     raw_data = await request.get_json()
-    
-    # Debug logging
-    print(f"DEBUG: Raw data received: {raw_data}")
-    print(f"DEBUG: About to validate with LeadCreateSchema")
-    
+
+    if not isinstance(raw_data, dict):
+        return jsonify({"error": "Invalid request body"}), 400
+
     # Validate input using Pydantic schema
     try:
         data = LeadCreateSchema(**raw_data)
-        print(f"DEBUG: Validation passed: {data.model_dump()}")
     except ValidationError as e:
-        print(f"DEBUG: Validation failed: {e.errors()}")
         return jsonify({
             "error": "Validation failed",
             "details": e.errors()
@@ -251,7 +247,7 @@ async def update_lead(lead_id):
             return jsonify({"error": "Lead not found"}), 404
 
         # Update fields that were provided and validated
-        update_data = data.dict(exclude_unset=True)
+        update_data = data.model_dump(exclude_unset=True)
         
         for field, value in update_data.items():
             if field in ["phone", "secondary_phone"]:
@@ -263,7 +259,7 @@ async def update_lead(lead_id):
                 setattr(lead, field, str(value) if value else None)
             elif field == "lead_status":
                 # Handle status change logic
-                if value == "closed" and lead.lead_status != "closed":
+                if value == "won" and lead.lead_status != "won":
                     lead.converted_on = datetime.utcnow()
                 setattr(lead, field, value)
             else:
@@ -355,18 +351,16 @@ async def assign_lead(lead_id):
         lead.updated_at = datetime.utcnow()
 
         # Send email to assigned user (before commit in case it fails)
-        assigned_user = session.query(User).get(data.assigned_to)
-        if assigned_user:
-            try:
-                await send_assignment_notification(
-                    to_email=assigned_user.email,
-                    entity_type="lead",
-                    entity_name=lead.name,
-                    assigned_by=user.email
-                )
-            except Exception as email_error:
-                print(f"DEBUG: Email notification failed: {email_error}")
-                # Don't fail the assignment if email fails
+        try:
+            await send_assignment_notification(
+                to_email=assigned_user.email,
+                entity_type="lead",
+                entity_name=lead.name,
+                assigned_by=user.email
+            )
+        except Exception:
+            # Don't fail the assignment if email fails
+            pass
 
         try:
             session.commit()
@@ -597,17 +591,16 @@ async def restore_lead(lead_id):
     user = request.user
     session = SessionLocal()
     try:
-        lead = session.query(Lead).filter(
+        lead_query = session.query(Lead).filter(
             Lead.id == lead_id,
             Lead.tenant_id == user.tenant_id,
-            Lead.deleted_at != None,
-            or_(
-                Lead.created_by == user.id,
-                Lead.assigned_to == user.id,
-                # Optional: allow admin to restore any
-                User.id == user.id if any(role.name == "admin" for role in user.roles) else False
+            Lead.deleted_at != None
+        )
+        if not any(role.name == "admin" for role in user.roles):
+            lead_query = lead_query.filter(
+                or_(Lead.created_by == user.id, Lead.assigned_to == user.id)
             )
-        ).first()
+        lead = lead_query.first()
 
         if not lead:
             return jsonify({"error": "Lead not found or not authorized to restore"}), 404
