@@ -32,6 +32,7 @@ class ClientCreateSchema(BaseModel):
     notes: Optional[str] = Field(None, description="Additional notes")
     type: Optional[str] = Field("None", description="Business type/category")
     status: Optional[str] = Field("new", description="Client status")
+    source_lead_id: Optional[int] = Field(None, description="Lead ID this client was converted from")
 
     @field_validator("type")
     @classmethod

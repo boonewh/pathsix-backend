@@ -1,7 +1,7 @@
 from quart import Blueprint, request, jsonify
 from datetime import datetime, timedelta
 from pydantic import ValidationError
-from app.models import Client, ActivityLog, ActivityType, User, Interaction
+from app.models import Client, ActivityLog, ActivityType, User, Interaction, Lead
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
 from app.utils.email_utils import send_assignment_notification
@@ -184,6 +184,8 @@ async def create_client():
             notes=data.notes,
             type=data.type,
             status=data.status,
+            source_lead_id=data.source_lead_id,
+            converted_on=datetime.utcnow() if data.source_lead_id else None,
             created_at=datetime.utcnow()
         )
         session.add(client)
@@ -229,6 +231,22 @@ async def get_client(client_id):
         session.add(log)
         session.commit()
 
+        # If converted from a lead, fetch the original lead info
+        lead_origin = None
+        if client.source_lead_id:
+            source_lead = session.query(Lead).filter(Lead.id == client.source_lead_id).first()
+            if source_lead:
+                lead_origin = {
+                    "lead_id": source_lead.id,
+                    "lead_source": source_lead.lead_source,
+                    "lead_created_at": source_lead.created_at.isoformat() + "Z",
+                    "converted_on": client.converted_on.isoformat() + "Z" if client.converted_on else None,
+                    "days_in_pipeline": (
+                        (client.converted_on - source_lead.created_at).days
+                        if client.converted_on and source_lead.created_at else None
+                    ),
+                }
+
         response = jsonify({
             "id": client.id,
             "name": client.name,
@@ -246,6 +264,7 @@ async def get_client(client_id):
             "notes": client.notes,
             "type": client.type,
             "created_at": client.created_at.isoformat() + "Z",
+            "lead_origin": lead_origin,
             "contacts": [c.to_dict() for c in client.contacts] if client.contacts else []
         })
 

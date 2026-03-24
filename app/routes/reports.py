@@ -214,8 +214,9 @@ async def lead_source_report():
         tenant_id = user.tenant_id
         start_date = request.args.get("start_date")
         end_date = request.args.get("end_date")
-        
-        filters = [Lead.tenant_id == tenant_id, Lead.deleted_at == None]
+
+        # Include soft-deleted leads that were won (converted via button)
+        filters = [Lead.tenant_id == tenant_id, or_(Lead.deleted_at == None, Lead.lead_status == 'won')]
         if start_date:
             filters.append(Lead.created_at >= parse_date(start_date))
         if end_date:
@@ -252,8 +253,9 @@ async def conversion_rate_report():
         tenant_id = user.tenant_id
         start_date = request.args.get("start_date")
         end_date = request.args.get("end_date")
-        
-        filters = [Lead.tenant_id == tenant_id, Lead.deleted_at == None]
+
+        # Include soft-deleted leads that were won (converted via button)
+        filters = [Lead.tenant_id == tenant_id, or_(Lead.deleted_at == None, Lead.lead_status == 'won')]
         if start_date:
             filters.append(Lead.created_at >= parse_date(start_date))
         if end_date:

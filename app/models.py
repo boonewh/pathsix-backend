@@ -108,6 +108,8 @@ class Client(Base):
     notes = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     deleted_at = Column(DateTime, nullable=True)
+    source_lead_id = Column(Integer, ForeignKey('leads.id'), nullable=True)
+    converted_on = Column(DateTime, nullable=True)
 
     # Relationships
     assigned_user = relationship("User", foreign_keys=[assigned_to])
