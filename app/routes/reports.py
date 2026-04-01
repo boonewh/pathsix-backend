@@ -280,6 +280,22 @@ async def conversion_rate_report():
                 "converted": row.converted,
                 "conversion_rate": round((row.converted / row.total * 100), 2) if row.total > 0 else 0
             } for row in user_stats]
+
+            # Include unassigned leads so totals add up
+            unassigned_total = session.query(func.count(Lead.id)).filter(
+                *filters, Lead.assigned_to == None
+            ).scalar() or 0
+            unassigned_converted = session.query(func.count(Lead.id)).filter(
+                *filters, Lead.assigned_to == None, Lead.lead_status == 'won'
+            ).scalar() or 0
+            if unassigned_total > 0:
+                by_user.append({
+                    "user_id": None,
+                    "user_email": "Unassigned",
+                    "total_leads": unassigned_total,
+                    "converted": unassigned_converted,
+                    "conversion_rate": round((unassigned_converted / unassigned_total * 100), 2) if unassigned_total > 0 else 0
+                })
         
         # Calculate average days to convert (database-agnostic)
         # PostgreSQL: EXTRACT(EPOCH FROM (date1 - date2)) / 86400
