@@ -937,3 +937,79 @@ async def upcoming_renewals_report():
         })
     finally:
         session.close()
+
+
+# 13. CONVERTED LEADS REPORT
+@reports_bp.route("/converted-leads", methods=["GET"])
+@requires_auth()
+async def converted_leads_report():
+    """
+    Returns all leads marked as 'won' (converted to clients).
+    Includes soft-deleted leads so historical conversions are visible.
+    Optionally filtered by converted_on date range.
+    """
+    user = request.user
+    session = SessionLocal()
+    try:
+        tenant_id = user.tenant_id
+        start_date = request.args.get("start_date")
+        end_date = request.args.get("end_date")
+
+        filters = [
+            Lead.tenant_id == tenant_id,
+            Lead.lead_status == 'won',
+        ]
+
+        if start_date:
+            filters.append(Lead.converted_on >= parse_date(start_date))
+        if end_date:
+            filters.append(Lead.converted_on <= parse_date(end_date))
+
+        leads = session.query(
+            Lead.id, Lead.name, Lead.lead_source, Lead.created_at,
+            Lead.converted_on, Lead.assigned_to
+        ).filter(*filters).order_by(Lead.converted_on.desc().nullslast()).all()
+
+        # Look up linked clients via source_lead_id
+        lead_ids = [l.id for l in leads]
+        client_map = {}
+        if lead_ids:
+            clients = session.query(
+                Client.source_lead_id, Client.id, Client.name
+            ).filter(
+                Client.tenant_id == tenant_id,
+                Client.source_lead_id.in_(lead_ids)
+            ).all()
+            client_map = {c.source_lead_id: {"id": c.id, "name": c.name} for c in clients}
+
+        # Look up assigned user emails
+        user_ids = {l.assigned_to for l in leads if l.assigned_to}
+        user_map = {}
+        if user_ids:
+            users = session.query(User.id, User.email).filter(User.id.in_(user_ids)).all()
+            user_map = {u.id: u.email for u in users}
+
+        results = []
+        for lead in leads:
+            client = client_map.get(lead.id)
+            days_in_pipeline = None
+            if lead.created_at and lead.converted_on:
+                days_in_pipeline = (lead.converted_on - lead.created_at).days
+
+            results.append({
+                "lead_id": lead.id,
+                "name": lead.name,
+                "lead_source": lead.lead_source,
+                "converted_on": lead.converted_on.isoformat() if lead.converted_on else None,
+                "days_in_pipeline": days_in_pipeline,
+                "client_id": client["id"] if client else None,
+                "client_name": client["name"] if client else None,
+                "assigned_to": user_map.get(lead.assigned_to),
+            })
+
+        return jsonify({
+            "converted_leads": results,
+            "total": len(results),
+        })
+    finally:
+        session.close()
