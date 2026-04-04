@@ -6,6 +6,7 @@ Step 1A of validation implementation.
 from typing import Optional
 from datetime import datetime
 from pydantic import BaseModel, Field, EmailStr, ConfigDict, field_validator
+from app.models import FollowUpStatus
 
 class InteractionCreateSchema(BaseModel):
     """Schema for creating a new interaction via POST /api/interactions"""
@@ -28,6 +29,7 @@ class InteractionCreateSchema(BaseModel):
     contact_person: Optional[str] = Field(None, max_length=100, description="Person contacted")
     email: Optional[EmailStr] = Field(None, description="Email address used for contact")
     phone: Optional[str] = Field(None, max_length=20, description="Phone number used for contact")
+    followup_status: Optional[FollowUpStatus] = Field(None, description="Follow-up status")
 
     @field_validator("email", mode="before")
     @classmethod
