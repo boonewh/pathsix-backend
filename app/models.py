@@ -238,10 +238,12 @@ class Project(Base):
     last_updated_by = Column(Integer, ForeignKey('users.id'), nullable=True)
     deleted_at = Column(DateTime, nullable=True)
     deleted_by = Column(Integer, ForeignKey('users.id'), nullable=True)
+    assigned_to = Column(Integer, ForeignKey('users.id'), nullable=True)
 
     # ✅ Relationships to access names in API
     client = relationship("Client", backref="projects")
     lead = relationship("Lead", backref="projects")
+    assigned_user = relationship("User", foreign_keys=[assigned_to])
 
     def __repr__(self):
         return f"<Project {self.project_name}>"

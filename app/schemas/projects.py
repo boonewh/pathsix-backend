@@ -168,6 +168,11 @@ class ProjectUpdateSchema(BaseModel):
         raise TypeError("phone values must be strings")
 
 
+class ProjectAssignSchema(BaseModel):
+    """Schema for assigning a project to a user via PUT /api/projects/{id}/assign"""
+    assigned_to: int = Field(..., gt=0, description="User ID to assign the project to")
+
+
 class ProjectResponseSchema(BaseModel):
     """Schema for project data in API responses"""
 

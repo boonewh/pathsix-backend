@@ -378,6 +378,31 @@ def migrate_interactions(old_cur, new_cur, client_map, lead_map, project_map):
     print(f"  interactions: {inserted} inserted")
 
 
+# ── Migrate files ────────────────────────────────────────────────────────────
+
+def migrate_files(old_cur, new_cur, user_map):
+    rows = fetch_all(old_cur, """
+        SELECT tenant_id, user_id, filename, stored_name, path, size, mimetype, uploaded_at
+        FROM files WHERE tenant_id = %s
+    """, (TENANT_ID,))
+
+    inserted = 0
+    for row in rows:
+        new_user_id = user_map.get(row["user_id"])
+        if not new_user_id:
+            continue
+        new_cur.execute("""
+            INSERT INTO files (tenant_id, user_id, filename, stored_name, path, size, mimetype, uploaded_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+        """, (
+            row["tenant_id"], new_user_id, row["filename"], row["stored_name"],
+            row["path"], row["size"], row["mimetype"], row["uploaded_at"],
+        ))
+        inserted += 1
+
+    print(f"  files: {inserted} inserted")
+
+
 # ── Migrate activity logs ─────────────────────────────────────────────────────
 
 def migrate_activity_logs(old_cur, new_cur, user_map):

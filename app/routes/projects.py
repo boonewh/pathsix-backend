@@ -7,7 +7,7 @@ from app.utils.auth_utils import requires_auth
 from app.utils.phone_utils import clean_phone_number  
 from app.utils.email_utils import send_assignment_notification
 from app.constants import PHONE_LABELS
-from app.schemas.projects import ProjectCreateSchema, ProjectUpdateSchema
+from app.schemas.projects import ProjectCreateSchema, ProjectUpdateSchema, ProjectAssignSchema
 from sqlalchemy.orm import joinedload
 from sqlalchemy import or_, and_
 
@@ -42,32 +42,47 @@ async def list_projects():
 
         query = session.query(Project).options(
             joinedload(Project.client),
-            joinedload(Project.lead)
+            joinedload(Project.lead),
+            joinedload(Project.assigned_user)
         ).filter(
             Project.tenant_id == user.tenant_id
         ).filter(
             or_(
-                # Projects tied to clients assigned to or created by the user
+                # Project is directly assigned to this user
+                Project.assigned_to == user.id,
+                # Project has no direct assignment — inherit from client/lead/created_by
                 and_(
-                    Project.client_id != None,
+                    Project.assigned_to == None,
                     or_(
-                        Project.client.has(Client.assigned_to == user.id),
-                        Project.client.has(Client.created_by == user.id)
+                        # Client-linked: visible if client assigned to user, or unassigned and created by user
+                        and_(
+                            Project.client_id != None,
+                            or_(
+                                Project.client.has(Client.assigned_to == user.id),
+                                and_(
+                                    Project.client.has(Client.assigned_to == None),
+                                    Project.client.has(Client.created_by == user.id)
+                                )
+                            )
+                        ),
+                        # Lead-linked: visible if lead assigned to user, or unassigned and created by user
+                        and_(
+                            Project.lead_id != None,
+                            or_(
+                                Project.lead.has(Lead.assigned_to == user.id),
+                                and_(
+                                    Project.lead.has(Lead.assigned_to == None),
+                                    Project.lead.has(Lead.created_by == user.id)
+                                )
+                            )
+                        ),
+                        # Standalone project: visible only if created by this user
+                        and_(
+                            Project.client_id == None,
+                            Project.lead_id == None,
+                            Project.created_by == user.id
+                        )
                     )
-                ),
-                # Projects tied to leads assigned to or created by the user
-                and_(
-                    Project.lead_id != None,
-                    or_(
-                        Project.lead.has(Lead.assigned_to == user.id),
-                        Project.lead.has(Lead.created_by == user.id)
-                    )
-                ),
-                # Projects with no client or lead but created by the user
-                and_(
-                    Project.client_id == None,
-                    Project.lead_id == None,
-                    Project.created_by == user.id
                 )
             )
         )
@@ -105,7 +120,9 @@ async def list_projects():
                     "primary_contact_title": p.primary_contact_title,
                     "primary_contact_email": p.primary_contact_email,
                     "primary_contact_phone": p.primary_contact_phone,
-                    "primary_contact_phone_label": p.primary_contact_phone_label
+                    "primary_contact_phone_label": p.primary_contact_phone_label,
+                    "assigned_to": p.assigned_to,
+                    "assigned_to_name": p.assigned_user.email if p.assigned_user else None,
                 } for p in projects
             ],
             "total": total,
@@ -129,7 +146,8 @@ async def get_project(project_id):
     try:
         project = session.query(Project).options(
             joinedload(Project.client),
-            joinedload(Project.lead)
+            joinedload(Project.lead),
+            joinedload(Project.assigned_user)
         ).filter(
             Project.id == project_id,
             Project.tenant_id == user.tenant_id
@@ -171,7 +189,9 @@ async def get_project(project_id):
             "primary_contact_title": getattr(project, 'primary_contact_title', None),
             "primary_contact_email": getattr(project, 'primary_contact_email', None),
             "primary_contact_phone": getattr(project, 'primary_contact_phone', None),
-            "primary_contact_phone_label": getattr(project, 'primary_contact_phone_label', None)
+            "primary_contact_phone_label": getattr(project, 'primary_contact_phone_label', None),
+            "assigned_to": project.assigned_to,
+            "assigned_to_name": project.assigned_user.email if project.assigned_user else None,
         })
     finally:
         session.close()
@@ -290,6 +310,64 @@ async def update_project(project_id):
         session.close()
 
 
+@projects_bp.route("/<int:project_id>/assign", methods=["PUT"])
+@requires_auth(roles=["admin"])
+async def assign_project(project_id):
+    user = request.user
+    raw_data = await request.get_json()
+
+    try:
+        data = ProjectAssignSchema(**raw_data)
+    except ValidationError as e:
+        return jsonify({"error": "Validation failed", "details": e.errors()}), 400
+
+    session = SessionLocal()
+    try:
+        project = session.query(Project).filter(
+            Project.id == project_id,
+            Project.tenant_id == user.tenant_id,
+            Project.deleted_at == None
+        ).first()
+
+        if not project:
+            return jsonify({"error": "Project not found"}), 404
+
+        assigned_user = session.query(User).filter(
+            User.id == data.assigned_to,
+            User.tenant_id == user.tenant_id,
+            User.is_active == True
+        ).first()
+
+        if not assigned_user:
+            return jsonify({"error": f"User {data.assigned_to} not found or not active"}), 400
+
+        project.assigned_to = data.assigned_to
+        project.last_updated_by = user.id
+        project.updated_at = datetime.utcnow()
+
+        try:
+            await send_assignment_notification(
+                to_email=assigned_user.email,
+                entity_type="project",
+                entity_name=project.project_name,
+                assigned_by=user.email
+            )
+        except Exception:
+            pass
+
+        try:
+            session.commit()
+            return jsonify({"message": "Project assigned successfully", "assigned_to": project.assigned_to})
+        except Exception as e:
+            session.rollback()
+            return jsonify({"error": f"Database error: {str(e)}"}), 500
+
+    except Exception as e:
+        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+    finally:
+        session.close()
+
+
 @projects_bp.route("/<int:project_id>/interactions", methods=["GET"])
 @requires_auth()
 async def get_project_interactions(project_id):
@@ -335,6 +413,7 @@ async def list_all_projects():
             sort_order = "newest"
 
         query = session.query(Project).options(
+            joinedload(Project.assigned_user),
             joinedload(Project.client).joinedload(Client.assigned_user),
             joinedload(Project.client).joinedload(Client.created_by_user),
             joinedload(Project.lead).joinedload(Lead.assigned_user),
@@ -387,8 +466,10 @@ async def list_all_projects():
         }
 
         for p in projects:
-            assigned_to_email = None
-            if p.client and p.client.assigned_user:
+            # Project's own assigned_to takes priority over inherited client/lead assignment
+            if p.assigned_user:
+                assigned_to_email = p.assigned_user.email
+            elif p.client and p.client.assigned_user:
                 assigned_to_email = p.client.assigned_user.email
             elif p.client and p.client.created_by_user:
                 assigned_to_email = p.client.created_by_user.email
@@ -396,6 +477,8 @@ async def list_all_projects():
                 assigned_to_email = p.lead.assigned_user.email
             elif p.lead and p.lead.created_by_user:
                 assigned_to_email = p.lead.created_by_user.email
+            else:
+                assigned_to_email = None
 
             response_data["projects"].append({
                 "id": p.id,
