@@ -1,0 +1,6 @@
+Loaded cached credentials.
+Error executing tool write_todos: Tool execution for "WriteTodos" denied by policy.
+Error executing tool replace: Tool "replace" not found in registry. Tools must use the exact names that are registered. Did you mean one of: "read_file", "glob", "write_todos"?
+Error executing tool write_file: Tool "write_file" not found in registry. Tools must use the exact names that are registered. Did you mean one of: "read_file", "write_todos", "activate_skill"?
+Error executing tool replace: Tool "replace" not found in registry. Tools must use the exact names that are registered. Did you mean one of: "read_file", "glob", "write_todos"?
+Error executing tool write_todos: Tool execution for "WriteTodos" denied by policy.

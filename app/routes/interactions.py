@@ -534,37 +534,57 @@ async def list_all_interactions_admin():
             joinedload(Interaction.client).joinedload(Client.created_by_user),
             joinedload(Interaction.lead).joinedload(Lead.assigned_user),
             joinedload(Interaction.lead).joinedload(Lead.created_by_user),
-            joinedload(Interaction.project)  # NEW: Add project loading
+            joinedload(Interaction.project).joinedload(Project.assigned_user),
+            joinedload(Interaction.project).joinedload(Project.created_by_user),
         ).filter(
             Interaction.tenant_id == user.tenant_id
         )
 
-        # Filter by user if specified
+        # Filter by user if specified — use exclusive ownership to match assigned_to_name display logic:
+        # assigned_to takes priority; created_by is only the fallback when no one is assigned.
+        # This prevents the same interaction from appearing under multiple users.
         if user_email:
+            subquery_user_id = session.query(User.id).filter(User.email == user_email).scalar_subquery()
             query = query.filter(
                 or_(
-                    # Client interactions
+                    # Client: directly assigned to this user
                     and_(
                         Interaction.client_id != None,
-                        or_(
-                            Interaction.client.has(Client.assigned_user.has(User.email == user_email)),
-                            Interaction.client.has(Client.created_by_user.has(User.email == user_email))
-                        )
+                        Interaction.client.has(Client.assigned_user.has(User.email == user_email))
                     ),
-                    # Lead interactions
+                    # Client: unassigned, created by this user
+                    and_(
+                        Interaction.client_id != None,
+                        Interaction.client.has(and_(
+                            Client.assigned_to == None,
+                            Client.created_by_user.has(User.email == user_email)
+                        ))
+                    ),
+                    # Lead: directly assigned to this user
                     and_(
                         Interaction.lead_id != None,
-                        or_(
-                            Interaction.lead.has(Lead.assigned_user.has(User.email == user_email)),
-                            Interaction.lead.has(Lead.created_by_user.has(User.email == user_email))
-                        )
+                        Interaction.lead.has(Lead.assigned_user.has(User.email == user_email))
                     ),
-                    # Project interactions - NEW: Add project filtering
+                    # Lead: unassigned, created by this user
+                    and_(
+                        Interaction.lead_id != None,
+                        Interaction.lead.has(and_(
+                            Lead.assigned_to == None,
+                            Lead.created_by_user.has(User.email == user_email)
+                        ))
+                    ),
+                    # Project: directly assigned to this user
                     and_(
                         Interaction.project_id != None,
-                        Interaction.project.has(Project.created_by == 
-                            session.query(User.id).filter(User.email == user_email).scalar_subquery()
-                        )
+                        Interaction.project.has(Project.assigned_to == subquery_user_id)
+                    ),
+                    # Project: unassigned, created by this user
+                    and_(
+                        Interaction.project_id != None,
+                        Interaction.project.has(and_(
+                            Project.assigned_to == None,
+                            Project.created_by == subquery_user_id
+                        ))
                     )
                 )
             )
@@ -629,7 +649,9 @@ async def list_all_interactions_admin():
                     else i.client.created_by_user.email if i.client and i.client.created_by_user
                     else i.lead.assigned_user.email if i.lead and i.lead.assigned_user
                     else i.lead.created_by_user.email if i.lead and i.lead.created_by_user
-                    else None  # NOTE: Projects don't have assigned_to yet, only created_by
+                    else i.project.assigned_user.email if i.project and i.project.assigned_user
+                    else i.project.created_by_user.email if i.project and i.project.created_by_user
+                    else None
                 )
             } for i in interactions],
             "total": total,

@@ -45,7 +45,8 @@ async def list_projects():
             joinedload(Project.lead),
             joinedload(Project.assigned_user)
         ).filter(
-            Project.tenant_id == user.tenant_id
+            Project.tenant_id == user.tenant_id,
+            Project.deleted_at == None
         ).filter(
             or_(
                 # Project is directly assigned to this user
@@ -150,7 +151,8 @@ async def get_project(project_id):
             joinedload(Project.assigned_user)
         ).filter(
             Project.id == project_id,
-            Project.tenant_id == user.tenant_id
+            Project.tenant_id == user.tenant_id,
+            Project.deleted_at == None
         ).first()
 
         if not project:
@@ -270,7 +272,8 @@ async def update_project(project_id):
     try:
         project = session.query(Project).filter(
             Project.id == project_id,
-            Project.tenant_id == user.tenant_id
+            Project.tenant_id == user.tenant_id,
+            Project.deleted_at == None
         ).first()
 
         if not project:
@@ -539,7 +542,8 @@ async def list_projects_by_client(client_id):
 
         projects = session.query(Project).filter(
             Project.client_id == client_id,
-            Project.tenant_id == user.tenant_id
+            Project.tenant_id == user.tenant_id,
+            Project.deleted_at == None
         ).order_by(Project.created_at.desc()).all()
 
         return jsonify([
@@ -587,7 +591,8 @@ async def list_projects_by_lead(lead_id):
 
         projects = session.query(Project).filter(
             Project.lead_id == lead_id,
-            Project.tenant_id == user.tenant_id
+            Project.tenant_id == user.tenant_id,
+            Project.deleted_at == None
         ).order_by(Project.created_at.desc()).all()
 
         return jsonify([

@@ -1,0 +1,37 @@
+{
+  "timestamp": "2026-04-07T03:58:16.923Z",
+  "slug": "1775533855-1775533819-project-assign-404-debug",
+  "prompt": "file:prompt.md",
+  "promptSource": "file",
+  "readOnlyPolicy": "bestEffort",
+  "tools": [
+    {
+      "toolId": "claude-opus",
+      "status": "error",
+      "exitCode": 1,
+      "durationMs": 80,
+      "wordCount": 0,
+      "outputFile": "C:\\Users\\William Boone\\Desktop\\Websites\\pathsix-backend\\agents\\counselors\\1775533819-project-assign-404-debug\\claude-opus.md",
+      "stderrFile": "C:\\Users\\William Boone\\Desktop\\Websites\\pathsix-backend\\agents\\counselors\\1775533819-project-assign-404-debug\\claude-opus.stderr",
+      "error": "The system cannot find the path specified.\r\n"
+    },
+    {
+      "toolId": "codex-5.3-xhigh",
+      "status": "success",
+      "exitCode": 0,
+      "durationMs": 435733,
+      "wordCount": 302,
+      "outputFile": "C:\\Users\\William Boone\\Desktop\\Websites\\pathsix-backend\\agents\\counselors\\1775533819-project-assign-404-debug\\codex-5.3-xhigh.md",
+      "stderrFile": "C:\\Users\\William Boone\\Desktop\\Websites\\pathsix-backend\\agents\\counselors\\1775533819-project-assign-404-debug\\codex-5.3-xhigh.stderr"
+    },
+    {
+      "toolId": "gemini-2.5-flash",
+      "status": "success",
+      "exitCode": 0,
+      "durationMs": 441113,
+      "wordCount": 1117,
+      "outputFile": "C:\\Users\\William Boone\\Desktop\\Websites\\pathsix-backend\\agents\\counselors\\1775533819-project-assign-404-debug\\gemini-2.5-flash.md",
+      "stderrFile": "C:\\Users\\William Boone\\Desktop\\Websites\\pathsix-backend\\agents\\counselors\\1775533819-project-assign-404-debug\\gemini-2.5-flash.stderr"
+    }
+  ]
+}

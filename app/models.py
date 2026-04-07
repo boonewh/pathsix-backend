@@ -244,6 +244,7 @@ class Project(Base):
     client = relationship("Client", backref="projects")
     lead = relationship("Lead", backref="projects")
     assigned_user = relationship("User", foreign_keys=[assigned_to])
+    created_by_user = relationship("User", foreign_keys=[created_by])
 
     def __repr__(self):
         return f"<Project {self.project_name}>"
