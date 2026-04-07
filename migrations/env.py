@@ -26,7 +26,11 @@ target_metadata = Base.metadata
 
 
 def get_url():
-    return os.getenv("DATABASE_URL", "sqlite:///app.db")
+    url = os.getenv("DATABASE_URL", "sqlite:///app.db")
+    # SQLAlchemy requires postgresql:// not postgres://
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql://", 1)
+    return url
 
 
 def run_migrations_offline() -> None:
