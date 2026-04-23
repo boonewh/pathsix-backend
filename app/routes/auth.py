@@ -88,17 +88,21 @@ async def forgot_password():
     try:
         user = session.query(User).filter_by(email=email).first()
         if not user:
-            return jsonify({"message": "If that account exists, an email was sent."})  # Don't reveal info
+            return jsonify({"message": "If that account exists, an email was sent."})
 
         token = generate_reset_token(email)
         reset_link = f"{current_app.config['FRONTEND_URL']}/reset-password/{token}"
 
-        await send_email(
-            subject="Password Reset Request",
-            recipient=email,
-            body=f"Click to reset your password: {reset_link}"
-        )
         print("Reset link:", reset_link)
+
+        try:
+            await send_email(
+                subject="Password Reset Request",
+                recipient=email,
+                body=f"Click to reset your password: {reset_link}"
+            )
+        except Exception as e:
+            print(f"Failed to send password reset email to {email}: {e}")
 
         return jsonify({"message": "If that account exists, a reset email was sent."})
     except SQLAlchemyError:
