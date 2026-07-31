@@ -9,6 +9,7 @@ import sentry_sdk
 from sentry_sdk.integrations.quart import QuartIntegration
 from app.utils.logging_utils import logger, log_endpoint
 import time
+import os
 
 # 👇 Add warmup function directly here
 async def warmup_db():
@@ -30,10 +31,14 @@ async def warmup_db():
 def create_app():
     app = Quart(__name__)
 
-    # ✅ Add CORS *before* anything else
+    # ✅ Add CORS *before* anything else.
+    # Base allow-list plus any extra origins from CORS_ALLOWED_ORIGINS (CSV env var),
+    # e.g. the staging frontend origin — set as a Fly secret on staging only.
+    _default_origins = ["https://pathsix-crm.vercel.app", "https://test-crm-six.vercel.app", "https://pathsixdesigns-crm.vercel.app", "http://localhost:5173", "http://localhost:5174", "http://localhost:5175"]
+    _extra_origins = [o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()]
     app = cors(
         app,
-        allow_origin=["https://pathsix-crm.vercel.app", "https://test-crm-six.vercel.app", "https://pathsixdesigns-crm.vercel.app", "http://localhost:5173", "http://localhost:5174", "http://localhost:5175"],
+        allow_origin=_default_origins + _extra_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],          # ← add this
