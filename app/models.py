@@ -323,21 +323,6 @@ class ChatMessage(Base):
         return f"<ChatMessage from {self.sender_id} to {target}>"
 
 
-class Message(Base):
-    __tablename__ = 'messages'
-
-    id = Column(Integer, primary_key=True)
-    tenant_id = Column(Integer, nullable=False, index=True)
-    sender_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    receiver_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    body = Column(Text, nullable=False)
-    sent_at = Column(DateTime, default=datetime.utcnow)
-    read = Column(Boolean, default=False)
-
-    sender = relationship("User", foreign_keys=[sender_id])
-    receiver = relationship("User", foreign_keys=[receiver_id])
-
-
 class UserPreference(Base):
     __tablename__ = 'user_preferences'
 

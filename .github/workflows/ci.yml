@@ -1,0 +1,25 @@
+name: CI
+
+# Insurance gate for the backend. Starts as a dependency-free syntax/compile
+# check; Phase 4 adds `pip install -r requirements.txt` + `pytest` (incl. the
+# tenant-isolation regression tests).
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend — compile check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Syntax / compile check
+        run: python -m compileall app
+      # Phase 4 (add tests):
+      # - run: pip install -r requirements.txt
+      # - run: pytest
