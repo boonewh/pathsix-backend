@@ -68,6 +68,7 @@ class InteractionUpdateSchema(BaseModel):
     contact_person: Optional[str] = Field(None, max_length=100, description="Person contacted")
     email: Optional[EmailStr] = Field(None, description="Email address used for contact")
     phone: Optional[str] = Field(None, max_length=20, description="Phone number used for contact")
+    followup_status: Optional[FollowUpStatus] = Field(None, description="Follow-up status")
 
     @field_validator("email", mode="before")
     @classmethod

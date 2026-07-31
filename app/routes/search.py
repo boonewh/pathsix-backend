@@ -70,13 +70,18 @@ async def global_search():
         project_fields = ["project_name", "project_description", "project_status"]
         project_q = session.query(Project).filter(
             Project.tenant_id == user.tenant_id,
+            Project.deleted_at == None,
             or_(*[func.lower(getattr(Project, f)).ilike(f"%{query}%") for f in project_fields])
         )
         if not is_admin:
             project_q = project_q.filter(Project.created_by == user.id)
 
         for p in project_q.limit(10):
-            link = f"/clients/{p.client_id}" if p.client_id else f"/leads/{p.lead_id}"
+            link = (
+                f"/clients/{p.client_id}" if p.client_id else
+                f"/leads/{p.lead_id}" if p.lead_id else
+                f"/projects/{p.id}"
+            )
             results.append({
                 "type": "project",
                 "id": p.id,

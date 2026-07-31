@@ -20,9 +20,13 @@ async def list_interactions():
     user = request.user
     session = SessionLocal()
     try:
-        client_id = request.args.get("client_id")
-        lead_id = request.args.get("lead_id")
-        project_id = request.args.get("project_id")  # NEW: Add project support
+        client_id = request.args.get("client_id") or None
+        lead_id = request.args.get("lead_id") or None
+        project_id = request.args.get("project_id") or None
+        # Treat literal string "None" (sent by some frontend paths) as absent
+        if client_id == "None": client_id = None
+        if lead_id == "None": lead_id = None
+        if project_id == "None": project_id = None
         page = int(request.args.get("page", 1))
         per_page = int(request.args.get("per_page", 10))
         sort_order = request.args.get("sort", "newest")
@@ -260,7 +264,8 @@ async def create_interaction():
             follow_up=data.follow_up,
             contact_person=data.contact_person,
             email=str(data.email) if data.email else None,
-            phone=data.phone
+            phone=data.phone,
+            followup_status=data.followup_status or FollowUpStatus.pending
         )
         session.add(interaction)
         session.commit()
