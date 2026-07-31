@@ -1,7 +1,6 @@
 from quart import Quart, request
 from quart_cors import cors
 from app.routes import register_blueprints
-from app.utils.keep_alive import keep_db_alive  # ✅ this still works
 from app.database import SessionLocal
 from sqlalchemy import text
 import asyncio
@@ -71,6 +70,11 @@ def create_app():
 
     register_blueprints(app)
 
+    # Lightweight liveness endpoint for the Fly deploy health check (no auth, no DB).
+    @app.route("/api/health")
+    async def health():
+        return {"status": "ok"}, 200
+
     # Request logging middleware
     @app.before_request
     async def before_request():
@@ -87,11 +91,12 @@ def create_app():
             )
         return response
 
-    #✅ Before serving: warm up DB, then start keep-alive
+    # Before serving: warm up the DB. (keep-alive loop removed — pool_pre_ping in
+    # database.py handles stale connections, and the old loop poisoned the scoped
+    # session on failure, causing the "invalid transaction" errors seen in prod logs.)
     @app.before_serving
     async def startup():
         await warmup_db()
-        app.add_background_task(keep_db_alive)
         logger.info("PathSix CRM backend started successfully")
 
     return app
