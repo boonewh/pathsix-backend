@@ -43,6 +43,10 @@ TENANT_CONFIG = {
                 "lost": "bg-red-100 text-red-800",
                 "converted": "bg-green-100 text-green-800",
             },
+            "icons": {
+                "new": "circle-yellow", "contacted": "phone", "qualified": "circle-orange",
+                "lost": "circle-red", "converted": "circle-green",
+            },
             "labels": {
                 "new": "New", "contacted": "Contacted", "qualified": "Qualified",
                 "lost": "Lost", "converted": "Converted",
@@ -51,7 +55,10 @@ TENANT_CONFIG = {
         "sources": ["Website", "Referral", "Cold Call", "Email Campaign",
                     "Social Media", "Trade Show", "Advertisement", "Partner", "Other"],
         "temperatures": ["hot", "warm", "cold"],
-        "temperatureConfig": {"colors": {"hot": "text-red-600", "warm": "text-orange-600", "cold": "text-blue-600"}},
+        "temperatureConfig": {
+            "colors": {"hot": "text-red-600", "warm": "text-orange-600", "cold": "text-blue-600"},
+            "icons": {"hot": "fire", "warm": "sun", "cold": "snowflake"},
+        },
     },
     "businessTypes": ["None", "Professional Services", "Technology", "Manufacturing",
                       "Retail", "Healthcare", "Finance", "Education", "Other"],
@@ -78,13 +85,15 @@ def main():
             roles[name] = role
         session.commit()
 
-        # Tenant
+        # Tenant (refresh config on re-run so config fixes apply)
         tenant = session.query(Tenant).filter_by(slug=TENANT_SLUG).first()
         if not tenant:
             tenant = Tenant(name=TENANT_NAME, slug=TENANT_SLUG, is_active=True, config=TENANT_CONFIG)
             session.add(tenant)
-            session.commit()
-            session.refresh(tenant)
+        else:
+            tenant.config = TENANT_CONFIG
+        session.commit()
+        session.refresh(tenant)
 
         # Admin user
         admin = session.query(User).filter_by(email=ADMIN_EMAIL).first()
