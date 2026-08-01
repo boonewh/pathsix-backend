@@ -18,8 +18,7 @@ dist/
 build/
 *.egg-info/
 
-# Quart/Flask secrets
-config.py
+# app/config.py is committed — it only reads env vars; real secrets live in .env / Fly secrets
 
 # Storage and uploads
 storage/
