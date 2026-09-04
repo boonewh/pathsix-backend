@@ -7,11 +7,10 @@ from app.utils.auth_utils import (
     verify_password,
     create_token,
     hash_password,
-    generate_reset_token,
     verify_reset_token
 )
 from app.utils.auth_utils import requires_auth
-from app.utils.email_utils import send_email
+from app.utils.email_utils import send_password_reset_email
 from app.utils.rate_limiter import rate_limit
 
 
@@ -90,19 +89,13 @@ async def forgot_password():
         if not user:
             return jsonify({"message": "If that account exists, an email was sent."})
 
-        token = generate_reset_token(email)
-        reset_link = f"{current_app.config['FRONTEND_URL']}/reset-password/{token}"
-
-        print("Reset link:", reset_link)
-
         try:
-            await send_email(
-                subject="Password Reset Request",
-                recipient=email,
-                body=f"Click to reset your password: {reset_link}"
-            )
-        except Exception as e:
-            print(f"Failed to send password reset email to {email}: {e}")
+            await send_password_reset_email(email)
+        except Exception:
+            current_app.logger.exception("Password reset email delivery failed")
+            return jsonify({
+                "error": "Unable to send a reset email right now. Please try again later."
+            }), 503
 
         return jsonify({"message": "If that account exists, a reset email was sent."})
     except SQLAlchemyError:

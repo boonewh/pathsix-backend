@@ -1,7 +1,8 @@
-from quart import Blueprint, request, jsonify
+from quart import Blueprint, request, jsonify, current_app
 from app.models import User, Role, ActivityLog, ActivityType
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth, hash_password
+from app.utils.email_utils import send_password_reset_email
 
 users_bp = Blueprint("users", __name__, url_prefix="/api/users")
 
@@ -178,3 +179,32 @@ async def update_user_email(user_id):
 
     finally:
         session.close()
+
+
+@users_bp.route("/<int:user_id>/send-password-reset", methods=["POST"])
+@requires_auth(roles=["admin"])
+async def send_user_password_reset(user_id):
+    admin = request.user
+    session = SessionLocal()
+    try:
+        target = session.query(User).filter(
+            User.id == user_id,
+            User.tenant_id == admin.tenant_id
+        ).first()
+
+        if not target:
+            return jsonify({"error": "User not found"}), 404
+
+        recipient = target.email
+    finally:
+        session.close()
+
+    try:
+        await send_password_reset_email(recipient)
+    except Exception:
+        current_app.logger.exception("Admin password reset email delivery failed")
+        return jsonify({
+            "error": "Unable to send the password reset email right now. Please try again later."
+        }), 503
+
+    return jsonify({"message": "Password reset email sent"})

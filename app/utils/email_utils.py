@@ -1,6 +1,7 @@
 # app/utils/email_utils.py
 import aiosmtplib
 from email.message import EmailMessage
+from quart import current_app
 from app.config import (
     MAIL_SERVER,
     MAIL_PORT,
@@ -10,6 +11,7 @@ from app.config import (
     MAIL_FROM_NAME,
     MAIL_FROM_EMAIL,
 )
+from app.utils.auth_utils import generate_reset_token
 
 async def send_email(subject: str, recipient: str, body: str):
     message = EmailMessage()
@@ -25,6 +27,18 @@ async def send_email(subject: str, recipient: str, body: str):
         username=MAIL_USERNAME,
         password=MAIL_PASSWORD,
         start_tls=MAIL_USE_TLS,
+    )
+
+
+async def send_password_reset_email(recipient: str):
+    """Create and deliver a password-reset link for an existing user."""
+    token = generate_reset_token(recipient)
+    reset_link = f"{current_app.config['FRONTEND_URL']}/reset-password/{token}"
+
+    await send_email(
+        subject="Password Reset Request",
+        recipient=recipient,
+        body=f"Click to reset your password: {reset_link}",
     )
 
 async def send_assignment_notification(to_email: str, entity_type: str, entity_name: str, assigned_by: str):
