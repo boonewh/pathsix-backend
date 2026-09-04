@@ -9,7 +9,7 @@ from collections import defaultdict
 from functools import wraps
 from quart import request, jsonify
 
-# In-memory storage: {ip_address: [(timestamp, count), ...]}
+# In-memory storage: {(endpoint, ip_address): [(timestamp, count), ...]}
 _rate_limit_store = defaultdict(list)
 
 # Cleanup old entries every N requests
@@ -34,20 +34,20 @@ def _cleanup_old_entries():
     
     if _cleanup_counter >= _cleanup_threshold:
         current_time = time.time()
-        expired_ips = []
+        expired_keys = []
         
-        for ip, attempts in _rate_limit_store.items():
+        for key, attempts in _rate_limit_store.items():
             # Remove attempts older than 1 hour
-            _rate_limit_store[ip] = [
+            _rate_limit_store[key] = [
                 (timestamp, count) for timestamp, count in attempts
                 if current_time - timestamp < 3600
             ]
-            # Mark empty IPs for deletion
-            if not _rate_limit_store[ip]:
-                expired_ips.append(ip)
+            # Mark empty endpoint/IP buckets for deletion
+            if not _rate_limit_store[key]:
+                expired_keys.append(key)
         
-        for ip in expired_ips:
-            del _rate_limit_store[ip]
+        for key in expired_keys:
+            del _rate_limit_store[key]
         
         _cleanup_counter = 0
 
@@ -73,10 +73,12 @@ def rate_limit(max_attempts: int, window_seconds: int):
                 return await fn(*args, **kwargs)
             
             client_ip = _get_client_ip()
+            bucket_key = (request.endpoint or request.path, client_ip)
             current_time = time.time()
             
-            # Get attempts for this IP
-            attempts = _rate_limit_store[client_ip]
+            # Keep each endpoint independent so login failures do not consume the
+            # password-reset allowance (or vice versa) for the same client IP.
+            attempts = _rate_limit_store[bucket_key]
             
             # Remove expired attempts (outside the window)
             cutoff_time = current_time - window_seconds
@@ -105,7 +107,7 @@ def rate_limit(max_attempts: int, window_seconds: int):
             
             # Record this attempt
             valid_attempts.append((current_time, 1))
-            _rate_limit_store[client_ip] = valid_attempts
+            _rate_limit_store[bucket_key] = valid_attempts
             
             # Periodic cleanup
             _cleanup_old_entries()
@@ -125,8 +127,8 @@ def reset_rate_limit(ip_address: str = None):
         ip_address: IP to reset, or None to reset all
     """
     if ip_address:
-        if ip_address in _rate_limit_store:
-            del _rate_limit_store[ip_address]
+        for key in [key for key in _rate_limit_store if key[1] == ip_address]:
+            del _rate_limit_store[key]
     else:
         _rate_limit_store.clear()
 
@@ -142,17 +144,33 @@ def get_rate_limit_status(ip_address: str = None):
         Dict with rate limit statistics
     """
     if ip_address:
-        attempts = _rate_limit_store.get(ip_address, [])
+        buckets = {
+            endpoint: attempts
+            for (endpoint, stored_ip), attempts in _rate_limit_store.items()
+            if stored_ip == ip_address
+        }
+        attempts = [attempt for bucket in buckets.values() for attempt in bucket]
         return {
             "ip": ip_address,
-            "total_attempts": sum(count for _, count in attempts),
-            "attempts": attempts
+            "total_attempts": sum(
+                count
+                for attempts in buckets.values()
+                for _, count in attempts
+            ),
+            "attempts": attempts,
+            "endpoints": buckets,
         }
     else:
+        ips = {}
+        for (_, ip), attempts in _rate_limit_store.items():
+            ips[ip] = ips.get(ip, 0) + sum(count for _, count in attempts)
+
         return {
-            "total_ips": len(_rate_limit_store),
-            "ips": {
-                ip: sum(count for _, count in attempts)
-                for ip, attempts in _rate_limit_store.items()
+            "total_ips": len(ips),
+            "ips": ips,
+            "total_buckets": len(_rate_limit_store),
+            "buckets": {
+                f"{endpoint}:{ip}": sum(count for _, count in attempts)
+                for (endpoint, ip), attempts in _rate_limit_store.items()
             }
         }

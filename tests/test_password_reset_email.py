@@ -96,6 +96,29 @@ def test_forgot_password_reports_delivery_failure(monkeypatch):
     assert session.closed
 
 
+def test_forgot_password_allows_six_requests_per_five_minutes(monkeypatch):
+    monkeypatch.setattr(auth_routes, "SessionLocal", lambda: _Session(None))
+    reset_rate_limit()
+
+    app = Quart(__name__)
+    app.register_blueprint(auth_routes.auth_bp)
+
+    async def exercise():
+        client = app.test_client()
+        for _ in range(6):
+            response = await client.post(
+                "/api/forgot-password", json={"email": "missing@example.test"}
+            )
+            assert response.status_code == 200
+
+        limited = await client.post(
+            "/api/forgot-password", json={"email": "missing@example.test"}
+        )
+        assert limited.status_code == 429
+
+    asyncio.run(exercise())
+
+
 def test_admin_can_send_password_reset_within_tenant(monkeypatch):
     admin = SimpleNamespace(id=1, tenant_id=7, roles=[])
     target = SimpleNamespace(id=2, tenant_id=7, email="user@example.test")

@@ -76,7 +76,7 @@ async def login():
         session.close()
 
 @auth_bp.route("/forgot-password", methods=["POST"])
-@rate_limit(max_attempts=3, window_seconds=300)  # 3 password reset attempts per 5 minutes per IP
+@rate_limit(max_attempts=6, window_seconds=300)  # 6 password reset attempts per 5 minutes per IP
 async def forgot_password():
     data = await request.get_json()
     email = data.get("email", "").lower().strip()
