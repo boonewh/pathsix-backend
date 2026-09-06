@@ -4,3 +4,13 @@
 __pycache__/
 *.pyc
 .env
+.env.*
+.git
+.venv
+.pytest_cache
+.pytest-work*
+app.db
+storage/
+agents/
+.codex/
+.claude/

@@ -31,3 +31,20 @@ def test_rate_limits_are_independent_per_endpoint():
         assert second_login.status_code == 429
 
     asyncio.run(exercise())
+
+
+def test_forwarded_headers_cannot_reset_limit():
+    reset_rate_limit()
+    app = Quart(__name__)
+
+    @app.get('/limited')
+    @rate_limit(max_attempts=1, window_seconds=60)
+    async def limited():
+        return {'ok': True}
+
+    async def exercise():
+        client = app.test_client()
+        assert (await client.get('/limited', headers={'X-Forwarded-For': '1.2.3.4'})).status_code == 200
+        assert (await client.get('/limited', headers={'X-Forwarded-For': '5.6.7.8', 'X-Real-IP': '5.6.7.8'})).status_code == 429
+
+    asyncio.run(exercise())

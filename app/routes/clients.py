@@ -1,3 +1,4 @@
+from app.utils.record_access import can_access, require_record, validate_parents
 from quart import Blueprint, request, jsonify
 from datetime import datetime, timedelta
 from pydantic import ValidationError
@@ -166,6 +167,7 @@ async def create_client():
 
     session = SessionLocal()
     try:
+        validate_parents(session, user, data.model_dump(), ("source_lead_id",), required=False)
         client = Client(
             tenant_id=user.tenant_id,
             created_by=user.id,
@@ -234,8 +236,8 @@ async def get_client(client_id):
         # If converted from a lead, fetch the original lead info
         lead_origin = None
         if client.source_lead_id:
-            source_lead = session.query(Lead).filter(Lead.id == client.source_lead_id).first()
-            if source_lead:
+            source_lead = session.query(Lead).filter(Lead.id == client.source_lead_id, Lead.tenant_id == user.tenant_id).first()
+            if source_lead and can_access(source_lead, user):
                 lead_origin = {
                     "lead_id": source_lead.id,
                     "lead_source": source_lead.lead_source,
@@ -636,6 +638,8 @@ async def restore_client(client_id):
         if not client:
             return jsonify({"error": "Client not found or not deleted"}), 404
 
+        if not can_access(client, user):
+            return jsonify({"error": "Client not found"}), 404
         client.deleted_at = None
         client.deleted_by = None
         session.commit()

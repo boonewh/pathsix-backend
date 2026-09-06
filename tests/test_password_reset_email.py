@@ -120,7 +120,7 @@ def test_forgot_password_allows_six_requests_per_five_minutes(monkeypatch):
 
 
 def test_admin_can_send_password_reset_within_tenant(monkeypatch):
-    admin = SimpleNamespace(id=1, tenant_id=7, roles=[])
+    admin = SimpleNamespace(id=1, tenant_id=7, tenant=SimpleNamespace(is_active=True), roles=[SimpleNamespace(name="admin")])
     target = SimpleNamespace(id=2, tenant_id=7, email="user@example.test")
     auth_session = _Session(admin)
     target_session = _Session(target)
@@ -157,7 +157,7 @@ def test_admin_can_send_password_reset_within_tenant(monkeypatch):
 
 
 def test_admin_password_reset_reports_delivery_failure(monkeypatch):
-    admin = SimpleNamespace(id=1, tenant_id=7, roles=[])
+    admin = SimpleNamespace(id=1, tenant_id=7, tenant=SimpleNamespace(is_active=True), roles=[SimpleNamespace(name="admin")])
     target = SimpleNamespace(id=2, tenant_id=7, email="user@example.test")
     send_password_reset_email = AsyncMock(side_effect=RuntimeError("SMTP unavailable"))
 

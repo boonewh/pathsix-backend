@@ -18,13 +18,12 @@ _cleanup_threshold = 100
 
 
 def _get_client_ip():
-    """Extract client IP from request headers (handles proxies)."""
-    # Check common proxy headers
-    if request.headers.get('X-Forwarded-For'):
-        return request.headers.get('X-Forwarded-For').split(',')[0].strip()
-    if request.headers.get('X-Real-IP'):
-        return request.headers.get('X-Real-IP')
+    """Use the socket peer; arbitrary forwarded headers are client-controlled.
+
+    A shared proxy bucket is conservative until trusted ingress is configured.
+    """
     return request.remote_addr or 'unknown'
+
 
 
 def _cleanup_old_entries():

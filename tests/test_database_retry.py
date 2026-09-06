@@ -37,7 +37,7 @@ class _Session:
 
 
 def test_read_only_request_retries_once_after_disconnect(monkeypatch):
-    user = SimpleNamespace(id=1, is_active=True, roles=[])
+    user = SimpleNamespace(id=1, is_active=True, tenant=SimpleNamespace(is_active=True), roles=[])
     sessions = []
     handler_calls = 0
 
@@ -85,7 +85,7 @@ def test_read_only_request_retries_once_after_disconnect(monkeypatch):
 
 
 def test_write_request_is_not_retried_after_disconnect(monkeypatch):
-    user = SimpleNamespace(id=1, is_active=True, roles=[])
+    user = SimpleNamespace(id=1, is_active=True, tenant=SimpleNamespace(is_active=True), roles=[])
     sessions = []
     handler_calls = 0
 
@@ -129,3 +129,30 @@ def test_write_request_is_not_retried_after_disconnect(monkeypatch):
     assert handler_calls == 1
     assert len(sessions) == 1
     assert sessions[0].closed
+
+
+def test_get_with_committed_activity_is_not_replayed(monkeypatch):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    user = SimpleNamespace(id=1, tenant_id=1, roles=[], tenant=SimpleNamespace(is_active=True))
+    monkeypatch.setattr(auth_utils, 'SessionLocal', lambda: _Session(user))
+    monkeypatch.setattr(auth_utils, 'decode_token', lambda token: {'sub': 1})
+    app = Quart(__name__)
+    calls = []
+    engine = create_engine('sqlite://')
+
+    @app.get('/view')
+    @auth_utils.requires_auth()
+    async def view():
+        calls.append(1)
+        with Session(engine) as session:
+            session.commit()
+        raise OperationalError('SELECT 1', {}, Exception('disconnect'), connection_invalidated=True)
+
+    async def exercise():
+        response = await app.test_client().get('/view', headers={'Authorization': 'Bearer test'})
+        assert response.status_code == 500
+
+    asyncio.run(exercise())
+    assert len(calls) == 1
+    engine.dispose()

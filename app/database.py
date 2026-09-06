@@ -1,4 +1,4 @@
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import Session, sessionmaker, declarative_base, with_loader_criteria
 from sqlalchemy import create_engine, event
 from app.config import SQLALCHEMY_DATABASE_URI, SLOW_QUERY_THRESHOLD_MS
 import os
@@ -42,3 +42,32 @@ def receive_after_cursor_execute(conn, cursor, statement, parameters, context, e
 # the same Session. Always return a fresh Session instead.
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
+
+
+@event.listens_for(Session, "before_flush")
+@event.listens_for(Session, "before_commit")
+def mark_request_write(session, *args):
+    from quart import has_request_context, request
+    if has_request_context():
+        request.database_write_started = True
+
+
+@event.listens_for(Session, "do_orm_execute")
+def scope_authenticated_queries(state):
+    """Also scope relationship loads and joins, including legacy malformed rows.
+
+    Background operations still require explicit tenant predicates. This is an ORM
+    defense in depth for authenticated HTTP requests, not database row security.
+    """
+    from quart import has_request_context, request
+    if not has_request_context() or not hasattr(request, "user"):
+        return
+    if state.is_insert or state.is_update or state.is_delete:
+        request.database_write_started = True
+    tenant_id = request.user.tenant_id
+    for mapper in Base.registry.mappers:
+        model = mapper.class_
+        if hasattr(model, "tenant_id"):
+            state.statement = state.statement.options(with_loader_criteria(
+                model, model.tenant_id == tenant_id, include_aliases=True,
+            ))

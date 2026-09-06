@@ -45,7 +45,7 @@ def read_file(file_storage):
         raise ValueError("Unsupported file format")
 
 @imports_bp.route("/leads/preview", methods=["POST"])
-@requires_auth()
+@requires_auth(roles=["admin"])
 async def preview_leads():
     files = await request.files
     if 'file' not in files:
@@ -65,7 +65,7 @@ async def preview_leads():
         return jsonify({"error": str(e)}), 400
 
 @imports_bp.route("/leads/submit", methods=["POST"])
-@requires_auth()
+@requires_auth(roles=["admin"])
 async def submit_leads():
     user = request.user
     form = await request.form
@@ -199,7 +199,7 @@ async def submit_leads():
 
 
 @imports_bp.route("/leads/template", methods=["GET"])
-@requires_auth()
+@requires_auth(roles=["admin"])
 async def get_lead_template():
     headers = [
         "Company Name", "Contact Person", "Contact Title", "Email", "Phone",

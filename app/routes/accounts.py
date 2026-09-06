@@ -1,3 +1,4 @@
+from app.utils.record_access import can_access, require_record, validate_parents
 from quart import Blueprint, request, jsonify
 from datetime import datetime
 from app.models import Account, ActivityLog, ActivityType
@@ -33,7 +34,7 @@ async def list_accounts():
                 "status": a.status,
                 "opened_on": a.opened_on.isoformat() + "Z" if a.opened_on else None,
                 "notes": a.notes
-            } for a in accounts
+            } for a in accounts if can_access(a.client, user)
         ])
         response.headers["Cache-Control"] = "no-store"
         return response
@@ -52,6 +53,8 @@ async def create_account():
     try:
         if not data.get("client_id") or not data.get("account_number"):
             return jsonify({"error": "client_id and account_number are required"}), 400
+
+        validate_parents(session, user, data, ("client_id",))
 
         status = data.get("status", ACCOUNT_STATUS_OPTIONS[0])
         if status not in ACCOUNT_STATUS_OPTIONS:
@@ -97,6 +100,9 @@ async def update_account(account_id):
         if not account:
             return jsonify({"error": "Account not found"}), 404
 
+        validate_parents(session, user, {}, ("client_id",), account)
+        validate_parents(session, user, data, ("client_id",), account)
+
         for field in ["account_number", "account_name", "notes", "client_id"]:
             if field in data:
                 setattr(account, field, data[field])
@@ -139,6 +145,7 @@ async def delete_account(account_id):
         if not account:
             return jsonify({"error": "Account not found"}), 404
 
+        validate_parents(session, user, {}, ("client_id",), account)
         session.delete(account)
         session.commit()
         return jsonify({"message": "Account deleted"})
@@ -161,6 +168,7 @@ async def get_account(account_id):
         if not account:
             return jsonify({"error": "Account not found"}), 404
 
+        validate_parents(session, user, {}, ("client_id",), account)
         log = ActivityLog(
             tenant_id=user.tenant_id,
             user_id=user.id,

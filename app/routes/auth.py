@@ -34,7 +34,7 @@ async def login():
             .options(joinedload(User.tenant), joinedload(User.roles))\
             .filter_by(email=email)\
             .first()
-        if not user or not verify_password(password, user.password_hash):
+        if not user or not user.is_active or not user.tenant or not user.tenant.is_active or not verify_password(password, user.password_hash):
             return jsonify({"error": "Invalid credentials"}), 401
 
         token = create_token(user)
@@ -105,6 +105,7 @@ async def forgot_password():
         session.close()
 
 @auth_bp.route("/reset-password", methods=["POST"])
+@rate_limit(max_attempts=10, window_seconds=300)
 async def reset_password():
     data = await request.get_json()
     token = data.get("token")

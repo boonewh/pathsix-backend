@@ -2,7 +2,7 @@ import bcrypt
 import logging
 import sentry_sdk
 import time
-from authlib.jose import jwt, JoseError
+from authlib.jose import jwt, JoseError, JsonWebToken
 from quart import request, jsonify, current_app
 from functools import wraps
 from app.models import User
@@ -37,7 +37,12 @@ def create_token(user: User) -> str:
     return jwt.encode(header, payload, current_app.config["SECRET_KEY"]).decode("utf-8")
 
 def decode_token(token: str):
-    return jwt.decode(token, current_app.config["SECRET_KEY"])
+    claims = JsonWebToken(["HS256"]).decode(token, current_app.config["SECRET_KEY"],
+        claims_options={"sub": {"essential": True}, "exp": {"essential": True}})
+    claims.validate()
+    if not isinstance(claims["sub"], (int, str)) or not str(claims["sub"]).isdigit():
+        raise JoseError("Invalid subject")
+    return claims
 
 def requires_auth(roles: list = None):
     def wrapper(fn):
@@ -52,7 +57,7 @@ def requires_auth(roles: list = None):
             token = auth_header.split(" ")[1]
             try:
                 payload = decode_token(token)
-            except JoseError:
+            except (JoseError, ValueError, TypeError):
                 return jsonify({"error": "Invalid token"}), 401
 
             # SQLAlchemy cannot transparently recover when PostgreSQL drops a
@@ -64,20 +69,23 @@ def requires_auth(roles: list = None):
                 session = SessionLocal()
                 try:
                     user = session.query(User)\
-                        .options(joinedload(User.roles))\
+                        .options(joinedload(User.roles), joinedload(User.tenant))\
                         .filter(User.id == payload["sub"], User.is_active == True)\
                         .first()
 
                     if not user:
                         return jsonify({"error": "User not found"}), 401
-                    if roles and not any(role in payload["roles"] for role in roles):
+                    if not user.tenant or not user.tenant.is_active:
+                        return jsonify({"error": "Tenant is inactive"}), 403
+                    if roles and not any(role.name in roles for role in user.roles):
                         return jsonify({"error": "Forbidden"}), 403
 
                     request.user = user
                     return await fn(*args, **kwargs)
                 except DBAPIError as exc:
                     _rollback_quietly(session)
-                    if exc.connection_invalidated and attempt + 1 < max_attempts:
+                    if (exc.connection_invalidated and attempt + 1 < max_attempts
+                            and not getattr(request, "database_write_started", False)):
                         logger.warning(
                             "Retrying read-only request after database disconnect",
                             extra={"path": request.path, "attempt": attempt + 1},

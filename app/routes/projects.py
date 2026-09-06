@@ -1,3 +1,4 @@
+from app.utils.record_access import can_access, require_record, validate_parents
 from quart import Blueprint, request, jsonify
 from datetime import datetime
 from pydantic import ValidationError
@@ -158,6 +159,9 @@ async def get_project(project_id):
         if not project:
             return jsonify({"error": "Project not found"}), 404
 
+        if not can_access(project, user):
+            return jsonify({"error": "Project not found"}), 404
+
         # 🆕 Add activity log for "Recently Touched"
         log = ActivityLog(
             tenant_id=user.tenant_id,
@@ -217,6 +221,7 @@ async def create_project():
 
     session = SessionLocal()
     try:
+        validate_parents(session, user, data.model_dump(), ("client_id", "lead_id"), required=False)
         project = Project(
             tenant_id=user.tenant_id,
             client_id=data.client_id,
@@ -279,6 +284,9 @@ async def update_project(project_id):
         if not project:
             return jsonify({"error": "Project not found"}), 404
 
+        if not can_access(project, user):
+            return jsonify({"error": "Project not found"}), 404
+        validate_parents(session, user, data.model_dump(exclude_unset=True), ("client_id", "lead_id"), project, required=False)
         # Update fields that were provided and validated
         update_data = data.model_dump(exclude_unset=True)
         
@@ -637,6 +645,8 @@ async def delete_project(project_id):
         if project.deleted_at is not None:
             return jsonify({"message": "Project already deleted"}), 200
 
+        if not can_access(project, user):
+            return jsonify({"error": "Project not found"}), 404
         project.deleted_at = datetime.utcnow()
         project.deleted_by = user.id
 

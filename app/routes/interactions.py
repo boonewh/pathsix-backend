@@ -1,3 +1,4 @@
+from app.utils.record_access import can_access, require_record, validate_parents
 from quart import Blueprint, request, jsonify, Response
 from datetime import datetime
 from pydantic import ValidationError
@@ -209,48 +210,7 @@ async def create_interaction():
 
     session = SessionLocal()
     try:
-        # Validate exactly one entity is specified
-        entity_ids = [data.client_id, data.lead_id, data.project_id]
-        entity_count = sum(bool(x) for x in entity_ids)
-        
-        if entity_count != 1:
-            return jsonify({"error": "Interaction must link to exactly one entity (client, lead, or project)"}), 400
-
-        # Validate user has access to the entity
-        if data.client_id:
-            entity = session.query(Client).filter(
-                Client.id == data.client_id,
-                Client.tenant_id == user.tenant_id,
-                Client.deleted_at == None
-            ).first()
-            if not entity:
-                return jsonify({"error": "Client not found"}), 404
-            if not any(role.name == "admin" for role in user.roles):
-                if entity.created_by != user.id and entity.assigned_to != user.id:
-                    return jsonify({"error": "Access denied to this client"}), 403
-                    
-        elif data.lead_id:
-            entity = session.query(Lead).filter(
-                Lead.id == data.lead_id,
-                Lead.tenant_id == user.tenant_id,
-                Lead.deleted_at == None
-            ).first()
-            if not entity:
-                return jsonify({"error": "Lead not found"}), 404
-            if not any(role.name == "admin" for role in user.roles):
-                if entity.created_by != user.id and entity.assigned_to != user.id:
-                    return jsonify({"error": "Access denied to this lead"}), 403
-                    
-        elif data.project_id:
-            entity = session.query(Project).filter(
-                Project.id == data.project_id,
-                Project.tenant_id == user.tenant_id
-            ).first()
-            if not entity:
-                return jsonify({"error": "Project not found"}), 404
-            if not any(role.name == "admin" for role in user.roles):
-                if entity.created_by != user.id:
-                    return jsonify({"error": "Access denied to this project"}), 403
+        validate_parents(session, user, data.model_dump(), ("client_id", "lead_id", "project_id"))
 
         interaction = Interaction(
             tenant_id=user.tenant_id,
@@ -305,21 +265,11 @@ async def update_interaction(interaction_id):
         if not interaction:
             return jsonify({"error": "Interaction not found"}), 404
 
-        # Validate user has access to the associated entity
-        if not any(role.name == "admin" for role in user.roles):
-            has_access = False
-            if interaction.client_id:
-                has_access = interaction.client.created_by == user.id or interaction.client.assigned_to == user.id
-            elif interaction.lead_id:
-                has_access = interaction.lead.created_by == user.id or interaction.lead.assigned_to == user.id
-            elif interaction.project_id:
-                has_access = interaction.project.created_by == user.id
-                
-            if not has_access:
-                return jsonify({"error": "Access denied"}), 403
+        validate_parents(session, user, {}, ("client_id", "lead_id", "project_id"), interaction)
 
         # Update fields with validated data
         update_data = data.model_dump(exclude_unset=True)
+        validate_parents(session, user, update_data, ("client_id", "lead_id", "project_id"), interaction)
         
         for field, value in update_data.items():
             if field == "email":
@@ -352,18 +302,7 @@ async def delete_interaction(interaction_id):
         if not interaction:
             return jsonify({"error": "Interaction not found"}), 404
 
-        # Validate user has access to delete
-        if not any(role.name == "admin" for role in user.roles):
-            has_access = False
-            if interaction.client_id:
-                has_access = interaction.client.created_by == user.id or interaction.client.assigned_to == user.id
-            elif interaction.lead_id:
-                has_access = interaction.lead.created_by == user.id or interaction.lead.assigned_to == user.id
-            elif interaction.project_id:  # NEW: Project access check
-                has_access = interaction.project.created_by == user.id
-                
-            if not has_access:
-                return jsonify({"error": "Access denied"}), 403
+        validate_parents(session, user, {}, ("client_id", "lead_id", "project_id"), interaction)
 
         session.delete(interaction)
         session.commit()
@@ -385,6 +324,8 @@ async def transfer_interactions():
 
     session = SessionLocal()
     try:
+        require_record(session, Lead, from_lead_id, user)
+        require_record(session, Client, to_client_id, user)
         interactions = session.query(Interaction).filter(
             Interaction.tenant_id == user.tenant_id,
             Interaction.lead_id == from_lead_id
@@ -405,7 +346,9 @@ async def transfer_interactions():
 
 
 @interactions_bp.route("/<int:interaction_id>/calendar.ics", methods=["GET"])
+@requires_auth()
 async def get_interaction_ics(interaction_id):
+    user = request.user
     session = SessionLocal()
     try:
         interaction = session.query(Interaction).options(
@@ -413,11 +356,14 @@ async def get_interaction_ics(interaction_id):
             joinedload(Interaction.lead),
             joinedload(Interaction.project)  # NEW: Load project
         ).filter(
-            Interaction.id == interaction_id
+            Interaction.id == interaction_id,
+            Interaction.tenant_id == user.tenant_id
         ).first()
 
         if not interaction:
             return Response("Interaction not found", status=404)
+
+        validate_parents(session, user, {}, ("client_id", "lead_id", "project_id"), interaction)
 
         if not interaction.follow_up:
             return Response("This interaction has no follow-up date", status=400)
@@ -475,6 +421,7 @@ async def get_interaction_ics(interaction_id):
             ics_content,
             content_type="text/calendar",
             headers={
+                "Cache-Control": "no-store",
                 "Content-Disposition": f"attachment; filename=interaction-{interaction.id}.ics"
             }
         )
@@ -500,18 +447,7 @@ async def complete_interaction(interaction_id):
         if not interaction:
             return jsonify({"error": "Interaction not found"}), 404
 
-        # Validate user has access
-        if not any(role.name == "admin" for role in user.roles):
-            has_access = False
-            if interaction.client_id:
-                has_access = interaction.client.created_by == user.id or interaction.client.assigned_to == user.id
-            elif interaction.lead_id:
-                has_access = interaction.lead.created_by == user.id or interaction.lead.assigned_to == user.id
-            elif interaction.project_id:  # NEW: Project access check
-                has_access = interaction.project.created_by == user.id
-                
-            if not has_access:
-                return jsonify({"error": "Access denied"}), 403
+        validate_parents(session, user, {}, ("client_id", "lead_id", "project_id"), interaction)
 
         interaction.followup_status = FollowUpStatus.completed
         session.commit()

@@ -1,3 +1,4 @@
+from app.utils.record_access import can_access, require_record, validate_parents
 from quart import Blueprint, request, jsonify
 from pydantic import ValidationError
 from app.models import Contact
@@ -19,6 +20,11 @@ async def list_contacts():
 
     session = SessionLocal()
     try:
+        if not client_id and not lead_id:
+            return jsonify([])
+        if client_id and lead_id:
+            return jsonify({"error": "Supply one parent"}), 400
+        validate_parents(session, user, {"client_id": client_id} if client_id else {"lead_id": lead_id}, ("client_id", "lead_id"))
         query = session.query(Contact).filter(Contact.tenant_id == user.tenant_id)
 
         if client_id:
@@ -66,6 +72,7 @@ async def create_contact():
 
     session = SessionLocal()
     try:
+        validate_parents(session, user, data.model_dump(), ("client_id", "lead_id"))
         contact = Contact(
             tenant_id=user.tenant_id,
             client_id=data.client_id,
@@ -114,6 +121,8 @@ async def update_contact(contact_id):
         if not contact:
             return jsonify({"error": "Contact not found"}), 404
 
+        validate_parents(session, user, {}, ("client_id", "lead_id"), contact)
+        validate_parents(session, user, data.model_dump(exclude_unset=True), ("client_id", "lead_id"), contact)
         # Update fields with validated data
         update_data = data.model_dump(exclude_unset=True)
         
@@ -147,6 +156,7 @@ async def delete_contact(contact_id):
         if not contact:
             return jsonify({"error": "Contact not found"}), 404
 
+        validate_parents(session, user, {}, ("client_id", "lead_id"), contact)
         session.delete(contact)
         session.commit()
         return jsonify({"message": "Contact deleted"})

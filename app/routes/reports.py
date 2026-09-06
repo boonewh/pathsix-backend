@@ -14,7 +14,7 @@ reports_bp = Blueprint("reports", __name__, url_prefix="/api/reports")
 # ============================================================================
 @reports_bp.route("", methods=["GET"])
 @reports_bp.route("/", methods=["GET"])
-@requires_auth()
+@requires_auth(roles=["admin"])
 async def get_reports():
     user = request.user
     session = SessionLocal()
@@ -78,7 +78,7 @@ async def get_reports():
         session.close()
 
 @reports_bp.route("/summary", methods=["POST"])
-@requires_auth()
+@requires_auth(roles=["admin"])
 async def summary_report():
     user = request.user
     session = SessionLocal()
@@ -135,7 +135,7 @@ async def summary_report():
 
 # 1. SALES PIPELINE REPORT
 @reports_bp.route("/pipeline", methods=["GET"])
-@requires_auth()
+@requires_auth(roles=["admin"])
 async def sales_pipeline():
     """Tracks leads by stage and value."""
     user = request.user
@@ -205,7 +205,7 @@ async def sales_pipeline():
 
 # 2. LEAD SOURCE REPORT
 @reports_bp.route("/lead-source", methods=["GET"])
-@requires_auth()
+@requires_auth(roles=["admin"])
 async def lead_source_report():
     """Shows which sources bring in the best leads and highest conversions."""
     user = request.user
@@ -244,7 +244,7 @@ async def lead_source_report():
 
 # 3. CONVERSION RATE REPORT
 @reports_bp.route("/conversion-rate", methods=["GET"])
-@requires_auth()
+@requires_auth(roles=["admin"])
 async def conversion_rate_report():
     """Measures how well leads move through funnel and who's closing them."""
     user = request.user
@@ -329,7 +329,7 @@ async def conversion_rate_report():
 
 # 4. REVENUE BY CLIENT REPORT
 @reports_bp.route("/revenue-by-client", methods=["GET"])
-@requires_auth()
+@requires_auth(roles=["admin"])
 async def revenue_by_client():
     """Aggregates all project totals per client, with value_type breakdown."""
     user = request.user
@@ -458,7 +458,7 @@ async def user_activity_report():
 
 # 6. FOLLOW-UP / INACTIVITY REPORT
 @reports_bp.route("/follow-ups", methods=["GET"])
-@requires_auth()
+@requires_auth(roles=["admin"])
 async def follow_up_report():
     """Highlights contacts overdue for outreach or with no recent activity."""
     user = request.user
@@ -545,7 +545,7 @@ async def follow_up_report():
 
 # 7. CLIENT RETENTION REPORT
 @reports_bp.route("/client-retention", methods=["GET"])
-@requires_auth()
+@requires_auth(roles=["admin"])
 async def client_retention_report():
     """Shows how many clients renewed, stayed active, or dropped off over time."""
     user = request.user
@@ -594,7 +594,7 @@ async def client_retention_report():
 
 # 8. PROJECT PERFORMANCE REPORT
 @reports_bp.route("/project-performance", methods=["GET"])
-@requires_auth()
+@requires_auth(roles=["admin"])
 async def project_performance_report():
     """Summarizes project outcomes, durations, or success rates."""
     user = request.user
@@ -654,7 +654,7 @@ async def project_performance_report():
 
 # 9. UPCOMING TASKS REPORT
 @reports_bp.route("/upcoming-tasks", methods=["GET"])
-@requires_auth()
+@requires_auth(roles=["admin"])
 async def upcoming_tasks_report():
     """Lists upcoming meetings, calls, or follow-ups for the team."""
     user = request.user
@@ -726,7 +726,7 @@ async def upcoming_tasks_report():
 
 # 10. REVENUE FORECAST REPORT
 @reports_bp.route("/revenue-forecast", methods=["GET"])
-@requires_auth()
+@requires_auth(roles=["admin"])
 async def revenue_forecast_report():
     """
     Predicts likely future income based on weighted pipeline stages.
@@ -828,7 +828,7 @@ async def revenue_forecast_report():
 
 # 11. SUBSCRIPTION INCOME REPORT
 @reports_bp.route("/subscriptions/income", methods=["GET"])
-@requires_auth()
+@requires_auth(roles=["admin"])
 async def subscription_income_report():
     """
     Subscription income summary.
@@ -901,7 +901,7 @@ async def subscription_income_report():
 
 # 12. UPCOMING SUBSCRIPTION RENEWALS REPORT
 @reports_bp.route("/subscriptions/upcoming-renewals", methods=["GET"])
-@requires_auth()
+@requires_auth(roles=["admin"])
 async def upcoming_renewals_report():
     """
     Lists yearly subscriptions renewing within the next N days (default 60).
@@ -957,7 +957,7 @@ async def upcoming_renewals_report():
 
 # 13. CONVERTED LEADS REPORT
 @reports_bp.route("/converted-leads", methods=["GET"])
-@requires_auth()
+@requires_auth(roles=["admin"])
 async def converted_leads_report():
     """
     Returns all leads marked as 'won' (converted to clients).
