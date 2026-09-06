@@ -50,6 +50,16 @@ def crm(tmp_path, monkeypatch):
                     Interaction(id=1, tenant_id=1, client_id=1, summary='A', follow_up=datetime(2026, 9, 10)),
                     Interaction(id=2, tenant_id=2, client_id=2, summary='B', follow_up=datetime(2026, 9, 10))])
         db.commit()
+        if admin_engine:
+            # Explicit fixture IDs do not advance PostgreSQL sequences (unlike
+            # SQLite). Keep subsequent API-created rows clear of those IDs.
+            for model in (Tenant, Role, User, Client, Lead, Project, Account, Contact, Interaction):
+                table = model.__tablename__
+                db.execute(text(
+                    f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
+                    f"(SELECT MAX(id) FROM {table}))"
+                ))
+            db.commit()
     app = Quart(__name__)
     app.config['SECRET_KEY'] = 'test-only-signing-key'
     register_blueprints(app)
