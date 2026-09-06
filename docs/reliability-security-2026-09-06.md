@@ -56,9 +56,41 @@ only test-domain users, two clients and two leads. This matches the synthetic se
 Staging secrets contain DATABASE_URL, SECRET_KEY and CORS_ALLOWED_ORIGINS only;
 no SMTP secrets are configured there. Production Resend configuration was not copied.
 
-Staging verification results will be appended after deployment. The staging test
-runner refuses any other Fly app/database host and uses disposable PostgreSQL schemas.
-It does not seed, restore or change the public schema, and SMTP is mocked in tests.
+Final staging backend: release **v8**, image/revision
+`186e6c94461083be1a6642293a332145c237f6dd` (application fixes `7c4fd50`).
+Both Fly machines passed deployment health checks. The first PostgreSQL run found
+fixture IDs did not advance PostgreSQL sequences; `186e6c9` fixes the fixture,
+without changing application behavior. The corrected full suite passed **56 tests**
+against PostgreSQL in **24.12s**. Local suite also passed 56 tests after correction.
+Post-test verification found **zero** remaining `security_test_*` schemas and
+unchanged demo counts: one tenant, two clients, two leads, only test-domain users.
+
+Frontend staging: `cdab5ed4c92fac04e0e01d0404e3de57e9c1aa0d`, merged from the
+locally tested recovery branch. Its application tree exactly matches `540641b`.
+Vercel succeeded for the staging project; the normal CRM project created only a
+preview. Neither production main nor the real production CRM deployment changed.
+Staging URL: https://pathsixdesigns-crm-staging.vercel.app
+Immutable deployment: https://pathsixdesigns-crm-staging-9o3csfb49-boonewhs-projects.vercel.app
+The separate staging checkout is `G:\Projects\pathsixdesigns-crm-staging`, branch
+`codex/crm-staging-validation`, pushed only to remote `staging`.
+
+Live browser smoke: synthetic admin login and dashboard passed with zero page errors;
+all observed API traffic targeted only `pathsixsolutions-backend-staging.fly.dev`.
+22 authenticated read endpoints passed (me, clients, leads, interactions, recent
+activity, search, accounts, projects and all GET reports). Public calendar returned
+401 and removed backup API returned 404. Staging SMTP delivery remains unverified
+because staging has no mail secrets; SMTP behavior is covered by mocked tests.
+
+Re-run staging suite using these commands (the script checks app and database host):
+
+```text
+flyctl ssh console --app pathsixsolutions-backend-staging --machine 82549ec7079218 -C '/venv/bin/pip install --target /tmp/crm-test-deps -r /app/requirements-test.txt packaging==24.2'
+flyctl ssh console --app pathsixsolutions-backend-staging --machine 82549ec7079218 -C 'env PYTHONPATH=/tmp/crm-test-deps /venv/bin/python /app/scripts/test_staging_security.py'
+```
+
+The runner uses disposable schemas and mocks SMTP. It does not seed or restore the
+public schema. PostgreSQL tests are also configured in CI; no remote backend CI
+run or branch-protection setting change was made during this session.
 
 ## Remaining roadmap boundaries
 
