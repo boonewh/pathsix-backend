@@ -1,4 +1,6 @@
 import bcrypt
+import logging
+import sentry_sdk
 import time
 from authlib.jose import jwt, JoseError
 from quart import request, jsonify, current_app
@@ -6,8 +8,17 @@ from functools import wraps
 from app.models import User
 from app.database import SessionLocal
 from itsdangerous import URLSafeTimedSerializer
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.orm import joinedload
+
+logger = logging.getLogger(__name__)
+
+
+def _rollback_quietly(session):
+    try:
+        session.rollback()
+    except SQLAlchemyError:
+        pass
 
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
@@ -44,25 +55,43 @@ def requires_auth(roles: list = None):
             except JoseError:
                 return jsonify({"error": "Invalid token"}), 401
 
-            session = SessionLocal()
-            try:
-                user = session.query(User)\
-                    .options(joinedload(User.roles))\
-                    .filter(User.id == payload["sub"], User.is_active == True)\
-                    .first()
-            except SQLAlchemyError:
-                session.rollback()
-                return jsonify({"error": "Database error"}), 500
-            finally:
-                session.close()
+            # SQLAlchemy cannot transparently recover when PostgreSQL drops a
+            # connection mid-query. Retrying the whole transaction is safe for
+            # read-only requests, but not for writes that may already have committed.
+            max_attempts = 2 if request.method in {"GET", "HEAD"} else 1
 
-            if not user:
-                return jsonify({"error": "User not found"}), 401
-            if roles and not any(role in payload["roles"] for role in roles):
-                return jsonify({"error": "Forbidden"}), 403
+            for attempt in range(max_attempts):
+                session = SessionLocal()
+                try:
+                    user = session.query(User)\
+                        .options(joinedload(User.roles))\
+                        .filter(User.id == payload["sub"], User.is_active == True)\
+                        .first()
 
-            request.user = user
-            return await fn(*args, **kwargs)
+                    if not user:
+                        return jsonify({"error": "User not found"}), 401
+                    if roles and not any(role in payload["roles"] for role in roles):
+                        return jsonify({"error": "Forbidden"}), 403
+
+                    request.user = user
+                    return await fn(*args, **kwargs)
+                except DBAPIError as exc:
+                    _rollback_quietly(session)
+                    if exc.connection_invalidated and attempt + 1 < max_attempts:
+                        logger.warning(
+                            "Retrying read-only request after database disconnect",
+                            extra={"path": request.path, "attempt": attempt + 1},
+                        )
+                        continue
+
+                    sentry_sdk.capture_exception(exc)
+                    return jsonify({"error": "Database error"}), 500
+                except SQLAlchemyError as exc:
+                    _rollback_quietly(session)
+                    sentry_sdk.capture_exception(exc)
+                    return jsonify({"error": "Database error"}), 500
+                finally:
+                    session.close()
         return decorated
     return wrapper
 

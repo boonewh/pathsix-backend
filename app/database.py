@@ -1,4 +1,4 @@
-from sqlalchemy.orm import scoped_session, sessionmaker, declarative_base
+from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy import create_engine, event
 from app.config import SQLALCHEMY_DATABASE_URI, SLOW_QUERY_THRESHOLD_MS
 import os
@@ -23,6 +23,7 @@ engine = create_engine(
     future=True,
     pool_pre_ping=True,     # Test connections before use, replaces stale ones
     pool_recycle=300,        # Recycle connections every 5 minutes
+    pool_use_lifo=True,      # Prefer recently verified connections during quiet periods
     pool_size=5,             # Base pool size
     max_overflow=10,         # Allow up to 15 total connections
 )
@@ -36,5 +37,8 @@ def receive_before_cursor_execute(conn, cursor, statement, parameters, context, 
 def receive_after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
     _log_slow_query(conn, cursor, statement, parameters, context, executemany)
 
-SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
+# Quart serves concurrent requests as async tasks on the same thread. A default
+# scoped_session is thread-local, so separate requests can accidentally receive
+# the same Session. Always return a fresh Session instead.
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
