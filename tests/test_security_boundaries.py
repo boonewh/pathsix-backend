@@ -30,7 +30,7 @@ def crm(tmp_path, monkeypatch):
         engine = create_engine(f"sqlite:///{tmp_path / 'security.db'}")
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine)
-    for name in ('accounts', 'contacts', 'projects', 'interactions', 'clients', 'auth', 'reports', 'imports', 'users'):
+    for name in ('accounts', 'contacts', 'projects', 'interactions', 'clients', 'auth', 'reports', 'imports', 'users', 'search'):
         monkeypatch.setattr(importlib.import_module(f'app.routes.{name}'), 'SessionLocal', factory)
     monkeypatch.setattr(auth_utils, 'SessionLocal', factory)
     with factory() as db:
@@ -234,3 +234,102 @@ def test_every_data_route_requires_authentication(crm):
 ])
 def test_valid_create_remains_available(crm, resource, body):
     assert crm[0]('POST', '/api/' + resource, body)[0] == 201
+
+
+def test_search_service_enforces_tenant_without_http_context(crm):
+    from app.services.principal import Principal
+    from app.services.search import SearchService
+    _, factory, _ = crm
+    with factory() as db:
+        for tenant in (1, 2):
+            results = SearchService(db, Principal(tenant, tenant, frozenset({'admin'}))).search('Private')
+            assert {(r['type'], r['id']) for r in results} == {('client', tenant), ('lead', tenant), ('project', tenant)}
+        with pytest.raises(TypeError):
+            SearchService(db, None)
+
+
+def test_search_uses_assignment_and_parent_access(crm):
+    import json
+    from app.services.principal import Principal
+    from app.services.search import SearchService
+    call, factory, _ = crm
+    with factory() as db:
+        db.get(Client, 1).assigned_to = 3
+        db.get(Lead, 1).assigned_to = 3
+        db.get(Account, 1).account_name = 'Private account'
+        db.get(Project, 1).client_id = 1
+        db.commit()
+        expected = {('client', 1), ('lead', 1), ('account', 1), ('project', 1)}
+        results = SearchService(db, Principal(3, 1, frozenset())).search('Private')
+        assert {(r['type'], r['id']) for r in results} == expected
+    status, body = call('GET', '/api/search?q=Private&tenant_id=2', user=3)
+    assert status == 200
+    assert {(r['type'], r['id']) for r in json.loads(body)} == expected
+    with factory() as db:
+        # Direct assignment overrides parent inheritance and creator access.
+        db.get(Project, 1).assigned_to = 1
+        db.commit()
+        assert not any(r['type'] == 'project' for r in SearchService(db, Principal(3, 1, frozenset())).search('Private'))
+        db.get(Project, 1).assigned_to = 3
+        db.get(Client, 1).assigned_to = None
+        db.commit()
+        results = SearchService(db, Principal(3, 1, frozenset())).search('Private')
+        assert any(r['type'] == 'project' and r['link'] == '/projects/1' for r in results)
+        assert not any(r['type'] in {'client', 'account'} for r in results)
+
+
+def test_search_excludes_deleted_and_malformed_parents_without_http(crm):
+    from app.services.principal import Principal
+    from app.services.search import SearchService
+    _, factory, _ = crm
+    with factory() as db:
+        db.get(Account, 1).account_name = 'Private account'
+        db.get(Account, 1).client_id = 2
+        db.get(Project, 1).client_id = 2
+        db.commit()
+        service = SearchService(db, Principal(1, 1, frozenset({'admin'})))
+        assert {r['type'] for r in service.search('Private')} == {'client', 'lead'}
+        db.get(Project, 1).client_id = 1
+        db.get(Account, 1).client_id = 1
+        db.get(Client, 1).deleted_at = datetime.utcnow()
+        db.get(Lead, 1).deleted_at = datetime.utcnow()
+        db.commit()
+        assert service.search('Private') == []
+
+
+def test_search_bounds_literal_wildcards_and_user_visibility(crm):
+    from app.services.principal import Principal
+    from app.services.search import SearchService
+    call, factory, _ = crm
+    with factory() as db:
+        service = SearchService(db, Principal(1, 1, frozenset({'admin'})))
+        assert service.search('   ') == []
+        assert service.search('%') == []
+        assert service.search('_') == []
+        db.get(Client, 1).name = '100% private_value'
+        db.commit()
+        assert [r['id'] for r in service.search('%')] == [1]
+        assert [r['id'] for r in service.search('_')] == [1]
+        with pytest.raises(ValueError):
+            service.search('x' * 201)
+        with pytest.raises(ValueError):
+            service.search('private', limit=21)
+        # Ordinary users must not receive user-directory results, even with admin claims.
+        assert SearchService(db, Principal(3, 1, frozenset())).search('example.test') == []
+        assert len(service.search('example.test', limit=1)) == 1
+    assert call('GET', '/api/search?q=' + 'x' * 201)[0] == 400
+    assert call('GET', '/api/search?q=example.test', user=3)[1] == '[]\n'
+
+
+def test_search_rechecks_current_roles_each_request(crm):
+    import json
+    call, factory, _ = crm
+    assert len(json.loads(call('GET', '/api/search?q=example.test')[1])) == 2
+    with factory() as db:
+        db.get(User, 1).roles = []
+        db.commit()
+    assert call('GET', '/api/search?q=example.test')[1] == '[]\n'
+    with factory() as db:
+        db.get(Tenant, 1).is_active = False
+        db.commit()
+    assert call('GET', '/api/search?q=Private')[0] == 403

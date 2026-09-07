@@ -37,7 +37,7 @@ class _Session:
 
 
 def test_read_only_request_retries_once_after_disconnect(monkeypatch):
-    user = SimpleNamespace(id=1, is_active=True, tenant=SimpleNamespace(is_active=True), roles=[])
+    user = SimpleNamespace(id=1, tenant_id=1, is_active=True, tenant=SimpleNamespace(is_active=True), roles=[])
     sessions = []
     handler_calls = 0
 
@@ -85,7 +85,7 @@ def test_read_only_request_retries_once_after_disconnect(monkeypatch):
 
 
 def test_write_request_is_not_retried_after_disconnect(monkeypatch):
-    user = SimpleNamespace(id=1, is_active=True, tenant=SimpleNamespace(is_active=True), roles=[])
+    user = SimpleNamespace(id=1, tenant_id=1, is_active=True, tenant=SimpleNamespace(is_active=True), roles=[])
     sessions = []
     handler_calls = 0
 

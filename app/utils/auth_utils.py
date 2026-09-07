@@ -6,6 +6,7 @@ from authlib.jose import jwt, JoseError, JsonWebToken
 from quart import request, jsonify, current_app
 from functools import wraps
 from app.models import User
+from app.services.principal import Principal
 from app.database import SessionLocal
 from itsdangerous import URLSafeTimedSerializer
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
@@ -80,6 +81,7 @@ def requires_auth(roles: list = None):
                     if roles and not any(role.name in roles for role in user.roles):
                         return jsonify({"error": "Forbidden"}), 403
 
+                    request.principal = Principal(user.id, user.tenant_id, frozenset(role.name for role in user.roles))
                     request.user = user
                     return await fn(*args, **kwargs)
                 except DBAPIError as exc:
