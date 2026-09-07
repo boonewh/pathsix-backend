@@ -24,7 +24,7 @@ def main():
     os.chdir(Path(__file__).resolve().parents[1])
     sys.path.insert(0, str(Path.cwd()))
     import pytest
-    raise SystemExit(pytest.main(["-q", "tests", "--disable-warnings", "--basetemp=/tmp/crm-security-tests"]))
+    raise SystemExit(pytest.main(["-q", "tests", "--tb=no", "--disable-warnings", "--basetemp=/tmp/crm-security-tests"]))
 
 
 if __name__ == "__main__":
