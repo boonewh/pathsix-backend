@@ -2,6 +2,7 @@
 from sqlalchemy import and_, or_
 from app.models import Client, Lead, Project, Account, User
 from app.services.principal import Principal
+from app.services.access import owned_record_filter
 
 
 class SearchService:
@@ -12,11 +13,7 @@ class SearchService:
         self.principal = principal
 
     def _parent_access(self, model):
-        predicates = [model.tenant_id == self.principal.tenant_id, model.deleted_at.is_(None)]
-        if not self.principal.is_admin:
-            predicates.append(or_(model.created_by == self.principal.user_id,
-                                  model.assigned_to == self.principal.user_id))
-        return and_(*predicates)
+        return owned_record_filter(model, self.principal)
 
     def _project_access(self):
         # Validate parent tenant even for an admin or directly assigned project.

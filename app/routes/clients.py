@@ -1,13 +1,11 @@
-from app.utils.record_access import can_access, require_record, validate_parents
+from app.services.clients import ClientService, RecordNotFound
 from quart import Blueprint, request, jsonify
 from datetime import datetime, timedelta
 from pydantic import ValidationError
-from app.models import Client, ActivityLog, ActivityType, User, Interaction, Lead
+from app.models import Client, User, Interaction
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
 from app.utils.email_utils import send_assignment_notification
-from app.utils.phone_utils import clean_phone_number
-from app.constants import PHONE_LABELS
 from app.schemas.clients import ClientCreateSchema, ClientUpdateSchema, ClientAssignSchema
 from sqlalchemy import or_, and_, func, desc
 from sqlalchemy.orm import joinedload
@@ -153,225 +151,67 @@ async def list_clients():
 @clients_bp.route("/", methods=["POST"])
 @requires_auth()
 async def create_client():
-    user = request.user
     raw_data = await request.get_json()
-    
-    # Validate input using Pydantic schema
     try:
         data = ClientCreateSchema(**raw_data)
-    except ValidationError as e:
-        return jsonify({
-            "error": "Validation failed",
-            "details": e.errors()
-        }), 400
-
-    session = SessionLocal()
-    try:
-        validate_parents(session, user, data.model_dump(), ("source_lead_id",), required=False)
-        client = Client(
-            tenant_id=user.tenant_id,
-            created_by=user.id,
-            name=data.name,
-            contact_person=data.contact_person,
-            contact_title=data.contact_title,
-            email=str(data.email) if data.email else None,
-            phone=clean_phone_number(data.phone) if data.phone else None,
-            phone_label=data.phone_label,
-            secondary_phone=clean_phone_number(data.secondary_phone) if data.secondary_phone else None,
-            secondary_phone_label=data.secondary_phone_label,
-            address=data.address,
-            city=data.city,
-            state=data.state,
-            zip=data.zip,
-            notes=data.notes,
-            type=data.type,
-            status=data.status,
-            source_lead_id=data.source_lead_id,
-            converted_on=datetime.utcnow() if data.source_lead_id else None,
-            created_at=datetime.utcnow()
-        )
-        session.add(client)
-        session.commit()
-        session.refresh(client)
-        return jsonify({"id": client.id}), 201
-    finally:
-        session.close()
+    except ValidationError as exc:
+        return jsonify({"error": "Validation failed", "details": exc.errors()}), 400
+    with SessionLocal() as session:
+        try:
+            client_id = ClientService(session, request.principal).create(data)
+            session.commit()
+            return jsonify({"id": client_id}), 201
+        except RecordNotFound as exc:
+            return jsonify({"error": str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
 
 
 @clients_bp.route("/<int:client_id>", methods=["GET"])
 @requires_auth()
 async def get_client(client_id):
-    user = request.user
-    session = SessionLocal()
-    try:
-        client_query = session.query(Client).filter(
-            Client.id == client_id,
-            Client.tenant_id == user.tenant_id,
-            Client.deleted_at == None,
-        )
-
-        if not any(role.name == "admin" for role in user.roles):
-            client_query = client_query.filter(
-                or_(
-                    Client.created_by == user.id,
-                    Client.assigned_to == user.id
-                )
-            )
-
-        client = client_query.first()
-        if not client:
-            return jsonify({"error": "Client not found"}), 404
-
-        log = ActivityLog(
-            tenant_id=user.tenant_id,
-            user_id=user.id,
-            action=ActivityType.viewed,
-            entity_type="client",
-            entity_id=client.id,
-            description=f"Viewed client '{client.name}'"
-        )
-        session.add(log)
-        session.commit()
-
-        # If converted from a lead, fetch the original lead info
-        lead_origin = None
-        if client.source_lead_id:
-            source_lead = session.query(Lead).filter(Lead.id == client.source_lead_id, Lead.tenant_id == user.tenant_id).first()
-            if source_lead and can_access(source_lead, user):
-                lead_origin = {
-                    "lead_id": source_lead.id,
-                    "lead_source": source_lead.lead_source,
-                    "lead_created_at": source_lead.created_at.isoformat() + "Z",
-                    "converted_on": client.converted_on.isoformat() + "Z" if client.converted_on else None,
-                    "days_in_pipeline": (
-                        (client.converted_on - source_lead.created_at).days
-                        if client.converted_on and source_lead.created_at else None
-                    ),
-                }
-
-        response = jsonify({
-            "id": client.id,
-            "name": client.name,
-            "email": client.email,
-            "phone": client.phone,
-            "phone_label": client.phone_label,
-            "secondary_phone": client.secondary_phone,
-            "secondary_phone_label": client.secondary_phone_label,
-            "address": client.address,
-            "contact_person": client.contact_person,
-            "contact_title": client.contact_title,
-            "city": client.city,
-            "state": client.state,
-            "zip": client.zip,
-            "notes": client.notes,
-            "type": client.type,
-            "created_at": client.created_at.isoformat() + "Z",
-            "lead_origin": lead_origin,
-            "contacts": [c.to_dict() for c in client.contacts] if client.contacts else []
-        })
-
-        response.headers["Cache-Control"] = "no-store"
-        return response
-    finally:
-        session.close()
+    with SessionLocal() as session:
+        try:
+            service = ClientService(session, request.principal)
+            data = service.detail(client_id)
+            service.record_view(client_id)
+            session.commit()
+            response = jsonify(data)
+            response.headers["Cache-Control"] = "no-store"
+            return response
+        except RecordNotFound as exc:
+            return jsonify({"error": str(exc)}), 404
 
 
 @clients_bp.route("/<int:client_id>", methods=["PUT"])
 @requires_auth()
 async def update_client(client_id):
-    user = request.user
     raw_data = await request.get_json()
-    
-    # Validate input using Pydantic schema
     try:
         data = ClientUpdateSchema(**raw_data)
-    except ValidationError as e:
-        return jsonify({
-            "error": "Validation failed",
-            "details": e.errors()
-        }), 400
-    
-    session = SessionLocal()
-    try:
-        client_query = session.query(Client).filter(
-            Client.id == client_id,
-            Client.tenant_id == user.tenant_id,
-            Client.deleted_at == None
-        )
-
-        if not any(role.name == "admin" for role in user.roles):
-            client_query = client_query.filter(
-                or_(
-                    Client.created_by == user.id,
-                    Client.assigned_to == user.id
-                )
-            )
-
-        client = client_query.first()
-        if not client:
-            return jsonify({"error": "Client not found"}), 404
-
-        # Update fields that were provided and validated
-        update_data = data.model_dump(exclude_unset=True)
-        
-        for field, value in update_data.items():
-            if field in ["phone", "secondary_phone"]:
-                # Clean phone numbers
-                cleaned_phone = clean_phone_number(value) if value else None
-                setattr(client, field, cleaned_phone)
-            elif field == "email":
-                # Convert EmailStr to string
-                setattr(client, field, str(value) if value else None)
-            else:
-                setattr(client, field, value)
-        # Permissive type validation - accept any string value
-        if "type" in data and data["type"]:
-            client.type = data["type"]
-
-        client.updated_by = user.id
-        client.updated_at = datetime.utcnow()
-
-        session.commit()
-        session.refresh(client)
-        return jsonify({"id": client.id})
-    finally:
-        session.close()
+    except ValidationError as exc:
+        return jsonify({"error": "Validation failed", "details": exc.errors()}), 400
+    with SessionLocal() as session:
+        try:
+            result_id = ClientService(session, request.principal).update(client_id, data)
+            session.commit()
+            return jsonify({"id": result_id})
+        except RecordNotFound as exc:
+            return jsonify({"error": str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
 
 
 @clients_bp.route("/<int:client_id>", methods=["DELETE"])
 @requires_auth()
 async def delete_client(client_id):
-    user = request.user
-    session = SessionLocal()
-    try:
-        client_query = session.query(Client).filter(
-            Client.id == client_id,
-            Client.tenant_id == user.tenant_id
-        )
-
-        if not any(role.name == "admin" for role in user.roles):
-            client_query = client_query.filter(
-                or_(
-                    Client.created_by == user.id,
-                    Client.assigned_to == user.id
-                )
-            )
-
-        client = client_query.first()
-        if not client:
-            return jsonify({"error": "Client not found"}), 404
-
-        if client.deleted_at is not None:
-            return jsonify({"message": "Client already deleted"}), 200
-
-        client.deleted_at = datetime.utcnow()
-        client.deleted_by = user.id
-        session.commit()
-        return jsonify({"message": "Client soft-deleted successfully"})
-    finally:
-        session.close()
-
-
+    with SessionLocal() as session:
+        try:
+            deleted = ClientService(session, request.principal).delete(client_id)
+            session.commit()
+            return jsonify({"message": "Client soft-deleted successfully" if deleted else "Client already deleted"})
+        except RecordNotFound as exc:
+            return jsonify({"error": str(exc)}), 404
 
 
 @clients_bp.route("/<int:client_id>/assign", methods=["PUT"])
@@ -624,28 +464,15 @@ async def list_trashed_clients():
 
 
 @clients_bp.route("/<int:client_id>/restore", methods=["PUT"])
-@requires_auth(roles=[])
+@requires_auth()
 async def restore_client(client_id):
-    user = request.user
-    session = SessionLocal()
-    try:
-        client = session.query(Client).filter(
-            Client.id == client_id,
-            Client.tenant_id == user.tenant_id,
-            Client.deleted_at != None
-        ).first()
-
-        if not client:
-            return jsonify({"error": "Client not found or not deleted"}), 404
-
-        if not can_access(client, user):
-            return jsonify({"error": "Client not found"}), 404
-        client.deleted_at = None
-        client.deleted_by = None
-        session.commit()
-        return jsonify({"message": "Client restored successfully"})
-    finally:
-        session.close()
+    with SessionLocal() as session:
+        try:
+            ClientService(session, request.principal).restore(client_id)
+            session.commit()
+            return jsonify({"message": "Client restored successfully"})
+        except RecordNotFound as exc:
+            return jsonify({"error": str(exc)}), 404
 
 
 @clients_bp.route("/<int:client_id>/purge", methods=["DELETE"])

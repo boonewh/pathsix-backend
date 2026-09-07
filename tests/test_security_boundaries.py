@@ -333,3 +333,100 @@ def test_search_rechecks_current_roles_each_request(crm):
         db.get(Tenant, 1).is_active = False
         db.commit()
     assert call('GET', '/api/search?q=Private')[0] == 403
+
+
+@pytest.mark.parametrize('operation', ['detail', 'update', 'delete', 'restore'])
+def test_client_service_denies_other_tenant_without_http(crm, operation):
+    from app.services.clients import ClientService, RecordNotFound
+    from app.services.principal import Principal
+    from app.schemas.clients import ClientUpdateSchema
+    _, factory, _ = crm
+    with factory() as db:
+        service = ClientService(db, Principal(1, 1, frozenset({'admin'})))
+        with pytest.raises(RecordNotFound):
+            if operation == 'update':
+                service.update(2, ClientUpdateSchema(name='leak'))
+            else:
+                getattr(service, operation)(2)
+        db.commit()
+    with factory() as db:
+        assert db.get(Client, 2).name == 'Private client 2'
+        assert db.get(Client, 2).deleted_at is None
+
+
+def test_client_service_scopes_nested_data_and_does_not_commit(crm):
+    from app.services.clients import ClientService
+    from app.services.principal import Principal
+    from app.schemas.clients import ClientCreateSchema, ClientUpdateSchema
+    from app.models import ActivityLog
+    _, factory, _ = crm
+    with factory() as db:
+        db.get(Client, 1).source_lead_id = 2
+        db.add(Contact(tenant_id=2, client_id=1, first_name='Foreign'))
+        db.commit()
+    with factory() as db:
+        service = ClientService(db, Principal(1, 1, frozenset({'admin'})))
+        detail = service.detail(1)
+        assert detail['lead_origin'] is None
+        assert len(detail['contacts']) == 1
+        assert 'Foreign' not in str(detail)
+        assert db.query(ActivityLog).count() == 0  # Pure read, no implicit audit mutation.
+        service.update(1, ClientUpdateSchema(name='rolled back'))
+        db.rollback()
+        assert service.detail(1)['name'] == 'Private client 1'
+        new_id = service.create(ClientCreateSchema(name='rolled back create', tenant_id=2, created_by=2))
+        assert db.get(Client, new_id).tenant_id == 1
+        assert db.get(Client, new_id).created_by == 1
+        db.rollback()
+        assert db.get(Client, new_id) is None
+
+
+def test_client_service_assignment_lifecycle_and_source_validation(crm):
+    from app.services.clients import ClientService, RecordNotFound
+    from app.services.principal import Principal
+    from app.schemas.clients import ClientCreateSchema, ClientUpdateSchema
+    _, factory, _ = crm
+    with factory() as db:
+        service = ClientService(db, Principal(3, 1, frozenset()))
+        with pytest.raises(RecordNotFound):
+            service.detail(1)
+        with pytest.raises(RecordNotFound):
+            service.create(ClientCreateSchema(name='forbidden', source_lead_id=1))
+        with pytest.raises(RecordNotFound):
+            service.create(ClientCreateSchema(name='foreign', source_lead_id=2))
+        db.get(Client, 1).assigned_to = 3
+        db.get(Lead, 1).assigned_to = 3
+        db.flush()
+        assert service.detail(1)['id'] == 1
+        assert service.update(1, ClientUpdateSchema(type='Custom', phone='123-456-7890')) == 1
+        assert service.delete(1) is True
+        assert service.delete(1) is False
+        with pytest.raises(RecordNotFound):
+            service.detail(1)
+        service.restore(1)
+        assert service.detail(1)['id'] == 1
+        new_id = service.create(ClientCreateSchema(name='converted', source_lead_id=1))
+        assert service.detail(new_id)['lead_origin']['lead_id'] == 1
+        db.commit()
+
+
+def test_client_rest_lifecycle_and_read_audit(crm):
+    import json
+    from app.models import ActivityLog
+    call, factory, _ = crm
+    status, data = call('POST', '/api/clients', {'name': 'Lifecycle', 'tenant_id': 2, 'created_by': 2}, user=3)
+    assert status == 201
+    client_id = json.loads(data)['id']
+    path = f'/api/clients/{client_id}'
+    assert call('PUT', path, {'type': 'Custom', 'name': 'Updated'}, user=3)[0] == 200
+    assert call('PUT', path, {'name': None}, user=3)[0] == 400
+    status, data = call('GET', path, user=3)
+    assert status == 200 and json.loads(data)['name'] == 'Updated'
+    with factory() as db:
+        client = db.get(Client, client_id)
+        assert (client.tenant_id, client.created_by, client.updated_by) == (1, 3, 3)
+        assert db.query(ActivityLog).filter_by(entity_id=client_id, user_id=3, tenant_id=1).count() == 1
+    assert call('DELETE', path, user=3)[0] == 200
+    assert call('GET', path, user=3)[0] == 404
+    assert call('PUT', path + '/restore', user=3)[0] == 200
+    assert call('GET', path, user=3)[0] == 200
