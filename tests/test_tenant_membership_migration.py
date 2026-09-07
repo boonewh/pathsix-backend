@@ -22,7 +22,7 @@ def config(connection=None, schema=None):
 
 
 def test_membership_revision_merges_all_legacy_heads():
-    assert ScriptDirectory.from_config(config()).get_heads() == [revision]
+    assert ScriptDirectory.from_config(config()).get_revision(revision).down_revision == down_revision
     assert set(down_revision) == {'add_project_assigned_to', 'add_subscriptions_table', 'add_tenants_table'}
 
 

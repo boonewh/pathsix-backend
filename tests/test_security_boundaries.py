@@ -500,3 +500,26 @@ def test_request_logging_does_not_access_expired_orm_user(crm):
             assert context['user_id'] == 1
             assert context['tenant_id'] == 1
     asyncio.run(run())
+
+
+def test_http_relationship_creation_with_composite_constraints(crm):
+    import json
+    from migrations.versions.tenant_relationships import reconcile
+    call, factory, _ = crm
+    if factory.kw['bind'].dialect.name != 'postgresql':
+        pytest.skip('Requires PostgreSQL composite constraints')
+    with factory.kw['bind'].begin() as connection:
+        schema = connection.execute(text('SELECT current_schema()')).scalar_one()
+        reconcile(connection, schema)
+    status, body = call('POST', '/api/clients', {'name': 'Constrained client', 'source_lead_id': 1})
+    assert status == 201
+    client_id = json.loads(body)['id']
+    for path, body in (
+        ('/api/accounts', {'account_number': 'composite-test', 'client_id': client_id}),
+        ('/api/contacts', {'first_name': 'Constrained', 'client_id': client_id}),
+        ('/api/projects', {'project_name': 'Constrained', 'project_status': 'pending', 'client_id': client_id}),
+        ('/api/interactions', {'summary': 'Constrained', 'client_id': client_id, 'contact_date': '2026-09-06T12:00:00'}),
+    ):
+        assert call('POST', path, body)[0] == 201
+    assert call('GET', f'/api/clients/{client_id}')[0] == 200
+    assert call('PUT', f'/api/clients/{client_id}', {'source_lead_id': 2})[0] == 404

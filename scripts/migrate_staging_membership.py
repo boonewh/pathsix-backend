@@ -17,6 +17,7 @@ NEW_HEAD = 'tenant_membership_indexes'
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--apply', action='store_true')
+    parser.add_argument('--revision', choices=[NEW_HEAD, 'tenant_relationships'], default=NEW_HEAD)
     args = parser.parse_args()
     if os.getenv('FLY_APP_NAME') != 'pathsixsolutions-backend-staging':
         raise RuntimeError('Refusing non-staging app')
@@ -32,11 +33,14 @@ def main():
             connection.execute(text("SET LOCAL lock_timeout='5s'"))
             connection.execute(text("SET LOCAL statement_timeout='60s'"))
             heads = set(connection.execute(text('SELECT version_num FROM public.alembic_version')).scalars())
-            if heads not in (OLD_HEADS, {NEW_HEAD}):
+            allowed_heads = (OLD_HEADS, {NEW_HEAD}) if args.revision == NEW_HEAD else ({NEW_HEAD}, {'tenant_relationships'})
+            if heads not in allowed_heads:
                 raise RuntimeError('Unexpected migration history; refusing to replay legacy migrations')
             root = Path(__file__).resolve().parents[1]
             sys.path.insert(0, str(root))
             from migrations.versions.tenant_membership_indexes import TABLES, reconcile
+            if args.revision == 'tenant_relationships':
+                from migrations.versions.tenant_relationships import reconcile
             counts = {table: connection.execute(text(f'SELECT count(*) FROM public.{table}')).scalar_one()
                       for table in TABLES}
             # This transactional plan is deliberately limited to small staging data.
@@ -47,7 +51,7 @@ def main():
                 cfg.set_main_option('script_location', str(root / 'migrations'))
                 cfg.attributes['connection'] = connection
                 cfg.attributes['version_table_schema'] = 'public'
-                command.upgrade(cfg, NEW_HEAD)
+                command.upgrade(cfg, args.revision)
             else:
                 # Full rehearsal, including constraints/indexes, always rolls back.
                 with connection.begin_nested() as rehearsal:
