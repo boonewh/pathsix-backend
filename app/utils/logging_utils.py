@@ -38,11 +38,11 @@ def get_request_context() -> Dict[str, Any]:
             context['path'] = request.path
             context['remote_addr'] = request.remote_addr
             
-            # Add tenant context if available
-            if hasattr(request, 'user') and request.user:
-                context['tenant_id'] = getattr(request.user, 'tenant_id', None)
-                context['user_id'] = getattr(request.user, 'id', None)
-                context['user_email'] = getattr(request.user, 'email', None)
+            # Use immutable identity; ORM users may be expired after rollback.
+            principal = getattr(request, 'principal', None)
+            if principal is not None:
+                context['tenant_id'] = principal.tenant_id
+                context['user_id'] = principal.user_id
     except RuntimeError:
         # Outside request context
         pass

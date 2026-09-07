@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, Text, Float, ForeignKey, Table, Boolean
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 from datetime import datetime
 from app.database import Base
 from sqlalchemy import Enum, Index, UniqueConstraint, JSON
@@ -315,7 +315,8 @@ class ChatMessage(Base):
 
     sender = relationship("User", foreign_keys=[sender_id])
     recipient = relationship("User", foreign_keys=[recipient_id])
-    client = relationship("Client", backref="chat_messages")
+    # Let the FK protect linked messages; purging an empty client must not query chat.
+    client = relationship("Client", backref=backref("chat_messages", passive_deletes="all"))
     lead = relationship("Lead", backref="chat_messages")
 
     def __repr__(self):

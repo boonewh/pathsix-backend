@@ -469,3 +469,34 @@ def test_runtime_database_role_denies_platform_operations(crm, statement):
             db.execute(text(statement))
         assert error.value.orig.pgcode == '42501'
         db.rollback()
+
+
+def test_runtime_can_purge_empty_deleted_client(crm):
+    import json
+    call, factory, _ = crm
+    status, body = call('POST', '/api/clients', {'name': 'Purge regression'})
+    assert status == 201
+    client_id = json.loads(body)['id']
+    path = f'/api/clients/{client_id}'
+    assert call('DELETE', path)[0] == 200
+    assert call('DELETE', path + '/purge')[0] == 200
+    with factory() as db:
+        assert db.get(Client, client_id) is None
+
+
+def test_request_logging_does_not_access_expired_orm_user(crm):
+    from quart import request
+    from app.services.principal import Principal
+    from app.utils.logging_utils import get_request_context
+    _, factory, _ = crm
+    with factory() as db:
+        user = db.get(User, 1)
+        db.rollback()
+    async def run():
+        async with Quart(__name__).test_request_context('/probe'):
+            request.user = user
+            request.principal = Principal(1, 1, frozenset({'admin'}))
+            context = get_request_context()
+            assert context['user_id'] == 1
+            assert context['tenant_id'] == 1
+    asyncio.run(run())
