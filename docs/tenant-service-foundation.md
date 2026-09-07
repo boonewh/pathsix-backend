@@ -1,5 +1,9 @@
 # Tenant-bound service foundation
 
+Latest: client lifecycle migration and live schema audit completed in staging v10
+(`64dfe15`, 68 passing tests). See [the client-service report](client-service-and-schema-audit.md).
+The search milestone below is retained as history.
+
 ## First migrated path: global search
 
 `GET /api/search` now delegates to `SearchService`. Authentication constructs a

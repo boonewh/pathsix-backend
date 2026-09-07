@@ -21,6 +21,10 @@ client name now returns 400 rather than a database integrity error.
 opening a read-only transaction with a 15-second statement timeout. It returned
 schema metadata and counts only, with no CRM content or credentials.
 
+- Staging records all three current Alembic heads: `add_project_assigned_to`,
+  `add_subscriptions_table`, `add_tenants_table`. The missing indexes therefore
+  represent schema/history drift; an apparent current version is not proof that
+  every historical operation was applied.
 - Every checked tenant membership/foreign-key relationship had zero invalid rows.
   This is synthetic staging data, not evidence about production rows.
 - Only `users` has a tenant foreign key. No composite foreign keys were present.
@@ -55,4 +59,8 @@ No production deployment is authorized.
 
 Local suite: 68 tests passed, including standalone service denial tests, transaction
 rollback, assigned-user lifecycle, scoped nested records and the HTTP lifecycle.
-Compile and diff checks passed. Staging verification is pending deployment.
+Compile and diff checks passed. Staging release **v10**, application/test commit
+`64dfe159b046f018bde020b85a61990100d2d54e`, passed all **68 tests** against PostgreSQL
+in 25.85 seconds. Live frontend login, client list/detail API contract and client
+page navigation passed without page errors. Cleanup confirmed zero test schemas
+and unchanged counts of two synthetic clients and two leads. Production unchanged.
