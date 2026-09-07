@@ -12,7 +12,9 @@ from urllib.parse import urlparse
 def main():
     if os.getenv("FLY_APP_NAME") != "pathsixsolutions-backend-staging":
         raise SystemExit("Refusing: this script only runs in the staging Fly app")
-    url = os.environ["DATABASE_URL"]
+    # After runtime cutover, a platform operator must supply an administrative
+    # test URL for disposable-schema setup, never persist it as an app secret.
+    url = os.getenv("SECURITY_TEST_DATABASE_URL", os.environ["DATABASE_URL"])
     if urlparse(url).hostname not in {
         "pathsixsolutions-db-staging.flycast", "pathsixsolutions-db-staging.internal"
     }:

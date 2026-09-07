@@ -8,7 +8,7 @@ from datetime import datetime
 import pytest
 from authlib.jose import jwt
 from quart import Quart
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, event
 from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
@@ -60,6 +60,20 @@ def crm(tmp_path, monkeypatch):
                     f"(SELECT MAX(id) FROM {table}))"
                 ))
             db.commit()
+    runtime_role = os.getenv('SECURITY_TEST_ROLE')
+    if runtime_role and admin_engine:
+        from scripts.staging_database_role import grant_runtime_access
+        with engine.begin() as connection:
+            connection.execute(text("CREATE TABLE alembic_version (version_num varchar(32))"))
+            grant_runtime_access(connection, runtime_role, schema)
+        runtime_factory = sessionmaker(bind=engine)
+        @event.listens_for(runtime_factory, 'after_begin')
+        def set_runtime_role(session, transaction, connection):
+            role_sql = connection.dialect.identifier_preparer.quote(runtime_role)
+            connection.execute(text(f'SET LOCAL ROLE {role_sql}'))
+        for name in ('accounts', 'contacts', 'projects', 'interactions', 'clients', 'auth', 'reports', 'imports', 'users', 'search'):
+            monkeypatch.setattr(importlib.import_module(f'app.routes.{name}'), 'SessionLocal', runtime_factory)
+        monkeypatch.setattr(auth_utils, 'SessionLocal', runtime_factory)
     app = Quart(__name__)
     app.config['SECRET_KEY'] = 'test-only-signing-key'
     register_blueprints(app)
@@ -430,3 +444,28 @@ def test_client_rest_lifecycle_and_read_audit(crm):
     assert call('GET', path, user=3)[0] == 404
     assert call('PUT', path + '/restore', user=3)[0] == 200
     assert call('GET', path, user=3)[0] == 200
+
+
+@pytest.mark.parametrize('statement', [
+    'SELECT * FROM backups LIMIT 0',
+    'SELECT * FROM backup_restores LIMIT 0',
+    'SELECT * FROM alembic_version LIMIT 0',
+    'UPDATE tenants SET name=name WHERE false',
+    'UPDATE roles SET name=name WHERE false',
+    'TRUNCATE clients',
+    'ALTER TABLE clients ADD COLUMN forbidden_probe integer',
+    'CREATE TABLE forbidden_probe (id integer)',
+])
+def test_runtime_database_role_denies_platform_operations(crm, statement):
+    from sqlalchemy.exc import DBAPIError
+    runtime_role = os.getenv('SECURITY_TEST_ROLE')
+    if not runtime_role or not os.getenv('SECURITY_TEST_DATABASE_URL'):
+        pytest.skip('Requires PostgreSQL runtime-role validation')
+    _, factory, _ = crm
+    with factory() as db:
+        quote = db.bind.dialect.identifier_preparer.quote
+        db.execute(text(f'SET LOCAL ROLE {quote(runtime_role)}'))
+        with pytest.raises(DBAPIError) as error:
+            db.execute(text(statement))
+        assert error.value.orig.pgcode == '42501'
+        db.rollback()
