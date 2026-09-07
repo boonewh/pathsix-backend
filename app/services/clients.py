@@ -21,6 +21,8 @@ class ClientService:
             raise TypeError("An authenticated principal is required")
         self.session = session
         self.principal = principal
+        from app.services.database_context import bind_principal
+        bind_principal(session, principal)
 
     def _get(self, client_id, *, include_deleted=False):
         client = self.session.query(Client).filter(

@@ -20,6 +20,7 @@ jobs:
           --health-cmd "pg_isready -U crm_test"
           --health-interval 10s --health-timeout 5s --health-retries 5
     env:
+      CRM_RLS_ENABLED: '1'
       SECURITY_TEST_ROLE: crm_test_runtime
       SECRET_KEY: ci-test-only-key
       DATABASE_URL: postgresql://crm_test:test-only@localhost:5432/crm_test

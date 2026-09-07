@@ -44,6 +44,12 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
 
 
+@event.listens_for(Session, 'after_begin')
+def initialize_database_identity(session, transaction, connection):
+    from app.services.database_context import apply_context
+    apply_context(session, connection)
+
+
 @event.listens_for(Session, "before_flush")
 @event.listens_for(Session, "before_commit")
 def mark_request_write(session, *args):
@@ -60,11 +66,11 @@ def scope_authenticated_queries(state):
     defense in depth for authenticated HTTP requests, not database row security.
     """
     from quart import has_request_context, request
-    if not has_request_context() or not hasattr(request, "user"):
+    if not has_request_context() or not hasattr(request, "principal"):
         return
     if state.is_insert or state.is_update or state.is_delete:
         request.database_write_started = True
-    tenant_id = request.user.tenant_id
+    tenant_id = request.principal.tenant_id
     for mapper in Base.registry.mappers:
         model = mapper.class_
         if hasattr(model, "tenant_id"):

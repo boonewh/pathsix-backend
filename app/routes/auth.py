@@ -3,6 +3,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload
 from app.models import User, Tenant
 from app.database import SessionLocal
+from app.services.database_context import auth_lookup
 from app.utils.auth_utils import (
     verify_password,
     create_token,
@@ -29,6 +30,7 @@ async def login():
 
     session = SessionLocal()
     try:
+        auth_lookup(session, email=email)
         # Load user with tenant relationship for config
         user = session.query(User)\
             .options(joinedload(User.tenant), joinedload(User.roles))\
@@ -85,6 +87,7 @@ async def forgot_password():
 
     session = SessionLocal()
     try:
+        auth_lookup(session, email=email)
         user = session.query(User).filter_by(email=email).first()
         if not user:
             return jsonify({"message": "If that account exists, an email was sent."})
@@ -120,6 +123,8 @@ async def reset_password():
 
     session = SessionLocal()
     try:
+        # Only reached after the signed reset token has been verified.
+        auth_lookup(session, email=email, password_reset=True)
         user = session.query(User).filter_by(email=email).first()
         if not user:
             return jsonify({"error": "User not found"}), 404

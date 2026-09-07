@@ -17,7 +17,7 @@ NEW_HEAD = 'tenant_membership_indexes'
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--apply', action='store_true')
-    parser.add_argument('--revision', choices=[NEW_HEAD, 'tenant_relationships'], default=NEW_HEAD)
+    parser.add_argument('--revision', choices=[NEW_HEAD, 'tenant_relationships', 'tenant_rls_prepare', 'tenant_row_security'], default=NEW_HEAD)
     args = parser.parse_args()
     if os.getenv('FLY_APP_NAME') != 'pathsixsolutions-backend-staging':
         raise RuntimeError('Refusing non-staging app')
@@ -33,7 +33,8 @@ def main():
             connection.execute(text("SET LOCAL lock_timeout='5s'"))
             connection.execute(text("SET LOCAL statement_timeout='60s'"))
             heads = set(connection.execute(text('SELECT version_num FROM public.alembic_version')).scalars())
-            allowed_heads = (OLD_HEADS, {NEW_HEAD}) if args.revision == NEW_HEAD else ({NEW_HEAD}, {'tenant_relationships'})
+            predecessors = {'tenant_relationships': NEW_HEAD, 'tenant_rls_prepare': 'tenant_relationships', 'tenant_row_security': 'tenant_rls_prepare'}
+            allowed_heads = (OLD_HEADS, {NEW_HEAD}) if args.revision == NEW_HEAD else ({predecessors[args.revision]}, {args.revision})
             if heads not in allowed_heads:
                 raise RuntimeError('Unexpected migration history; refusing to replay legacy migrations')
             root = Path(__file__).resolve().parents[1]
@@ -41,6 +42,13 @@ def main():
             from migrations.versions.tenant_membership_indexes import TABLES, reconcile
             if args.revision == 'tenant_relationships':
                 from migrations.versions.tenant_relationships import reconcile
+            elif args.revision == 'tenant_rls_prepare':
+                from migrations.versions.tenant_rls_prepare import reconcile as prepare
+                reconcile = lambda c, s: prepare(c, s, 'pathsix_crm_staging_runtime')
+            elif args.revision == 'tenant_row_security':
+                if os.getenv('CRM_RLS_ENABLED') != '1':
+                    raise RuntimeError('Enable application database identity before activating RLS')
+                from migrations.versions.tenant_row_security import reconcile
             counts = {table: connection.execute(text(f'SELECT count(*) FROM public.{table}')).scalar_one()
                       for table in TABLES}
             # This transactional plan is deliberately limited to small staging data.
@@ -51,6 +59,7 @@ def main():
                 cfg.set_main_option('script_location', str(root / 'migrations'))
                 cfg.attributes['connection'] = connection
                 cfg.attributes['version_table_schema'] = 'public'
+                cfg.attributes['runtime_role'] = 'pathsix_crm_staging_runtime'
                 command.upgrade(cfg, args.revision)
             else:
                 # Full rehearsal, including constraints/indexes, always rolls back.

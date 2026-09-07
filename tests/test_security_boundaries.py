@@ -66,6 +66,11 @@ def crm(tmp_path, monkeypatch):
         with engine.begin() as connection:
             connection.execute(text("CREATE TABLE alembic_version (version_num varchar(32))"))
             grant_runtime_access(connection, runtime_role, schema)
+            if os.getenv('CRM_RLS_ENABLED') == '1':
+                from migrations.versions.tenant_rls_prepare import reconcile as prepare_rls
+                from migrations.versions.tenant_row_security import reconcile as enable_rls
+                prepare_rls(connection, schema, runtime_role)
+                enable_rls(connection, schema)
         runtime_factory = sessionmaker(bind=engine)
         @event.listens_for(runtime_factory, 'after_begin')
         def set_runtime_role(session, transaction, connection):
@@ -254,12 +259,12 @@ def test_search_service_enforces_tenant_without_http_context(crm):
     from app.services.principal import Principal
     from app.services.search import SearchService
     _, factory, _ = crm
-    with factory() as db:
-        for tenant in (1, 2):
+    for tenant in (1, 2):
+        with factory() as db:
             results = SearchService(db, Principal(tenant, tenant, frozenset({'admin'}))).search('Private')
             assert {(r['type'], r['id']) for r in results} == {('client', tenant), ('lead', tenant), ('project', tenant)}
-        with pytest.raises(TypeError):
-            SearchService(db, None)
+            with pytest.raises(TypeError):
+                SearchService(db, None)
 
 
 def test_search_uses_assignment_and_parent_access(crm):
@@ -329,7 +334,8 @@ def test_search_bounds_literal_wildcards_and_user_visibility(crm):
         with pytest.raises(ValueError):
             service.search('private', limit=21)
         # Ordinary users must not receive user-directory results, even with admin claims.
-        assert SearchService(db, Principal(3, 1, frozenset())).search('example.test') == []
+        with factory() as ordinary_db:
+            assert SearchService(ordinary_db, Principal(3, 1, frozenset())).search('example.test') == []
         assert len(service.search('example.test', limit=1)) == 1
     assert call('GET', '/api/search?q=' + 'x' * 201)[0] == 400
     assert call('GET', '/api/search?q=example.test', user=3)[1] == '[]\n'
@@ -527,3 +533,159 @@ def test_http_relationship_creation_with_composite_constraints(crm):
     with factory() as db:
         assert db.get(Client, client_id).source_lead_id == 1
     assert call('POST', '/api/clients', {'name': 'Forbidden', 'source_lead_id': 2})[0] == 404
+
+
+@pytest.fixture
+def rls_runtime(crm):
+    if os.getenv('CRM_RLS_ENABLED') != '1' or not os.getenv('SECURITY_TEST_ROLE') or not os.getenv('SECURITY_TEST_DATABASE_URL'):
+        pytest.skip('Requires PostgreSQL row security and restricted runtime role')
+    _, admin, _ = crm
+    with admin() as db:
+        schema = db.execute(text('SELECT current_schema()')).scalar_one()
+        from app.models import UserPreference
+        db.add_all([UserPreference(user_id=n, category='test', preference_key='key', preference_value={'owner': n}) for n in (1, 2)])
+        db.commit()
+    pool = create_engine(os.environ['SECURITY_TEST_DATABASE_URL'],
+                         connect_args={'options': f'-csearch_path={schema}'},
+                         pool_size=1, max_overflow=0, hide_parameters=True)
+    factory = sessionmaker(bind=pool)
+    @event.listens_for(factory, 'after_begin')
+    def role_and_context(session, transaction, connection):
+        from app.services.database_context import apply_context
+        quoted = connection.dialect.identifier_preparer.quote(os.environ['SECURITY_TEST_ROLE'])
+        connection.execute(text(f'SET LOCAL ROLE {quoted}'))
+        apply_context(session, connection)
+    try:
+        yield factory, admin, schema
+    finally:
+        pool.dispose()
+
+
+def test_rls_raw_sql_missing_context_and_pool_reuse(rls_runtime):
+    from app.services.database_context import bind_principal
+    from app.services.principal import Principal
+    factory, _, _ = rls_runtime
+    pids = set()
+    for tenant, action in ((None, 'commit'), (1, 'commit'), (2, 'rollback'), (None, 'rollback'), (1, 'rollback')):
+        with factory() as db:
+            if tenant:
+                bind_principal(db, Principal(tenant, tenant, frozenset({'admin'})))
+            pids.add(db.execute(text('SELECT pg_backend_pid()')).scalar_one())
+            expected = [] if tenant is None else [tenant]
+            for table in ('clients', 'leads', 'projects'):
+                assert db.execute(text(f'SELECT id FROM {table} ORDER BY id')).scalars().all() == expected
+            assert db.execute(text('SELECT user_id FROM user_preferences ORDER BY user_id')).scalars().all() == expected
+            assert db.execute(text('SELECT user_id FROM user_roles ORDER BY user_id')).scalars().all() == expected
+            assert db.execute(text('SELECT id FROM tenants ORDER BY id')).scalars().all() == expected
+            getattr(db, action)()
+    assert len(pids) == 1  # Same physical PostgreSQL connection across all identities.
+
+
+def test_rls_raw_joins_writes_and_bypass_attempts(rls_runtime):
+    from app.services.database_context import bind_principal
+    from app.services.principal import Principal
+    from sqlalchemy.exc import DBAPIError
+    factory, admin, _ = rls_runtime
+    with factory() as db:
+        bind_principal(db, Principal(1, 1, frozenset({'admin'})))
+        assert db.execute(text('SELECT c.id, u.tenant_id FROM clients c JOIN users u ON c.created_by=u.id')).all() == [(1, 1)]
+        for statement in (
+            "INSERT INTO clients (id,tenant_id,created_by,name) VALUES (99,2,2,'blocked')",
+            'UPDATE clients SET tenant_id=2 WHERE id=1',
+        ):
+            with db.begin_nested() as sp:
+                with pytest.raises(DBAPIError) as exc:
+                    db.execute(text(statement))
+                assert exc.value.orig.pgcode == '42501'
+                sp.rollback()
+        assert db.execute(text("UPDATE clients SET name='Allowed' RETURNING id")).scalars().all() == [1]
+        assert db.execute(text('DELETE FROM clients WHERE id=2')).rowcount == 0
+        with db.begin_nested() as sp:
+            db.execute(text('SET LOCAL row_security=off'))
+            with pytest.raises(DBAPIError):
+                db.execute(text('SELECT * FROM clients'))
+            sp.rollback()
+        db.rollback()
+    with admin() as db:
+        assert db.get(Client, 2).name == 'Private client 2'
+
+
+def test_rls_bootstrap_is_identity_only_and_reset_is_narrow(rls_runtime):
+    from app.services.database_context import auth_lookup
+    factory, _, _ = rls_runtime
+    for lookup in ({'user_id': 2}, {'email': 'b@example.test'}, {'email': 'missing@example.test'}):
+        with factory() as db:
+            auth_lookup(db, **lookup)
+            expected = [] if lookup.get('email') == 'missing@example.test' else [2]
+            assert db.execute(text('SELECT id FROM users')).scalars().all() == expected
+            assert db.execute(text('SELECT id FROM tenants')).scalars().all() == expected
+            assert db.execute(text('SELECT user_id FROM user_roles')).scalars().all() == expected
+            assert db.execute(text('SELECT id FROM clients')).scalars().all() == []
+            assert db.execute(text('SELECT id FROM user_preferences')).scalars().all() == []
+            assert db.execute(text("UPDATE users SET password_hash='unchanged'")).rowcount == 0
+    with factory() as db:
+        auth_lookup(db, email='b@example.test', password_reset=True)
+        assert db.execute(text("UPDATE users SET password_hash='reset-test' RETURNING id")).scalars().all() == [2]
+        assert db.execute(text('SELECT id FROM clients')).scalars().all() == []
+        db.rollback()
+
+
+def test_rls_identity_cannot_change_within_session(rls_runtime):
+    from app.services.database_context import bind_principal
+    from app.services.principal import Principal
+    factory, _, _ = rls_runtime
+    with factory() as db:
+        bind_principal(db, Principal(1, 1, frozenset()))
+        assert db.get(Client, 1).id == 1
+        db.commit()
+        with pytest.raises(ValueError, match='cannot change'):
+            bind_principal(db, Principal(2, 2, frozenset()))
+
+
+def test_rls_all_tables_forced_and_bootstrap_function_hardened(rls_runtime):
+    from migrations.versions.tenant_rls_prepare import TABLES
+    _, admin, schema = rls_runtime
+    with admin() as db:
+        rows = db.execute(text('SELECT relname,relrowsecurity,relforcerowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=:schema AND relkind=\'r\''), {'schema': schema}).all()
+        assert {name for name, enabled, forced in rows if enabled and forced} == set(TABLES)
+        function = db.execute(text("SELECT p.prosecdef,p.proconfig,pg_get_function_result(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname=:schema AND p.proname='crm_auth_identity'"), {'schema': schema}).one()
+        assert function.prosecdef and function.proconfig == ['search_path=pg_catalog']
+        assert function[2] == 'TABLE(user_id integer, tenant_id integer)'
+
+
+def test_rls_concurrent_request_contexts_do_not_mix(rls_runtime):
+    from quart import request
+    from app.services.principal import Principal
+    factory, _, _ = rls_runtime
+    app = Quart(__name__)
+    async def task(tenant):
+        async with app.test_request_context('/probe'):
+            request.principal = Principal(tenant, tenant, frozenset())
+            for _ in range(3):
+                await asyncio.sleep(0)
+                with factory() as db:
+                    assert db.execute(text('SELECT id FROM clients')).scalars().all() == [tenant]
+    async def run():
+        await asyncio.gather(task(1), task(2))
+    asyncio.run(run())
+
+
+def test_real_login_and_reset_with_row_security(crm, monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.routes import auth as auth_routes
+    call, factory, app = crm
+    with factory() as db:
+        db.get(User, 1).password_hash = auth_utils.hash_password('OriginalTestPassword!')
+        db.commit()
+    assert call('POST', '/api/login', {'email': 'a@example.test', 'password': 'OriginalTestPassword!'}, user=None)[0] == 200
+    assert call('POST', '/api/login', {'email': 'a@example.test', 'password': 'WrongTestPassword!'}, user=None)[0] == 401
+    delivery = AsyncMock()
+    monkeypatch.setattr(auth_routes, 'send_password_reset_email', delivery)
+    assert call('POST', '/api/forgot-password', {'email': 'a@example.test'}, user=None)[0] == 200
+    delivery.assert_awaited_once()
+    async def reset_token():
+        async with app.app_context():
+            return auth_utils.generate_reset_token('a@example.test')
+    token = asyncio.run(reset_token())
+    assert call('POST', '/api/reset-password', {'token': token, 'password': 'ChangedTestPassword!'}, user=None)[0] == 200
+    assert call('POST', '/api/login', {'email': 'a@example.test', 'password': 'ChangedTestPassword!'}, user=None)[0] == 200

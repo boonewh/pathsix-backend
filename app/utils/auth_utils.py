@@ -7,6 +7,7 @@ from quart import request, jsonify, current_app
 from functools import wraps
 from app.models import User
 from app.services.principal import Principal
+from app.services.database_context import auth_lookup
 from app.database import SessionLocal
 from itsdangerous import URLSafeTimedSerializer
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
@@ -67,8 +68,12 @@ def requires_auth(roles: list = None):
             max_attempts = 2 if request.method in {"GET", "HEAD"} else 1
 
             for attempt in range(max_attempts):
+                for attr in ('principal', 'user'):
+                    if hasattr(request, attr):
+                        delattr(request, attr)
                 session = SessionLocal()
                 try:
+                    auth_lookup(session, user_id=int(payload['sub']))
                     user = session.query(User)\
                         .options(joinedload(User.roles), joinedload(User.tenant))\
                         .filter(User.id == payload["sub"], User.is_active == True)\

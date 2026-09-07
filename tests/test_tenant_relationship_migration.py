@@ -31,7 +31,7 @@ def test_relationship_inventory_covers_declared_tenant_foreign_keys():
             if fk.parent.name != 'tenant_id' and 'tenant_id' in fk.column.table.c:
                 expected.add((table.name, fk.parent.name, fk.column.table.name))
     assert set(EDGES) == expected
-    assert ScriptDirectory.from_config(config()).get_heads() == [revision]
+    assert ScriptDirectory.from_config(config()).get_revision(revision).down_revision == down_revision
 
 
 @pytest.fixture

@@ -11,6 +11,8 @@ class SearchService:
             raise TypeError("An authenticated principal is required")
         self.session = session
         self.principal = principal
+        from app.services.database_context import bind_principal
+        bind_principal(session, principal)
 
     def _parent_access(self, model):
         return owned_record_filter(model, self.principal)
