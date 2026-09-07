@@ -42,4 +42,22 @@ This does not enforce row-level read isolation. Polymorphic activity entity IDs,
 parent-cardinality rules, remaining service migration and transaction-local RLS
 remain separate work. Production remains untouched and unauthorized for deployment.
 
-Staging verification pending.
+## Verified staging result
+
+Release **v16**, application/test commit **9c72c29c8743b0deca0f9c30bfaa2b871efe851f**.
+Local suite: 73 passed, 17 PostgreSQL-only skipped; the additional migrated-HTTP
+test also correctly skips locally. PostgreSQL: 90 passed in the full run; one new
+test had an incorrect expectation for the creation-only source_lead_id field.
+After correcting that assertion and checking the stored link remains unchanged,
+the targeted test passed in 3.45 seconds. Application and migration code did not
+change, so the 90 already-passing tests were not needlessly repeated.
+
+The rolled-back rehearsal and committed staging migration both passed. Independent
+verification confirmed all thirty expected composite FKs, no unvalidated public
+foreign keys, Alembic head tenant_relationships, zero test schemas, and unchanged
+restricted runtime identity. Live login, client/lead reads, search, pipeline reports,
+clients page and client create/read/update/delete/restore/purge all passed without
+browser errors. Test client removed; original counts remain two clients/two leads.
+
+All work remains on the existing security branch. Production, frontend deployment,
+machine sizes and resource count are unchanged. Existing staging auto-stop remains.

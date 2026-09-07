@@ -61,3 +61,6 @@ Live browser login, client/lead reads, search, pipeline reports, the clients pag
 and a synthetic client create/read/update/delete/restore/purge all passed with no
 page errors. The new test client was removed. Production and frontend deployment
 remain unchanged.
+
+Follow-up: staging v16 adds thirty same-tenant composite FKs; see
+tenant-relationship-migration.md. RLS and polymorphic relationships remain pending.
