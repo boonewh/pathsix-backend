@@ -57,5 +57,22 @@ https://www.postgresql.org/docs/current/sql-createfunction.html
 ## Validation
 
 Local: 73 existing tests passed; new real login/reset test also passed. PostgreSQL
-verification pending. Polymorphic relationship constraints, parent-cardinality
-constraints, remaining service extraction and delegated OAuth/MCP remain separate.
+verification: **98 passed in 67.30 seconds**, with RLS enabled for every PostgreSQL
+HTTP fixture and the dedicated raw-SQL/pool/bootstrap tests.
+
+Staging **v18**, application commit **000de69920a2daaea8e6284967b2e9bc99de5145**,
+has CRM_RLS_ENABLED=1 and Alembic head tenant_row_security. Both preparation and
+activation rehearsals/commits passed. Live login succeeded before and after
+activation; thirteen protected read endpoints and the full client lifecycle passed
+without page errors. A separate operator connection verified all fourteen tables
+have ENABLE and FORCE RLS; the bootstrap function has no PUBLIC execute grant.
+The actual runtime connection without context returned zero clients, leads, users
+and tenants. Original counts remain two clients/two leads, and zero temporary
+test schemas remain. Production, frontend deployment and machine sizes/count are
+unchanged.
+
+Do not roll back to the pre-RLS application or unset CRM_RLS_ENABLED while policies
+are active. Operator scripts must use operator credentials or explicit session
+identity as appropriate; a raw runtime connection now intentionally sees no rows.
+Polymorphic relationship constraints, parent-cardinality constraints, remaining
+service extraction and delegated OAuth/MCP remain separate work.

@@ -61,3 +61,5 @@ browser errors. Test client removed; original counts remain two clients/two lead
 
 All work remains on the existing security branch. Production, frontend deployment,
 machine sizes and resource count are unchanged. Existing staging auto-stop remains.
+
+Follow-up: staging v18 now enforces tenant RLS; see tenant-row-security.md.
