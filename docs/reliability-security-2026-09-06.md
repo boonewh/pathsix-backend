@@ -1,5 +1,9 @@
 # CRM reliability and security reconciliation — 2026-09-06
 
+Update: staging now runs v9 (`c88ce35`), with 61 passing tests. See
+[the service foundation report](tenant-service-foundation.md) for the next milestone.
+The v8 results below describe the earlier hardening milestone.
+
 ## Preserved baseline
 
 The frontend handoff dated September 3 is historical. Backend work started on

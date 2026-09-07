@@ -28,7 +28,11 @@ migration, frontend source change, MCP exposure or production deployment is incl
 Local: 61 tests passed, including direct service tests outside HTTP context, two
 companies, ordinary/admin users, creator/assigned/inherited project permissions,
 deleted or cross-company parents, wildcard literals, bounds and role revocation.
-Compile and diff checks passed. Staging result will be recorded after deployment.
+Compile and diff checks passed. Staging release **v9** deployed commit
+`c88ce352168967ddc83c4424ce52ffe97849744b`; all 61 tests passed against PostgreSQL
+in 24.34s. Cleanup verification found zero temporary test schemas. Live staging browser login/search/dashboard checks passed without page
+errors; overlong searches returned 400 and ordinary searches returned 200.
+Frontend source/deployment was not changed. Production was not changed.
 
 ## Next steps
 
@@ -38,3 +42,23 @@ all tenant-owned tables before designing same-tenant foreign keys and PostgreSQL
 row-level security. Add delegated OAuth access only after those boundaries and the
 broader adversarial test matrix are established. Web principal context is not an
 AI access token and does not implement OAuth scope or grant enforcement.
+
+
+## Model inventory for the next database pass
+
+This is a code inventory, not a statement about the live database schema.
+
+| Ownership | Tables | Notes |
+| --- | --- | --- |
+| Direct tenant | users | Declares tenant foreign key and index |
+| Direct tenant | clients, leads, projects, interactions, accounts | Tenant IDs lack model-level tenant foreign keys; several indexes exist in performance migrations |
+| Direct tenant | contacts, activity_logs, chat_messages, files, subscriptions | Model tenant indexes, no tenant foreign keys |
+| Through user | user_preferences, user_roles | Require user ownership; no tenant column |
+| Shared definitions | roles | Role names are global; membership is per user |
+| Company registry | tenants | Root of tenant identity |
+| Platform only | backups, backup_restores | Whole-database operations; HTTP blueprint remains unregistered |
+
+Before adding constraints, compare actual PostgreSQL constraints/indexes to migrations,
+audit orphan and cross-tenant parent/user IDs using counts only, and design reversible
+staging migrations. Do not infer that an index is missing solely from ORM metadata.
+Inventory storage paths/import workflows and global backup workers alongside tables.
