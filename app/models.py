@@ -85,7 +85,7 @@ class Role(Base):
 class Client(Base):
     __tablename__ = 'clients'
     id = Column(Integer, primary_key=True, index=True)
-    tenant_id = Column(Integer, nullable=False)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     created_by = Column(Integer, ForeignKey('users.id'), nullable=False)
     updated_by = Column(Integer, ForeignKey('users.id'), nullable=True)
     updated_at = Column(DateTime, onupdate=datetime.utcnow)
@@ -124,7 +124,7 @@ class Account(Base):
 
     id = Column(Integer, primary_key=True)
     client_id = Column(Integer, ForeignKey('clients.id'), nullable=False)
-    tenant_id = Column(Integer, nullable=False)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     account_number = Column(String(100), nullable=False, unique=True)
     account_name = Column(String(255), nullable=True)
     status = Column(String(50), default="active")
@@ -140,7 +140,7 @@ class Account(Base):
 class Lead(Base):
     __tablename__ = 'leads'
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(Integer, nullable=False)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     created_by = Column(Integer, ForeignKey('users.id'), nullable=False)
     updated_by = Column(Integer, ForeignKey('users.id'), nullable=True)
     updated_at = Column(DateTime, onupdate=datetime.utcnow)
@@ -178,7 +178,7 @@ class Contact(Base):
     __tablename__ = 'contacts'
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(Integer, nullable=False, index=True)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
 
     client_id = Column(Integer, ForeignKey('clients.id'), nullable=True)
     lead_id = Column(Integer, ForeignKey('leads.id'), nullable=True)
@@ -217,7 +217,7 @@ class Project(Base):
     id = Column(Integer, primary_key=True)
     lead_id = Column(Integer, ForeignKey('leads.id'), nullable=True)
     client_id = Column(Integer, ForeignKey('clients.id'), nullable=True)
-    tenant_id = Column(Integer, nullable=False)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     project_name = Column(String(255), nullable=False)
     project_description = Column(Text, nullable=True)
     type = Column(String(50), nullable=True, default="None")
@@ -257,7 +257,7 @@ class Interaction(Base):
     lead_id = Column(Integer, ForeignKey('leads.id'), nullable=True)
     client_id = Column(Integer, ForeignKey('clients.id'), nullable=True)
     project_id = Column(Integer, ForeignKey('projects.id'), nullable=True)  # 🆕 NEW FIELD
-    tenant_id = Column(Integer, nullable=False)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     contact_person = Column(String)
     email = Column(String)
     phone = Column(String)
@@ -287,7 +287,7 @@ class ActivityLog(Base):
     __tablename__ = 'activity_logs'
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(Integer, nullable=False, index=True)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     action = Column(Enum(ActivityType), nullable=False)
     entity_type = Column(String(50), nullable=False)  # "client", "lead"
@@ -303,7 +303,7 @@ class ChatMessage(Base):
     __tablename__ = 'chat_messages'
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(Integer, nullable=False, index=True)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     sender_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     recipient_id = Column(Integer, ForeignKey('users.id'), nullable=True)  # null for room chats
     room = Column(String(100), nullable=True)  # null for direct messages
@@ -352,7 +352,7 @@ class File(Base):
     __tablename__ = "files"
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(Integer, nullable=False, index=True)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
 
     # Original name the user uploaded (safe to show in UI / as download name)
@@ -445,7 +445,7 @@ class Subscription(Base):
     __tablename__ = 'subscriptions'
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(Integer, nullable=False, index=True)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     client_id = Column(Integer, ForeignKey('clients.id'), nullable=False, index=True)
 
     plan_name = Column(String(255), nullable=False)

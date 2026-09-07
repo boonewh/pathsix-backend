@@ -64,6 +64,16 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
+    # Operator runners/tests supply a connection so credentials never enter config
+    # strings and DDL plus version changes share the caller's transaction.
+    supplied = config.attributes.get('connection')
+    if supplied is not None:
+        context.configure(connection=supplied, target_metadata=target_metadata,
+                          version_table_schema=config.attributes.get('version_table_schema'))
+        with context.begin_transaction():
+            context.run_migrations()
+        return
+
     configuration = config.get_section(config.config_ini_section)
     configuration["sqlalchemy.url"] = get_url()
     connectable = engine_from_config(
