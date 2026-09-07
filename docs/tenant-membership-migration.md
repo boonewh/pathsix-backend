@@ -47,4 +47,17 @@ deployment or schema operation is authorized.
 Local validation: 72 passed, 13 PostgreSQL-only tests skipped. Five new PostgreSQL
 tests cover upgrade/history merge, preservation/idempotence, actual FK denial under
 the restricted role, invalid-data preflight, atomic rollback on object collision,
-partial-index drift and missing-table refusal. Staging results will follow.
+partial-index drift and missing-table refusal. All **85 tests passed against staging PostgreSQL in 42.87 seconds** using the
+restricted role for HTTP requests and explicit database-denial checks.
+
+Staging release **v14**, application/migration commit
+**fd629f59693fd03010f48c2039cd63f9d10f39e2**, passed the rolled-back rehearsal
+against actual staging tables, followed by the committed migration. A separate
+connection confirmed the new Alembic head, all eleven tenant foreign keys and
+indexes, all public foreign keys validated, zero temporary test schemas, and the
+unchanged restricted runtime identity. The migration preserved every row.
+
+Live browser login, client/lead reads, search, pipeline reports, the clients page,
+and a synthetic client create/read/update/delete/restore/purge all passed with no
+page errors. The new test client was removed. Production and frontend deployment
+remain unchanged.

@@ -15,7 +15,11 @@ Service mutations flush but never commit, allowing adapters to own the transacti
 Routes commit only a successful operation and close/roll back on failure. A null
 client name now returns 400 rather than a database integrity error.
 
-## Live staging audit (read-only)
+## Live staging audit (read-only, historical)
+
+The superuser finding was resolved in staging v12/v13. Direct tenant foreign keys
+and full tenant indexes were reconciled in v14; see tenant-membership-migration.md.
+Composite foreign keys and RLS below remain outstanding.
 
 `audit_staging_schema.py` verified the staging app and database hostname before
 opening a read-only transaction with a 15-second statement timeout. It returned
