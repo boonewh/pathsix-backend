@@ -522,4 +522,8 @@ def test_http_relationship_creation_with_composite_constraints(crm):
     ):
         assert call('POST', path, body)[0] == 201
     assert call('GET', f'/api/clients/{client_id}')[0] == 200
-    assert call('PUT', f'/api/clients/{client_id}', {'source_lead_id': 2})[0] == 404
+    # Source lead is creation-only; update schema ignores attempts to change it.
+    assert call('PUT', f'/api/clients/{client_id}', {'source_lead_id': 2})[0] == 200
+    with factory() as db:
+        assert db.get(Client, client_id).source_lead_id == 1
+    assert call('POST', '/api/clients', {'name': 'Forbidden', 'source_lead_id': 2})[0] == 404
