@@ -317,7 +317,7 @@ class ChatMessage(Base):
     recipient = relationship("User", foreign_keys=[recipient_id])
     # Let the FK protect linked messages; purging an empty client must not query chat.
     client = relationship("Client", backref=backref("chat_messages", passive_deletes="all"))
-    lead = relationship("Lead", backref="chat_messages")
+    lead = relationship("Lead", backref=backref("chat_messages", passive_deletes="all"))
 
     def __repr__(self):
         target = self.room or self.recipient_id

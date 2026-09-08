@@ -30,7 +30,7 @@ def crm(tmp_path, monkeypatch):
         engine = create_engine(f"sqlite:///{tmp_path / 'security.db'}")
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine)
-    for name in ('accounts', 'contacts', 'projects', 'interactions', 'clients', 'auth', 'reports', 'imports', 'users', 'search'):
+    for name in ('accounts', 'contacts', 'projects', 'interactions', 'clients', 'leads', 'auth', 'reports', 'imports', 'users', 'search'):
         monkeypatch.setattr(importlib.import_module(f'app.routes.{name}'), 'SessionLocal', factory)
     monkeypatch.setattr(auth_utils, 'SessionLocal', factory)
     with factory() as db:
@@ -76,7 +76,7 @@ def crm(tmp_path, monkeypatch):
         def set_runtime_role(session, transaction, connection):
             role_sql = connection.dialect.identifier_preparer.quote(runtime_role)
             connection.execute(text(f'SET LOCAL ROLE {role_sql}'))
-        for name in ('accounts', 'contacts', 'projects', 'interactions', 'clients', 'auth', 'reports', 'imports', 'users', 'search'):
+        for name in ('accounts', 'contacts', 'projects', 'interactions', 'clients', 'leads', 'auth', 'reports', 'imports', 'users', 'search'):
             monkeypatch.setattr(importlib.import_module(f'app.routes.{name}'), 'SessionLocal', runtime_factory)
         monkeypatch.setattr(auth_utils, 'SessionLocal', runtime_factory)
     app = Quart(__name__)
@@ -777,26 +777,31 @@ def test_parent_rule_ddl_failure_rolls_back_prior_constraints(crm):
         assert not any(x['name'] == 'ck_contacts_one_parent' for x in inspect(c).get_check_constraints('contacts', schema=schema))
 
 
-def test_parent_rules_purge_conflicts_preserve_single_and_bulk_records(crm):
+@pytest.mark.parametrize('resource,model,parent_field,ids_field', [
+    ('clients', Client, 'client_id', 'client_ids'),
+    ('leads', Lead, 'lead_id', 'lead_ids'),
+])
+def test_parent_rules_purge_conflicts_preserve_single_and_bulk_records(crm, resource, model, parent_field, ids_field):
     import json
     call, admin, _ = crm
     _parent_rules(admin)
     ids = []
     for name in ('Parent with child', 'Parent without child'):
-        status, body = call('POST', '/api/clients', {'name': name})
+        status, body = call('POST', f'/api/{resource}', {'name': name})
         assert status == 201
         ids.append(json.loads(body)['id'])
-    status, body = call('POST', '/api/contacts', {'first_name': 'Child', 'client_id': ids[0]})
+    status, body = call('POST', '/api/contacts', {'first_name': 'Child', parent_field: ids[0]})
     assert status == 201
     contact_id = json.loads(body)['id']
     for client_id in ids:
-        assert call('DELETE', f'/api/clients/{client_id}')[0] == 200
-    assert call('DELETE', f'/api/clients/{ids[0]}/purge')[0] == 409
-    assert call('POST', '/api/clients/bulk-purge', {'client_ids': ids})[0] == 409
+        assert call('DELETE', f'/api/{resource}/{client_id}')[0] == 200
+    assert call('DELETE', f'/api/{resource}/{ids[0]}/purge')[0] == 409
+    assert call('POST', f'/api/{resource}/bulk-purge', {ids_field: ids})[0] == 409
     with admin() as db:
-        assert all(db.get(Client, client_id) is not None for client_id in ids)
-        assert db.get(Contact, contact_id).client_id == ids[0]
-    assert call('PUT', f'/api/clients/{ids[0]}/restore')[0] == 200
+        assert all(db.get(model, client_id) is not None for client_id in ids)
+        assert getattr(db.get(Contact, contact_id), parent_field) == ids[0]
+    assert call('PUT', f'/api/{resource}/{ids[0]}/restore')[0] == 200
     assert call('DELETE', f'/api/contacts/{contact_id}')[0] == 200
-    assert call('DELETE', f'/api/clients/{ids[0]}')[0] == 200
-    assert call('POST', '/api/clients/bulk-purge', {'client_ids': ids})[0] == 200
+    assert call('DELETE', f'/api/{resource}/{ids[0]}')[0] == 200
+    assert call('DELETE', f'/api/{resource}/{ids[0]}/purge')[0] == 200
+    assert call('POST', f'/api/{resource}/bulk-purge', {ids_field: [ids[1]]})[0] == 200
