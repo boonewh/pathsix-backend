@@ -689,3 +689,114 @@ def test_real_login_and_reset_with_row_security(crm, monkeypatch):
     token = asyncio.run(reset_token())
     assert call('POST', '/api/reset-password', {'token': token, 'password': 'ChangedTestPassword!'}, user=None)[0] == 200
     assert call('POST', '/api/login', {'email': 'a@example.test', 'password': 'ChangedTestPassword!'}, user=None)[0] == 200
+
+
+def _parent_rules(admin):
+    from migrations.versions.parent_link_rules import reconcile
+    if admin.kw['bind'].dialect.name != 'postgresql':
+        pytest.skip('Requires PostgreSQL parent constraints')
+    with admin.kw['bind'].begin() as c:
+        schema = c.execute(text('SELECT current_schema()')).scalar_one()
+        reconcile(c, schema)
+
+
+def test_parent_rules_cover_every_combination_and_atomic_transfer(rls_runtime):
+    from itertools import product
+    from sqlalchemy.exc import DBAPIError
+    from app.services.database_context import bind_principal
+    from app.services.principal import Principal
+    factory, admin, _ = rls_runtime
+    _parent_rules(admin)
+    cases = (
+        ('contacts', ('client_id', 'lead_id'), '', '', True),
+        ('interactions', ('client_id', 'lead_id', 'project_id'), ', followup_status', ", 'pending'", True),
+        ('projects', ('client_id', 'lead_id'), ', project_name, project_status, created_by', ", 'Valid project', 'pending', 1", False),
+    )
+    with factory() as db:
+        bind_principal(db, Principal(1, 1, frozenset({'admin'})))
+        for table, fields, columns, values, required in cases:
+            for parents in product((0, 1), repeat=len(fields)):
+                legal = sum(parents) == 1 if required else sum(parents) <= 1
+                literals = ','.join('1' if value else 'NULL' for value in parents)
+                sql = f'INSERT INTO {table} (id,tenant_id,{",".join(fields)}{columns}) VALUES (99,1,{literals}{values})'
+                with db.begin_nested() as sp:
+                    if legal:
+                        assert db.execute(text(sql)).rowcount == 1
+                    else:
+                        with pytest.raises(DBAPIError) as exc:
+                            db.execute(text(sql))
+                        assert exc.value.orig.pgcode == '23514'
+                    sp.rollback()
+        with db.begin_nested() as sp:
+            with pytest.raises(DBAPIError) as exc:
+                db.execute(text('UPDATE contacts SET client_id=NULL WHERE id=1'))
+            assert exc.value.orig.pgcode == '23514'
+            sp.rollback()
+        assert db.execute(text('UPDATE contacts SET client_id=NULL, lead_id=1 WHERE id=1')).rowcount == 1
+        db.rollback()
+
+
+def test_parent_rule_preflight_keeps_invalid_rows_and_history(crm):
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import inspect
+    _, admin, _ = crm
+    if admin.kw['bind'].dialect.name != 'postgresql':
+        pytest.skip('Requires PostgreSQL migration')
+    with admin() as db:
+        schema = db.execute(text('SELECT current_schema()')).scalar_one()
+        db.add(Contact(id=99, tenant_id=1, first_name='Legacy orphan'))
+        db.execute(text('CREATE TABLE IF NOT EXISTS alembic_version (version_num varchar(32) PRIMARY KEY)'))
+        db.execute(text("INSERT INTO alembic_version VALUES ('tenant_row_security')"))
+        db.commit()
+    with pytest.raises(RuntimeError, match='invalid parent combinations'):
+        with admin.kw['bind'].begin() as c:
+            cfg = Config('alembic.ini')
+            cfg.attributes.update(connection=c, version_table_schema=schema)
+            command.upgrade(cfg, 'parent_link_rules')
+    with admin() as db:
+        assert db.get(Contact, 99).client_id is None
+        assert db.execute(text('SELECT version_num FROM alembic_version')).scalar_one() == 'tenant_row_security'
+        assert not any(x['name'] == 'ck_contacts_one_parent' for x in inspect(db.connection()).get_check_constraints('contacts', schema=schema))
+
+
+def test_parent_rule_ddl_failure_rolls_back_prior_constraints(crm):
+    from migrations.versions.parent_link_rules import reconcile
+    from sqlalchemy import inspect
+    from sqlalchemy.exc import DBAPIError
+    _, admin, _ = crm
+    if admin.kw['bind'].dialect.name != 'postgresql':
+        pytest.skip('Requires PostgreSQL migration')
+    with admin.kw['bind'].begin() as c:
+        schema = c.execute(text('SELECT current_schema()')).scalar_one()
+        c.execute(text('ALTER TABLE projects ADD CONSTRAINT ck_projects_at_most_one_parent CHECK (true)'))
+    with pytest.raises(DBAPIError):
+        with admin.kw['bind'].begin() as c:
+            reconcile(c, schema)
+    with admin.kw['bind'].connect() as c:
+        assert not any(x['name'] == 'ck_contacts_one_parent' for x in inspect(c).get_check_constraints('contacts', schema=schema))
+
+
+def test_parent_rules_purge_conflicts_preserve_single_and_bulk_records(crm):
+    import json
+    call, admin, _ = crm
+    _parent_rules(admin)
+    ids = []
+    for name in ('Parent with child', 'Parent without child'):
+        status, body = call('POST', '/api/clients', {'name': name})
+        assert status == 201
+        ids.append(json.loads(body)['id'])
+    status, body = call('POST', '/api/contacts', {'first_name': 'Child', 'client_id': ids[0]})
+    assert status == 201
+    contact_id = json.loads(body)['id']
+    for client_id in ids:
+        assert call('DELETE', f'/api/clients/{client_id}')[0] == 200
+    assert call('DELETE', f'/api/clients/{ids[0]}/purge')[0] == 409
+    assert call('POST', '/api/clients/bulk-purge', {'client_ids': ids})[0] == 409
+    with admin() as db:
+        assert all(db.get(Client, client_id) is not None for client_id in ids)
+        assert db.get(Contact, contact_id).client_id == ids[0]
+    assert call('PUT', f'/api/clients/{ids[0]}/restore')[0] == 200
+    assert call('DELETE', f'/api/contacts/{contact_id}')[0] == 200
+    assert call('DELETE', f'/api/clients/{ids[0]}')[0] == 200
+    assert call('POST', '/api/clients/bulk-purge', {'client_ids': ids})[0] == 200

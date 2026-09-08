@@ -91,6 +91,8 @@ def requires_auth(roles: list = None):
                     return await fn(*args, **kwargs)
                 except DBAPIError as exc:
                     _rollback_quietly(session)
+                    if (request.method == 'DELETE' or 'purge' in request.path) and getattr(exc.orig, 'pgcode', None) in {'23503', '23514'}:
+                        return jsonify({'error': 'Related records prevent permanent deletion. Remove or reassign them first.'}), 409
                     if (exc.connection_invalidated and attempt + 1 < max_attempts
                             and not getattr(request, "database_write_started", False)):
                         logger.warning(
