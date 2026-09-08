@@ -805,3 +805,87 @@ def test_parent_rules_purge_conflicts_preserve_single_and_bulk_records(crm, reso
     assert call('DELETE', f'/api/{resource}/{ids[0]}')[0] == 200
     assert call('DELETE', f'/api/{resource}/{ids[0]}/purge')[0] == 200
     assert call('POST', f'/api/{resource}/bulk-purge', {ids_field: [ids[1]]})[0] == 200
+
+
+@pytest.mark.parametrize('operation', ['detail', 'update', 'delete', 'restore'])
+def test_lead_service_denies_other_tenant_without_http(crm, operation):
+    from app.services.leads import LeadService, RecordNotFound
+    from app.services.principal import Principal
+    from app.schemas.leads import LeadUpdateSchema
+    _, factory, _ = crm
+    with factory() as db:
+        service = LeadService(db, Principal(1, 1, frozenset({'admin'})))
+        with pytest.raises(RecordNotFound):
+            if operation == 'update':
+                service.update(2, LeadUpdateSchema(name='leak'))
+            else:
+                getattr(service, operation)(2)
+        db.commit()
+    with factory() as db:
+        assert db.get(Lead, 2).name == 'Private lead 2'
+        assert db.get(Lead, 2).deleted_at is None
+
+
+def test_lead_service_ownership_pure_detail_and_rollback(crm):
+    from app.services.leads import LeadService, RecordNotFound
+    from app.services.principal import Principal
+    from app.schemas.leads import LeadCreateSchema, LeadUpdateSchema
+    from app.models import ActivityLog
+    _, factory, _ = crm
+    with factory() as db:
+        db.add_all([Contact(tenant_id=1, lead_id=1, first_name='Allowed', last_name='Contact'),
+                    Contact(tenant_id=2, lead_id=1, first_name='Foreign'),
+                    Contact(tenant_id=1, lead_id=1, client_id=1, first_name='Malformed')])
+        db.commit()
+    with factory() as db:
+        service = LeadService(db, Principal(3, 1, frozenset()))
+        with pytest.raises(RecordNotFound):
+            service.detail(1)
+        db.get(Lead, 1).assigned_to = 3
+        db.flush()
+        assert [c['name'] for c in service.detail(1)['contacts']] == ['Allowed Contact']
+        assert db.query(ActivityLog).count() == 0
+        service.update(1, LeadUpdateSchema(lead_status='won', phone='123-456-7890'))
+        converted = db.get(Lead, 1).converted_on
+        assert converted is not None
+        service.update(1, LeadUpdateSchema(lead_status='won'))
+        assert db.get(Lead, 1).converted_on == converted
+        assert service.delete(1) is True
+        assert service.delete(1) is False
+        with pytest.raises(RecordNotFound):
+            service.detail(1)
+        service.restore(1)
+        assert service.detail(1)['id'] == 1
+        db.rollback()
+        assert db.get(Lead, 1).converted_on is None
+        assert db.get(Lead, 1).deleted_at is None
+        new_id = service.create(LeadCreateSchema(name='Rollback', tenant_id=2, created_by=2))
+        assert (db.get(Lead, new_id).tenant_id, db.get(Lead, new_id).created_by) == (1, 3)
+        db.rollback()
+        assert db.get(Lead, new_id) is None
+
+
+def test_lead_rest_service_lifecycle_and_view_audit(crm):
+    import json
+    from app.models import ActivityLog
+    call, factory, _ = crm
+    status, body = call('POST', '/api/leads', {'name': 'Lifecycle', 'tenant_id': 2, 'created_by': 2}, user=3)
+    assert status == 201
+    lead_id = json.loads(body)['id']
+    path = f'/api/leads/{lead_id}'
+    assert call('PUT', path, {'name': 'Updated', 'lead_status': 'won'}, user=3)[0] == 200
+    assert call('PUT', path, {'name': None}, user=3)[0] == 400
+    assert call('PUT', path, [], user=3)[0] == 400
+    status, body = call('GET', path, user=3)
+    assert status == 200 and json.loads(body)['name'] == 'Updated'
+    with factory() as db:
+        lead = db.get(Lead, lead_id)
+        assert (lead.tenant_id, lead.created_by, lead.updated_by) == (1, 3, 3)
+        assert lead.converted_on is not None
+        assert db.query(ActivityLog).filter_by(entity_type='lead', entity_id=lead_id, user_id=3, tenant_id=1).count() == 1
+    assert call('GET', path, user=2)[0] == 404
+    assert call('DELETE', path, user=3)[0] == 200
+    assert call('GET', path, user=3)[0] == 404
+    assert call('PUT', path + '/restore', user=2)[0] == 404
+    assert call('PUT', path + '/restore', user=3)[0] == 200
+    assert call('GET', path, user=3)[0] == 200

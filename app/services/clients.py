@@ -9,10 +9,7 @@ from app.schemas.clients import ClientCreateSchema, ClientUpdateSchema
 from app.services.principal import Principal
 from app.services.access import owned_record_filter
 from app.utils.phone_utils import clean_phone_number
-
-
-class RecordNotFound(Exception):
-    pass
+from app.services.errors import RecordNotFound
 
 
 class ClientService:

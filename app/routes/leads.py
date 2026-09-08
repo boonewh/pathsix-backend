@@ -1,12 +1,11 @@
 from quart import Blueprint, request, jsonify
 from datetime import datetime
 from pydantic import ValidationError
-from app.models import Lead, ActivityLog, ActivityType, User
+from app.models import Lead, User
 from app.database import SessionLocal
+from app.services.leads import LeadService, RecordNotFound
 from app.utils.auth_utils import requires_auth
 from app.utils.email_utils import send_assignment_notification
-from app.utils.phone_utils import clean_phone_number
-from app.constants import PHONE_LABELS
 from app.schemas.leads import LeadCreateSchema, LeadUpdateSchema, LeadAssignSchema
 from sqlalchemy import or_, and_
 from sqlalchemy.orm import joinedload
@@ -98,216 +97,66 @@ async def list_leads():
 @leads_bp.route("/", methods=["POST"])
 @requires_auth()
 async def create_lead():
-    user = request.user
     raw_data = await request.get_json()
-
     if not isinstance(raw_data, dict):
         return jsonify({"error": "Invalid request body"}), 400
-
-    # Validate input using Pydantic schema
     try:
         data = LeadCreateSchema(**raw_data)
-    except ValidationError as e:
-        return jsonify({
-            "error": "Validation failed",
-            "details": e.errors()
-        }), 400
-    
-    session = SessionLocal()
-    try:
-        lead = Lead(
-            tenant_id=user.tenant_id,
-            created_by=user.id,
-            name=data.name,
-            contact_person=data.contact_person,
-            contact_title=data.contact_title,
-            email=str(data.email) if data.email else None,
-            phone=clean_phone_number(data.phone) if data.phone else None,
-            phone_label=data.phone_label,
-            secondary_phone=clean_phone_number(data.secondary_phone) if data.secondary_phone else None,
-            secondary_phone_label=data.secondary_phone_label,
-            address=data.address,
-            city=data.city,
-            state=data.state,
-            zip=data.zip,
-            notes=data.notes,
-            type=data.type,
-            lead_status=data.lead_status,
-            lead_source=data.lead_source,
-            created_at=datetime.utcnow()
-        )
-        
-        session.add(lead)
+    except ValidationError as exc:
+        return jsonify({"error": "Validation failed", "details": exc.errors()}), 400
+    with SessionLocal() as session:
+        lead_id = LeadService(session, request.principal).create(data)
         session.commit()
-        session.refresh(lead)
-        return jsonify({"id": lead.id}), 201
-    finally:
-        session.close()
+        return jsonify({"id": lead_id}), 201
+
 
 @leads_bp.route("/<int:lead_id>", methods=["GET"])
 @requires_auth()
 async def get_lead(lead_id):
-    user = request.user
-    session = SessionLocal()
-    try:
-        lead_query = session.query(Lead).options(
-            joinedload(Lead.assigned_user),
-            joinedload(Lead.created_by_user)
-        ).filter(
-            Lead.id == lead_id,
-            Lead.tenant_id == user.tenant_id,
-            Lead.deleted_at == None
-        )
-
-        if not any(role.name == "admin" for role in user.roles):
-            lead_query = lead_query.filter(
-                or_(
-                    Lead.created_by == user.id,
-                    Lead.assigned_to == user.id
-                )
-            )
-
-        lead = lead_query.first()
-
-        if not lead:
-            return jsonify({"error": "Lead not found"}), 404
-
-        log = ActivityLog(
-            tenant_id=user.tenant_id,
-            user_id=user.id,
-            action=ActivityType.viewed,
-            entity_type="lead",
-            entity_id=lead.id,
-            description=f"Viewed lead '{lead.name}'"
-        )
-        session.add(log)
-        session.commit()
-
-        response = jsonify({
-            "id": lead.id,
-            "name": lead.name,
-            "contact_person": lead.contact_person,
-            "contact_title": lead.contact_title,
-            "email": lead.email,
-            "phone": lead.phone,
-            "phone_label": lead.phone_label,
-            "secondary_phone": lead.secondary_phone,
-            "secondary_phone_label": lead.secondary_phone_label,
-            "address": lead.address,
-            "city": lead.city,
-            "state": lead.state,
-            "zip": lead.zip,
-            "notes": lead.notes,
-            "created_at": lead.created_at.isoformat() + "Z",
-            "lead_status": lead.lead_status,
-            "lead_source": lead.lead_source,
-            "converted_on": lead.converted_on.isoformat() + "Z" if lead.converted_on else None,
-            "type": lead.type,
-            "contacts": [c.to_dict() for c in lead.contacts] if lead.contacts else []
-        })
-        response.headers["Cache-Control"] = "no-store"
-        return response
-    finally:
-        session.close()
+    with SessionLocal() as session:
+        try:
+            service = LeadService(session, request.principal)
+            data = service.detail(lead_id)
+            service.record_view(lead_id)
+            session.commit()
+            response = jsonify(data)
+            response.headers["Cache-Control"] = "no-store"
+            return response
+        except RecordNotFound as exc:
+            return jsonify({"error": str(exc)}), 404
 
 
 @leads_bp.route("/<int:lead_id>", methods=["PUT"])
 @requires_auth()
 async def update_lead(lead_id):
-    user = request.user
     raw_data = await request.get_json()
-    
-    # Validate input using Pydantic schema
+    if not isinstance(raw_data, dict):
+        return jsonify({"error": "Invalid request body"}), 400
     try:
         data = LeadUpdateSchema(**raw_data)
-    except ValidationError as e:
-        return jsonify({
-            "error": "Validation failed",
-            "details": e.errors()
-        }), 400
-    
-    session = SessionLocal()
-    try:
-        lead_query = session.query(Lead).filter(
-            Lead.id == lead_id,
-            Lead.tenant_id == user.tenant_id,
-            Lead.deleted_at == None
-        )
-
-        if not any(role.name == "admin" for role in user.roles):
-            lead_query = lead_query.filter(
-                or_(
-                    Lead.created_by == user.id,
-                    Lead.assigned_to == user.id
-                )
-            )
-
-        lead = lead_query.first()
-        if not lead:
-            return jsonify({"error": "Lead not found"}), 404
-
-        # Update fields that were provided and validated
-        update_data = data.model_dump(exclude_unset=True)
-        
-        for field, value in update_data.items():
-            if field in ["phone", "secondary_phone"]:
-                # Clean phone numbers
-                cleaned_phone = clean_phone_number(value) if value else None
-                setattr(lead, field, cleaned_phone)
-            elif field == "email":
-                # Convert EmailStr to string
-                setattr(lead, field, str(value) if value else None)
-            elif field == "lead_status":
-                # Handle status change logic
-                if value == "won" and lead.lead_status != "won":
-                    lead.converted_on = datetime.utcnow()
-                setattr(lead, field, value)
-            else:
-                setattr(lead, field, value)
-
-        lead.updated_by = user.id
-        lead.updated_at = datetime.utcnow()
-
-        session.commit()
-        session.refresh(lead)
-        return jsonify({"id": lead.id})
-    finally:
-        session.close()
+    except ValidationError as exc:
+        return jsonify({"error": "Validation failed", "details": exc.errors()}), 400
+    with SessionLocal() as session:
+        try:
+            result = LeadService(session, request.principal).update(lead_id, data)
+            session.commit()
+            return jsonify({"id": result})
+        except RecordNotFound as exc:
+            return jsonify({"error": str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
 
 
 @leads_bp.route("/<int:lead_id>", methods=["DELETE"])
 @requires_auth()
 async def delete_lead(lead_id):
-    user = request.user
-    session = SessionLocal()
-    try:
-        lead_query = session.query(Lead).filter(
-            Lead.id == lead_id,
-            Lead.tenant_id == user.tenant_id
-        )
-
-        if not any(role.name == "admin" for role in user.roles):
-            lead_query = lead_query.filter(
-                or_(
-                    Lead.created_by == user.id,
-                    Lead.assigned_to == user.id
-                )
-            )
-
-        lead = lead_query.first()
-        if not lead:
-            return jsonify({"error": "Lead not found"}), 404
-
-        if lead.deleted_at is not None:
-            return jsonify({"message": "Lead already deleted"}), 200
-
-        lead.deleted_at = datetime.utcnow()
-        lead.deleted_by = user.id
-        session.commit()
-        return jsonify({"message": "Lead soft-deleted successfully"})
-    finally:
-        session.close()
-
+    with SessionLocal() as session:
+        try:
+            changed = LeadService(session, request.principal).delete(lead_id)
+            session.commit()
+            return jsonify({"message": "Lead soft-deleted successfully" if changed else "Lead already deleted"})
+        except RecordNotFound as exc:
+            return jsonify({"error": str(exc)}), 404
 
 
 @leads_bp.route("/<int:lead_id>/assign", methods=["PUT"])
@@ -588,29 +437,13 @@ async def list_trashed_leads():
 @leads_bp.route("/<int:lead_id>/restore", methods=["PUT"])
 @requires_auth()
 async def restore_lead(lead_id):
-    user = request.user
-    session = SessionLocal()
-    try:
-        lead_query = session.query(Lead).filter(
-            Lead.id == lead_id,
-            Lead.tenant_id == user.tenant_id,
-            Lead.deleted_at != None
-        )
-        if not any(role.name == "admin" for role in user.roles):
-            lead_query = lead_query.filter(
-                or_(Lead.created_by == user.id, Lead.assigned_to == user.id)
-            )
-        lead = lead_query.first()
-
-        if not lead:
+    with SessionLocal() as session:
+        try:
+            LeadService(session, request.principal).restore(lead_id)
+            session.commit()
+            return jsonify({"message": "Lead restored successfully"})
+        except RecordNotFound:
             return jsonify({"error": "Lead not found or not authorized to restore"}), 404
-
-        lead.deleted_at = None
-        lead.deleted_by = None
-        session.commit()
-        return jsonify({"message": "Lead restored successfully"})
-    finally:
-        session.close()
 
 
 @leads_bp.route("/<int:lead_id>/purge", methods=["DELETE"])
