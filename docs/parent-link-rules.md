@@ -30,4 +30,20 @@ children; no automatic deletion or reassignment of child data occurs.
 Tests cover every parent-field combination under the restricted PostgreSQL role,
 atomic parent transfer, invalid-data preflight, DDL rollback, and single/bulk purge
 conflicts with child preservation and successful deletion after resolution.
-Staging verification pending. Production remains untouched.
+Verified 2026-09-08 on staging v20, application commit 322f057, Alembic head
+parent_link_rules. Local suite: 74 passed, 28 PostgreSQL-only checks skipped.
+The PostgreSQL suite passed all 102 tests before the final lead relationship fix;
+the focused final client/lead purge run passed all three selected tests.
+
+Client and lead chat backrefs use passive deletion so purging does not query the
+unused chat table under the restricted login. Database foreign keys still protect
+references; no database privileges were broadened.
+
+The rolled-back rehearsal and applied migration both passed. Independent inspection
+confirmed all three CHECK constraints are validated, all fourteen RLS tables remain
+enabled/forced, and unscoped runtime reads return zero clients/leads/users/tenants.
+Live browser login, thirteen protected reads, and client/contact and lead/contact
+conflict/restore/cleanup workflows passed without page errors. The original two
+clients and two leads remain; contacts/interactions/projects and temporary test
+schemas are empty. Production and frontend deployments remain untouched. No Fly
+machines were added or resized; existing auto-stop settings are unchanged.
