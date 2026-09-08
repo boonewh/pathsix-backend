@@ -12,9 +12,10 @@ with an explicit tenant and exclusive lead-parent predicate. Update preserves ph
 normalization and the existing conversion timestamp on a transition to won. Explicit
 null names and non-object update bodies return 400 rather than a database/server error.
 
-This slice does not move lead lists, assignment/email delivery, bulk operations or
-permanent purge into services. Those adapters retain their existing protections and
-remain on the extraction roadmap. It does not add delegated AI authorization or MCP.
+The follow-up slice moves personal/admin/assigned/trash lists, bulk soft deletion,
+bulk purge and single permanent purge into the service. Admin authorization is
+enforced inside the service as well as the HTTP adapter. Assignment/email delivery
+remains on the extraction roadmap. It does not add delegated AI authorization or MCP.
 No schema migration is needed; parent-link constraints and RLS remain active.
 
 ## Validation
@@ -35,3 +36,27 @@ RLS tables, zero test schemas and zero unscoped runtime clients/leads/users/tena
 The original two clients/two leads remain, with contacts/interactions/projects empty.
 Production and frontend deployments remain unchanged. No Fly machines were added
 or resized, and the existing auto-stop configuration is unchanged.
+
+## List and deletion follow-up
+
+Personal lists preserve assigned-to-me plus unassigned-created-by-me behavior even
+for admins; the separate admin list sees active leads in the current tenant. Trash
+preserves creator/assignee access for ordinary users. Response fields and user-email
+filtering are retained. Display names are fetched in one tenant-scoped batch, so a
+legacy malformed user relationship cannot expose another company's email.
+
+Pagination requires a positive page and 1–200 rows per page. Bulk IDs must be a
+nonempty list of positive integers; booleans/strings are rejected. Mixed-tenant IDs
+retain the existing behavior of affecting only eligible current-tenant rows. The
+adapter commits once; parent conflicts still roll back the entire bulk purge.
+
+Local verification: 87 passed, 29 PostgreSQL-only skipped; two focused list checks
+also passed after consolidating response serialization. Staging v22 / 8f1aa06:
+116 PostgreSQL tests passed in 138.48 seconds with RLS and the restricted role.
+Live login, all four lead lists, protected CRM reads, pagination rejection and a
+two-lead bulk delete/purge workflow passed without browser errors. A contact blocked
+the first bulk purge; both leads remained in trash, then removal of the contact
+allowed successful cleanup. Independent checks confirmed zero test schemas, original
+two clients/two leads, zero contacts/interactions/projects, fourteen forced RLS
+tables and zero unscoped runtime reads. No schema migration, production/frontend
+deployment or Fly resource size/count changes were made.
