@@ -889,3 +889,62 @@ def test_lead_rest_service_lifecycle_and_view_audit(crm):
     assert call('PUT', path + '/restore', user=2)[0] == 404
     assert call('PUT', path + '/restore', user=3)[0] == 200
     assert call('GET', path, user=3)[0] == 200
+
+
+@pytest.mark.parametrize('method,args', [('list_all', ()), ('list_assigned', ()),
+    ('bulk_delete', ([1, 2],)), ('bulk_purge', ([1, 2],)), ('purge', (1,))])
+def test_lead_admin_services_reject_ordinary_principal(crm, method, args):
+    from app.services.leads import LeadService
+    from app.services.principal import Principal
+    _, factory, _ = crm
+    with factory() as db:
+        service = LeadService(db, Principal(3, 1, frozenset()))
+        with pytest.raises(PermissionError):
+            getattr(service, method)(*args)
+
+
+def test_lead_lists_preserve_personal_admin_and_trash_boundaries(crm):
+    from app.services.leads import LeadService
+    from app.services.principal import Principal
+    _, factory, _ = crm
+    with factory() as db:
+        db.get(Lead, 1).assigned_to = 3
+        db.commit()
+    with factory() as db:
+        admin = LeadService(db, Principal(1, 1, frozenset({'admin'})))
+        assert admin.list_mine()['total'] == 0
+        assert [r['id'] for r in admin.list_all()['leads']] == [1]
+        assert [r['id'] for r in admin.list_assigned()] == [1]
+        assert admin.list_all(user_email='b@example.test')['total'] == 0
+        assert admin.list_all(user_email='ordinary@example.test')['total'] == 1
+        assert admin.bulk_delete([1, 2]) == 1
+        assert [r['id'] for r in admin.list_trash()] == [1]
+        assert admin.bulk_purge([1, 2]) == 1
+        db.rollback()
+        assert db.get(Lead, 1) is not None and db.get(Lead, 1).deleted_at is None
+        assert db.get(Lead, 2).deleted_at is None
+    with factory() as db:
+        ordinary = LeadService(db, Principal(3, 1, frozenset()))
+        assert [r['id'] for r in ordinary.list_mine()['leads']] == [1]
+        ordinary.delete(1)
+        assert [r['id'] for r in ordinary.list_trash()] == [1]
+        db.rollback()
+
+
+def test_lead_list_bulk_http_validation_and_contract(crm):
+    import json
+    call, _, _ = crm
+    for path in ['/api/leads?page=0', '/api/leads/all?per_page=0', '/api/leads?page=oops']:
+        assert call('GET', path)[0] == 400
+    for path in ['/api/leads/bulk-delete', '/api/leads/bulk-purge']:
+        for body in ([], {'lead_ids': [True]}, {'lead_ids': ['1']}, {'lead_ids': []}):
+            assert call('POST', path, body)[0] == 400
+        assert call('POST', path, {'lead_ids': [1]}, user=3)[0] == 403
+    status, body = call('GET', '/api/leads/all?sort=alphabetical&per_page=1')
+    result = json.loads(body)
+    assert status == 200 and result['total'] == 1 and result['leads'][0]['id'] == 1
+    assert result['leads'][0]['created_by_name'] == 'a@example.test'
+    assert call('POST', '/api/leads/bulk-delete', {'lead_ids': [1, 2]})[0] == 200
+    assert [r['id'] for r in json.loads(call('GET', '/api/leads/trash')[1])] == [1]
+    assert call('GET', '/api/leads/2', user=2)[0] == 200
+    assert call('POST', '/api/leads/bulk-purge', {'lead_ids': [1, 2]})[0] == 200
