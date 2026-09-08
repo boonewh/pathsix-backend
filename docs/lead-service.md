@@ -14,8 +14,9 @@ null names and non-object update bodies return 400 rather than a database/server
 
 The follow-up slice moves personal/admin/assigned/trash lists, bulk soft deletion,
 bulk purge and single permanent purge into the service. Admin authorization is
-enforced inside the service as well as the HTTP adapter. Assignment/email delivery
-remains on the extraction roadmap. It does not add delegated AI authorization or MCP.
+enforced inside the service as well as the HTTP adapter. Assignment now also uses
+the service; the web adapter delivers its notification after commit. These slices
+do not add delegated AI authorization or MCP.
 No schema migration is needed; parent-link constraints and RLS remain active.
 
 ## Validation
@@ -60,3 +61,40 @@ allowed successful cleanup. Independent checks confirmed zero test schemas, orig
 two clients/two leads, zero contacts/interactions/projects, fourteen forced RLS
 tables and zero unscoped runtime reads. No schema migration, production/frontend
 deployment or Fly resource size/count changes were made.
+
+## Assignment follow-up
+
+LeadService.assign requires admin access, validated positive integer user IDs, an
+active lead in the current tenant and an active assignee in that tenant. It flushes
+without committing and returns notification fields. The web adapter commits and
+closes the database session before attempting email delivery. A failed commit cannot
+send a notification, and database exception details are no longer returned to the
+client. Email remains best effort: delivery failure does not undo assignment, and
+there is no durable outbox or automatic delivery retry yet. Password-reset/Resend
+configuration is unchanged.
+
+All operations in app/routes/leads.py now call the shared lead service for database
+work. Separate imports, conversion and other entity routes still require their own
+service review. This is not a claim that every workflow involving a lead is migrated.
+
+Local verification: 90 passed, 29 PostgreSQL-only skipped. New tests cover service
+authorization, invalid/inactive/foreign assignees, deleted leads, rollback, commit
+ordering, safe database error responses and mail failure. Notification calls are
+stubbed; no test email is sent.
+
+Staging v23 / c23b53b: all 119 cases passed across the initial run and targeted
+reruns, not in one uninterrupted suite. The first run had 88 passes and 31 setup
+errors; the three assignment tests passed separately, then 27 of 28 remaining
+cases passed, and the last case passed on rerun. Captured diagnostics show the
+database closed a connection during schema reflection/setup. The underlying cause
+is unconfirmed; Fly database health checks subsequently passed. Keep this staging
+connection interruption on the reliability follow-up list; do not erase it as a
+clean full-suite result. One orphan disposable schema was inspected and removed.
+
+Live browser login, lead lists/detail, other protected reads and invalid assignment
+rejection passed without page errors. Successful assignment/mail sequencing was
+validated through stubbed PostgreSQL integration tests, not real email delivery.
+Independent checks confirmed zero test schemas, original two clients/two leads,
+empty contacts/interactions/projects, fourteen forced RLS tables and zero unscoped
+runtime reads. Production, frontend deployments and Fly resource configuration are
+unchanged. No production rollout is authorized.
