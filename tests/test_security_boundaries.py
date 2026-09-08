@@ -948,3 +948,80 @@ def test_lead_list_bulk_http_validation_and_contract(crm):
     assert [r['id'] for r in json.loads(call('GET', '/api/leads/trash')[1])] == [1]
     assert call('GET', '/api/leads/2', user=2)[0] == 200
     assert call('POST', '/api/leads/bulk-purge', {'lead_ids': [1, 2]})[0] == 200
+
+
+
+def test_lead_assignment_service_authorization_and_rollback(crm):
+    from app.services.leads import LeadService, RecordNotFound
+    from app.services.principal import Principal
+    from app.schemas.leads import LeadAssignSchema
+    _, factory, _ = crm
+    with factory() as db:
+        ordinary = LeadService(db, Principal(3, 1, frozenset()))
+        with pytest.raises(PermissionError):
+            ordinary.assign(1, LeadAssignSchema(assigned_to=3))
+    with factory() as db:
+        service = LeadService(db, Principal(1, 1, frozenset({'admin'})))
+        with pytest.raises(RecordNotFound):
+            service.assign(2, LeadAssignSchema(assigned_to=1))
+        with pytest.raises(ValueError):
+            service.assign(1, LeadAssignSchema(assigned_to=2))
+        db.get(User, 3).is_active = False
+        db.flush()
+        with pytest.raises(ValueError):
+            service.assign(1, LeadAssignSchema(assigned_to=3))
+        db.rollback()
+        notice = service.assign(1, LeadAssignSchema(assigned_to=3))
+        assert notice['to_email'] == 'ordinary@example.test'
+        assert db.get(Lead, 1).assigned_to == 3
+        assert db.get(Lead, 1).updated_by == 1
+        db.rollback()
+        assert db.get(Lead, 1).assigned_to is None
+        service.delete(1)
+        with pytest.raises(RecordNotFound):
+            service.assign(1, LeadAssignSchema(assigned_to=3))
+
+
+def test_lead_assignment_http_notifies_only_after_commit(crm, monkeypatch):
+    from app.routes import leads
+    call, factory, _ = crm
+    notices = []
+    async def notification(**kwargs):
+        with factory() as db:
+            assert db.get(Lead, 1).assigned_to == 3
+        notices.append(kwargs)
+        raise RuntimeError('Synthetic mail failure')
+    monkeypatch.setattr(leads, 'send_assignment_notification', notification)
+    for body in ([], {'assigned_to': True}, {'assigned_to': '3'}, {'assigned_to': 0}):
+        assert call('PUT', '/api/leads/1/assign', body)[0] == 400
+    assert call('PUT', '/api/leads/1/assign', {'assigned_to': 3}, user=3)[0] == 403
+    assert call('PUT', '/api/leads/2/assign', {'assigned_to': 3})[0] == 404
+    assert call('PUT', '/api/leads/1/assign', {'assigned_to': 2})[0] == 400
+    assert notices == []
+    assert call('PUT', '/api/leads/1/assign', {'assigned_to': 3})[0] == 200
+    assert len(notices) == 1 and notices[0]['assigned_by'] == 'a@example.test'
+    with factory() as db:
+        assert db.get(Lead, 1).assigned_to == 3
+
+
+def test_lead_assignment_failed_commit_does_not_notify(crm, monkeypatch):
+    from app.routes import leads
+    from sqlalchemy.exc import SQLAlchemyError
+    call, factory, _ = crm
+    route_factory = leads.SessionLocal
+    notices = []
+    async def notification(**kwargs):
+        notices.append(kwargs)
+    def failing_session():
+        session = route_factory()
+        def fail():
+            raise SQLAlchemyError('Synthetic private database detail')
+        session.commit = fail
+        return session
+    monkeypatch.setattr(leads, 'SessionLocal', failing_session)
+    monkeypatch.setattr(leads, 'send_assignment_notification', notification)
+    status, body = call('PUT', '/api/leads/1/assign', {'assigned_to': 3})
+    assert status == 500 and 'Synthetic private' not in body
+    assert notices == []
+    with factory() as db:
+        assert db.get(Lead, 1).assigned_to is None

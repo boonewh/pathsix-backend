@@ -190,6 +190,6 @@ class LeadListResponseSchema(BaseModel):
 class LeadAssignSchema(BaseModel):
     """Schema for assigning leads to users"""
 
-    assigned_to: int = Field(..., description="User ID to assign the lead to")
+    assigned_to: int = Field(..., strict=True, gt=0, description="User ID to assign the lead to")
 
     model_config = ConfigDict(validate_assignment=True)

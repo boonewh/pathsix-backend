@@ -1,7 +1,5 @@
 from quart import Blueprint, request, jsonify
-from datetime import datetime
 from pydantic import ValidationError
-from app.models import Lead, User
 from app.database import SessionLocal
 from app.services.leads import LeadService, RecordNotFound
 from app.utils.auth_utils import requires_auth
@@ -98,66 +96,29 @@ async def delete_lead(lead_id):
 @leads_bp.route("/<int:lead_id>/assign", methods=["PUT"])
 @requires_auth(roles=["admin"])
 async def assign_lead(lead_id):
-    user = request.user
     raw_data = await request.get_json()
-    
-    # Validate input using Pydantic schema
+    if not isinstance(raw_data, dict):
+        return jsonify({"error": "Invalid request body"}), 400
     try:
         data = LeadAssignSchema(**raw_data)
-    except ValidationError as e:
-        return jsonify({
-            "error": "Validation failed",
-            "details": e.errors()
-        }), 400
-
-    session = SessionLocal()
-    try:
-        lead = session.query(Lead).filter(
-            Lead.id == lead_id,
-            Lead.tenant_id == user.tenant_id,
-            Lead.deleted_at == None
-        ).first()
-
-        if not lead:
-            return jsonify({"error": "Lead not found"}), 404
-
-        # Validate that assigned_to is a valid user
-        assigned_user = session.query(User).filter(
-            User.id == data.assigned_to,
-            User.tenant_id == user.tenant_id,
-            User.is_active == True
-        ).first()
-        
-        if not assigned_user:
-            return jsonify({"error": f"User {data.assigned_to} not found or not active"}), 400
-
-        lead.assigned_to = data.assigned_to
-        lead.updated_by = user.id
-        lead.updated_at = datetime.utcnow()
-
-        # Send email to assigned user (before commit in case it fails)
+    except ValidationError as exc:
+        return jsonify({"error": "Validation failed", "details": exc.errors()}), 400
+    with SessionLocal() as session:
         try:
-            await send_assignment_notification(
-                to_email=assigned_user.email,
-                entity_type="lead",
-                entity_name=lead.name,
-                assigned_by=user.email
-            )
-        except Exception:
-            # Don't fail the assignment if email fails
-            pass
-
-        try:
+            notification = LeadService(session, request.principal).assign(lead_id, data)
             session.commit()
-            return jsonify({"message": "Lead assigned successfully"})
-        except Exception as e:
-            session.rollback()
-            return jsonify({"error": f"Database error: {str(e)}"}), 500
-
-    except Exception as e:
-        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
-    finally:
-        session.close()
+        except PermissionError as exc:
+            return jsonify({"error": str(exc)}), 403
+        except RecordNotFound as exc:
+            return jsonify({"error": str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+    # Notification delivery is best effort and cannot undo a committed assignment.
+    try:
+        await send_assignment_notification(**notification, assigned_by=request.user.email)
+    except Exception:
+        pass
+    return jsonify({"message": "Lead assigned successfully"})
 
 
 @leads_bp.route("/all", methods=["GET"])

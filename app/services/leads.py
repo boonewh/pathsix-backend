@@ -6,7 +6,7 @@ must roll back. Detail reads are pure; web activity logging is a separate method
 from datetime import datetime
 from app.models import Lead, Contact, ActivityLog, ActivityType, User
 from sqlalchemy import or_, and_
-from app.schemas.leads import LeadCreateSchema, LeadUpdateSchema
+from app.schemas.leads import LeadCreateSchema, LeadUpdateSchema, LeadAssignSchema
 from app.services.principal import Principal
 from app.services.access import owned_record_filter
 from app.utils.phone_utils import clean_phone_number
@@ -290,3 +290,22 @@ class LeadService:
                 row['created_by_name'] = users.get(lead.created_by)
             rows.append(row)
         return rows
+
+    def assign(self, lead_id, data: LeadAssignSchema):
+        """Flush the assignment; caller commits before delivering the notification."""
+        self._require_admin()
+        if not isinstance(data, LeadAssignSchema):
+            raise TypeError("Validated assignment data required")
+        lead = self._get(lead_id)
+        assigned_user = self.session.query(User).filter(
+            User.id == data.assigned_to,
+            User.tenant_id == self.principal.tenant_id,
+            User.is_active.is_(True),
+        ).first()
+        if assigned_user is None:
+            raise ValueError("Assigned user not found or not active")
+        lead.assigned_to = assigned_user.id
+        lead.updated_by = self.principal.user_id
+        lead.updated_at = datetime.utcnow()
+        self.session.flush()
+        return {'to_email': assigned_user.email, 'entity_type': 'lead', 'entity_name': lead.name}
