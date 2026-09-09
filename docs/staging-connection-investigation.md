@@ -45,7 +45,38 @@ instead of cascading through more fixtures. Keep credentials and SQL parameters 
 of diagnostic output. Compare network paths only if that captured evidence points
 to routing; do not change the app connection URL merely because a small probe passes.
 
-The test fixture also needs cleanup registered before setup: its current yield-only
-teardown cannot remove a schema when setup itself fails. That is a separate known
-test-harness improvement, not an explanation for the disconnect. The previously
-orphaned schema was already removed and verified in the v23 handoff.
+The prior yield-only fixture teardown could not remove a schema when setup itself
+failed. The follow-up below fixes that separate harness defect; it does not explain
+the disconnect. The previously orphaned schema was removed in the v23 handoff.
+
+## Harness follow-up — 7c48a07
+
+The CRM fixture registers its finalizer before CREATE SCHEMA. Cleanup disposes the
+test pool, starts a fresh operator connection and drops only that fixture's generated
+schema with IF EXISTS. Cleanup has five-second lock and fifteen-second statement
+timeouts, always disposes the operator pool and reports failure rather than hiding
+it. An ongoing database outage can still prevent cleanup; the finalizer does not
+guarantee success during an outage and never retries application writes.
+
+Set CRM_TEST_DIAGNOSTICS=1 to emit UTC JSON records for test setup/call/teardown,
+outcome, exception class, SQLSTATE if available and connection-invalidated status.
+No exception messages, SQL or parameters are emitted by this hook. Continue using
+--tb=no for remote runs because ordinary pytest tracebacks are a separate source
+of sensitive output. Use -x to stop at the first failure and run serially.
+
+Five focused checks passed locally and on staging PostgreSQL, including a synthetic
+exception immediately after schema creation and independent verification that its
+schema was removed. The other checks cover diagnostic privacy and the three lead
+assignment regressions (email stubbed). Staging interval was 2026-09-09
+00:47:06–00:47:11 UTC; pytest reported 5 passed in 4.81 seconds. Test-schema count
+was zero before and after, connection counts were 15 then 14, and PostgreSQL start
+time remained July 31. A concurrent filtered Fly stream reported no new matching
+connection/restart/OOM events in this interval; its only matching entries were the
+older September 8 23:34:30 proxy messages. This narrow check does not resolve the
+original intermittent connection issue or replace full validation of future changes.
+
+Only three test files were copied to /tmp/crm-harness-7c48a07 on the existing staging
+backend. Temporary pytest dependencies were restored before the check. Application
+release remains v23 / c23b53b; no app deployment, database migration, machine resize,
+configuration change or production access occurred. The filtered log process was
+stopped after the check. Use these diagnostics on the next necessary validation.
