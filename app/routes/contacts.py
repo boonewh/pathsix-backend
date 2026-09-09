@@ -1,11 +1,9 @@
-from app.utils.record_access import can_access, require_record, validate_parents
 from quart import Blueprint, request, jsonify
 from pydantic import ValidationError
-from app.models import Contact
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
-from app.utils.phone_utils import clean_phone_number
 from app.schemas.contacts import ContactCreateSchema, ContactUpdateSchema
+from app.services.contacts import ContactService, RecordNotFound
 
 contacts_bp = Blueprint("contacts", __name__, url_prefix="/api/contacts")
 
@@ -14,151 +12,69 @@ contacts_bp = Blueprint("contacts", __name__, url_prefix="/api/contacts")
 @contacts_bp.route("/", methods=["GET"])
 @requires_auth()
 async def list_contacts():
-    user = request.user
-    client_id = request.args.get("client_id")
-    lead_id = request.args.get("lead_id")
-
-    session = SessionLocal()
-    try:
-        if not client_id and not lead_id:
-            return jsonify([])
-        if client_id and lead_id:
-            return jsonify({"error": "Supply one parent"}), 400
-        validate_parents(session, user, {"client_id": client_id} if client_id else {"lead_id": lead_id}, ("client_id", "lead_id"))
-        query = session.query(Contact).filter(Contact.tenant_id == user.tenant_id)
-
-        if client_id:
-            query = query.filter(Contact.client_id == client_id)
-        elif lead_id:
-            query = query.filter(Contact.lead_id == lead_id)
-        else:
-            return jsonify([])
-
-        contacts = query.all()
-
-        return jsonify([
-            {
-                "id": c.id,
-                "first_name": c.first_name,
-                "last_name": c.last_name,
-                "title": c.title,
-                "email": c.email,
-                "phone": c.phone,
-                "phone_label": c.phone_label,
-                "secondary_phone": c.secondary_phone,
-                "secondary_phone_label": c.secondary_phone_label,
-                "notes": c.notes,
-            } for c in contacts
-        ])
-    finally:
-        session.close()
+    with SessionLocal() as session:
+        try:
+            return jsonify(ContactService(session, request.principal).list_for_parent(
+                client_id=request.args.get('client_id') or None,
+                lead_id=request.args.get('lead_id') or None))
+        except RecordNotFound as exc:
+            return jsonify({'error': str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
 
 
 @contacts_bp.route("", methods=["POST"])
 @contacts_bp.route("/", methods=["POST"])
 @requires_auth()
 async def create_contact():
-    user = request.user
     raw_data = await request.get_json()
-    
-    # Validate input using Pydantic schema
+    if not isinstance(raw_data, dict):
+        return jsonify({'error': 'Invalid request body'}), 400
     try:
         data = ContactCreateSchema(**raw_data)
-    except ValidationError as e:
-        return jsonify({
-            "error": "Validation failed",
-            "details": e.errors()
-        }), 400
-
-    session = SessionLocal()
-    try:
-        validate_parents(session, user, data.model_dump(), ("client_id", "lead_id"))
-        contact = Contact(
-            tenant_id=user.tenant_id,
-            client_id=data.client_id,
-            lead_id=data.lead_id,
-            first_name=data.first_name,
-            last_name=data.last_name,
-            title=data.title,
-            email=str(data.email) if data.email else None,
-            phone=clean_phone_number(data.phone) if data.phone else None,
-            phone_label=data.phone_label,
-            secondary_phone=clean_phone_number(data.secondary_phone) if data.secondary_phone else None,
-            secondary_phone_label=data.secondary_phone_label,
-            notes=data.notes,
-        )
-        session.add(contact)
-        session.commit()
-        session.refresh(contact)
-
-        return jsonify({"id": contact.id}), 201
-    finally:
-        session.close()
+    except ValidationError as exc:
+        return jsonify({'error': 'Validation failed', 'details': exc.errors()}), 400
+    with SessionLocal() as session:
+        try:
+            contact_id = ContactService(session, request.principal).create(data)
+            session.commit()
+            return jsonify({'id': contact_id}), 201
+        except RecordNotFound as exc:
+            return jsonify({'error': str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
 
 
 @contacts_bp.route("/<int:contact_id>", methods=["PUT"])
 @requires_auth()
 async def update_contact(contact_id):
-    user = request.user
     raw_data = await request.get_json()
-    
-    # Validate input using Pydantic schema
+    if not isinstance(raw_data, dict):
+        return jsonify({'error': 'Invalid request body'}), 400
     try:
         data = ContactUpdateSchema(**raw_data)
-    except ValidationError as e:
-        return jsonify({
-            "error": "Validation failed",
-            "details": e.errors()
-        }), 400
-
-    session = SessionLocal()
-    try:
-        contact = session.query(Contact).filter(
-            Contact.id == contact_id,
-            Contact.tenant_id == user.tenant_id
-        ).first()
-
-        if not contact:
-            return jsonify({"error": "Contact not found"}), 404
-
-        validate_parents(session, user, {}, ("client_id", "lead_id"), contact)
-        validate_parents(session, user, data.model_dump(exclude_unset=True), ("client_id", "lead_id"), contact)
-        # Update fields with validated data
-        update_data = data.model_dump(exclude_unset=True)
-        
-        for field, value in update_data.items():
-            if field == "phone":
-                contact.phone = clean_phone_number(value) if value else None
-            elif field == "secondary_phone":
-                contact.secondary_phone = clean_phone_number(value) if value else None
-            elif field == "email":
-                contact.email = str(value) if value else None
-            else:
-                setattr(contact, field, value)
-
-        session.commit()
-        return jsonify({"message": "Contact updated"})
-    finally:
-        session.close()
+    except ValidationError as exc:
+        return jsonify({'error': 'Validation failed', 'details': exc.errors()}), 400
+    with SessionLocal() as session:
+        try:
+            ContactService(session, request.principal).update(contact_id, data)
+            session.commit()
+            return jsonify({'message': 'Contact updated'})
+        except RecordNotFound as exc:
+            return jsonify({'error': str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
 
 
 @contacts_bp.route("/<int:contact_id>", methods=["DELETE"])
 @requires_auth()
 async def delete_contact(contact_id):
-    user = request.user
-    session = SessionLocal()
-    try:
-        contact = session.query(Contact).filter(
-            Contact.id == contact_id,
-            Contact.tenant_id == user.tenant_id
-        ).first()
-
-        if not contact:
-            return jsonify({"error": "Contact not found"}), 404
-
-        validate_parents(session, user, {}, ("client_id", "lead_id"), contact)
-        session.delete(contact)
-        session.commit()
-        return jsonify({"message": "Contact deleted"})
-    finally:
-        session.close()
+    with SessionLocal() as session:
+        try:
+            ContactService(session, request.principal).delete(contact_id)
+            session.commit()
+            return jsonify({'message': 'Contact deleted'})
+        except RecordNotFound as exc:
+            return jsonify({'error': str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400

@@ -1039,3 +1039,72 @@ def test_lead_assignment_failed_commit_does_not_notify(crm, monkeypatch):
     assert notices == []
     with factory() as db:
         assert db.get(Lead, 1).assigned_to is None
+
+
+@pytest.mark.parametrize('user', [1, 3])
+def test_contact_service_enforces_current_and_destination_parent(crm, user):
+    from app.services.contacts import ContactService, RecordNotFound
+    from app.services.principal import Principal
+    from app.schemas.contacts import ContactCreateSchema, ContactUpdateSchema
+    _, factory, _ = crm
+    with factory() as db:
+        service = ContactService(db, Principal(user, 1, frozenset({'admin'}) if user == 1 else frozenset()))
+        with pytest.raises(RecordNotFound):
+            service.create(ContactCreateSchema(first_name='Foreign', client_id=2))
+        with pytest.raises(RecordNotFound):
+            service.list_for_parent(lead_id=2)
+        if user == 3:
+            for action in (lambda: service.list_for_parent(client_id=1),
+                           lambda: service.update(1, ContactUpdateSchema(client_id=None, lead_id=1)),
+                           lambda: service.delete(1)):
+                with pytest.raises(RecordNotFound):
+                    action()
+        else:
+            with pytest.raises(RecordNotFound):
+                service.update(1, ContactUpdateSchema(client_id=None, lead_id=2))
+        assert db.get(Contact, 1).client_id == 1
+
+
+def test_contact_service_atomic_transfer_pure_list_and_rollback(crm):
+    from app.services.contacts import ContactService
+    from app.services.principal import Principal
+    from app.schemas.contacts import ContactCreateSchema, ContactUpdateSchema
+    from app.models import ActivityLog
+    _, factory, _ = crm
+    with factory() as db:
+        service = ContactService(db, Principal(1, 1, frozenset({'admin'})))
+        assert service.list_for_parent() == []
+        assert len(service.list_for_parent(client_id=1)) == 1
+        assert db.query(ActivityLog).count() == 0
+        with pytest.raises(ValueError):
+            service.update(1, ContactUpdateSchema(client_id=None))
+        with pytest.raises(ValueError):
+            service.update(1, ContactUpdateSchema(lead_id=1))
+        service.update(1, ContactUpdateSchema(client_id=None, lead_id=1, phone='123-456-7890'))
+        assert len(service.list_for_parent(lead_id=1)) == 1
+        service.delete(1)
+        db.rollback()
+        assert db.get(Contact, 1).client_id == 1
+        new_id = service.create(ContactCreateSchema(first_name='Rollback', lead_id=1, tenant_id=2))
+        assert db.get(Contact, new_id).tenant_id == 1
+        db.rollback()
+        assert db.get(Contact, new_id) is None
+
+
+def test_contact_service_denies_deleted_parent_and_foreign_contact(crm):
+    from app.services.contacts import ContactService, RecordNotFound
+    from app.services.principal import Principal
+    from app.schemas.contacts import ContactUpdateSchema
+    _, factory, _ = crm
+    with factory() as db:
+        foreign = Contact(tenant_id=2, lead_id=2, first_name='Foreign')
+        db.add(foreign); db.flush(); foreign_id = foreign.id
+        db.get(Client, 1).deleted_at = datetime.utcnow()
+        db.commit()
+    with factory() as db:
+        service = ContactService(db, Principal(1, 1, frozenset({'admin'})))
+        for target in (1, foreign_id):
+            with pytest.raises(RecordNotFound):
+                service.update(target, ContactUpdateSchema(notes='Denied'))
+            with pytest.raises(RecordNotFound):
+                service.delete(target)
