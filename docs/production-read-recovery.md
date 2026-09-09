@@ -39,3 +39,16 @@ Quart requests on the same event-loop thread.
 
 Revert the isolated application commits on main and deploy their predecessors.
 No data migration reversal is needed. Keep the Activity report release intact.
+
+## Verified production release
+
+- Backend main application commit: `b121d95`; Fly machine version 82, started,
+  1/1 health checks passing. Image: `deployment-01M241SA6JN0057QEC3NM7W90K`.
+- Frontend main: `4785ef8`; Vercel Production deployment `6359880258` succeeded.
+  Public `/projects` serves `/assets/index-D6eddi2F.js` with the recovery UI and
+  Activity report retained. Staging received only its automatic Preview deployment.
+- Authenticated, read-only production smoke: concurrent projects, clients, leads,
+  preferences returned 200; the dated Activity report also returned 200. Independent
+  session instances verified inside the deployed VM. No CRM records were changed.
+- Fly SSH printed all successful results and then its known Windows CLI
+  `The handle is invalid` exit error; deploy, machine health and HTTP checks passed.
