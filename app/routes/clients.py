@@ -678,6 +678,9 @@ async def bulk_delete_clients():
 
     session = SessionLocal()
     try:
+        from app.utils.sales_audit import log_bulk_deletion
+        log_bulk_deletion(session, session.query(Client).filter(
+            Client.tenant_id == user.tenant_id, Client.id.in_(client_ids), Client.deleted_at == None))
         updated_count = session.query(Client).filter(
             Client.tenant_id == user.tenant_id,
             Client.id.in_(client_ids),
@@ -704,6 +707,9 @@ async def bulk_purge_clients():
     session = SessionLocal()
     try:
         # Only purge clients that are already soft-deleted
+        from app.utils.sales_audit import log_bulk_deletion
+        log_bulk_deletion(session, session.query(Client).filter(
+            Client.tenant_id == user.tenant_id, Client.id.in_(client_ids), Client.deleted_at != None))
         deleted_count = session.query(Client).filter(
             Client.tenant_id == user.tenant_id,
             Client.id.in_(client_ids),

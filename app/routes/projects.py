@@ -738,6 +738,9 @@ async def bulk_delete_projects():
 
     session = SessionLocal()
     try:
+        from app.utils.sales_audit import log_bulk_deletion
+        log_bulk_deletion(session, session.query(Project).filter(
+            Project.tenant_id == user.tenant_id, Project.id.in_(project_ids), Project.deleted_at == None))
         updated_count = session.query(Project).filter(
             Project.tenant_id == user.tenant_id,
             Project.id.in_(project_ids),
@@ -764,6 +767,9 @@ async def bulk_purge_projects():
     session = SessionLocal()
     try:
         # Only purge projects that are already soft-deleted
+        from app.utils.sales_audit import log_bulk_deletion
+        log_bulk_deletion(session, session.query(Project).filter(
+            Project.tenant_id == user.tenant_id, Project.id.in_(project_ids), Project.deleted_at != None))
         deleted_count = session.query(Project).filter(
             Project.tenant_id == user.tenant_id,
             Project.id.in_(project_ids),

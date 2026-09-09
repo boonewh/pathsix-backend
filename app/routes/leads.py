@@ -515,6 +515,9 @@ async def bulk_delete_leads():
     session = SessionLocal()
     try:
         # Soft delete only leads that belong to this tenant and haven't already been deleted
+        from app.utils.sales_audit import log_bulk_deletion
+        log_bulk_deletion(session, session.query(Lead).filter(
+            Lead.tenant_id == user.tenant_id, Lead.id.in_(lead_ids), Lead.deleted_at == None))
         updated_count = session.query(Lead).filter(
             Lead.tenant_id == user.tenant_id,
             Lead.id.in_(lead_ids),
@@ -541,6 +544,9 @@ async def bulk_purge_leads():
     session = SessionLocal()
     try:
         # Only purge leads that are already soft-deleted
+        from app.utils.sales_audit import log_bulk_deletion
+        log_bulk_deletion(session, session.query(Lead).filter(
+            Lead.tenant_id == user.tenant_id, Lead.id.in_(lead_ids), Lead.deleted_at != None))
         deleted_count = session.query(Lead).filter(
             Lead.tenant_id == user.tenant_id,
             Lead.id.in_(lead_ids),
