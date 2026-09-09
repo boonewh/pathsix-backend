@@ -18,14 +18,33 @@ from app.utils import auth_utils
 
 
 @pytest.fixture
-def crm(tmp_path, monkeypatch):
+def crm(tmp_path, monkeypatch, request):
     url = os.getenv('SECURITY_TEST_DATABASE_URL')
     schema = 'security_test_' + uuid.uuid4().hex
-    admin_engine = create_engine(url) if url else None
+    admin_engine = create_engine(url, hide_parameters=True) if url else None
+    engine = None
+
+    def cleanup():
+        try:
+            if engine is not None:
+                engine.dispose()
+            if admin_engine is not None:
+                # A fresh connection avoids reusing one broken during setup.
+                admin_engine.dispose()
+                with admin_engine.begin() as connection:
+                    connection.execute(text("SET LOCAL lock_timeout='5s'"))
+                    connection.execute(text("SET LOCAL statement_timeout='15s'"))
+                    connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+        finally:
+            if admin_engine is not None:
+                admin_engine.dispose()
+
+    # Register before CREATE SCHEMA: setup failures also receive teardown.
+    request.addfinalizer(cleanup)
     if admin_engine:
         with admin_engine.begin() as connection:
             connection.execute(text(f'CREATE SCHEMA "{schema}"'))
-        engine = create_engine(url, connect_args={'options': f'-csearch_path={schema}'})
+        engine = create_engine(url, hide_parameters=True, connect_args={'options': f'-csearch_path={schema}'})
     else:
         engine = create_engine(f"sqlite:///{tmp_path / 'security.db'}")
     Base.metadata.create_all(engine)
@@ -92,12 +111,7 @@ def crm(tmp_path, monkeypatch):
                 headers={'Authorization': f'Bearer {token}'} if user else {})
             return response.status_code, await response.get_data(as_text=True)
         return asyncio.run(run())
-    yield call, factory, app
-    engine.dispose()
-    if admin_engine:
-        with admin_engine.begin() as connection:
-            connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
-        admin_engine.dispose()
+    return call, factory, app
 
 
 @pytest.mark.parametrize('resource,body', [
