@@ -1,5 +1,24 @@
 # Production sales activity report — September 9, 2026
 
+## Released
+
+Backend application commit c71a781 and frontend commit 269bdd3 were pushed to
+their main branches. Backend release 81 deployed successfully to the existing
+d894111b636938 machine; its health check passes. The public frontend at
+https://pathsix-crm.vercel.app/reports serves the new report bundle. Vercel production
+deployment 6356054456 and frontend typecheck/build CI succeeded. The staging
+production deployment remains on cdab5ed; Vercel also built its normal preview.
+
+Live authenticated HTTP checks passed for a seven-day range, a single-day range
+and page two. The first two returned different totals. Unauthenticated access
+returned 401. These checks performed no CRM mutations or email sends. Eight new
+backend tests and three Playwright regressions pass. TypeScript and targeted lint
+pass; the production build passes. The browser screenshot was inspected. No
+database migration, secret changes or Fly resource resizing was required.
+
+Keep this main hotfix when later promoting the separate security/service work.
+Historical data limitations below remain intentional. Preparation notes follow.
+
 Based on origin/main dcecadc, isolated from codex/crm-reliability-security.
 
 GET /api/reports/sales-activity requires authentication and the user's current
