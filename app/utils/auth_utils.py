@@ -1,12 +1,14 @@
 import bcrypt
 import time
+import asyncio
+from uuid import uuid4
 from authlib.jose import jwt, JoseError
 from quart import request, jsonify, current_app
 from functools import wraps
 from app.models import User
 from app.database import SessionLocal
 from itsdangerous import URLSafeTimedSerializer
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, DBAPIError
 from sqlalchemy.orm import joinedload
 
 def hash_password(password: str) -> str:
@@ -44,17 +46,44 @@ def requires_auth(roles: list = None):
             except JoseError:
                 return jsonify({"error": "Invalid token"}), 401
 
-            session = SessionLocal()
-            try:
-                user = session.query(User)\
-                    .options(joinedload(User.roles))\
-                    .filter(User.id == payload["sub"], User.is_active == True)\
-                    .first()
-            except SQLAlchemyError:
-                session.rollback()
-                return jsonify({"error": "Database error"}), 500
-            finally:
-                session.close()
+            # Retry only the read-only authentication lookup, never a route
+            # handler: even GET handlers can have side effects (e.g. view logs).
+            attempts = 2 if request.method in {"GET", "HEAD"} else 1
+            for attempt in range(attempts):
+                session = SessionLocal()
+                retry = False
+                try:
+                    user = session.query(User)\
+                        .options(joinedload(User.roles))\
+                        .filter(User.id == payload["sub"], User.is_active == True)\
+                        .first()
+                    break
+                except SQLAlchemyError as exc:
+                    disconnected = isinstance(exc, DBAPIError) and exc.connection_invalidated
+                    retry = disconnected and attempt + 1 < attempts
+                    incident = uuid4().hex
+                    # Do not log str(exc), SQL, parameters, tokens or user data.
+                    original = getattr(exc, "orig", None)
+                    current_app.logger.log(
+                        30 if retry else 40,
+                        "Auth database failure incident=%s endpoint=%s method=%s "
+                        "attempt=%s exception=%s driver=%s sqlstate=%s disconnected=%s retry=%s",
+                        incident, request.endpoint, request.method, attempt + 1,
+                        type(exc).__name__, type(original).__name__,
+                        getattr(original, "sqlstate", None) or getattr(original, "pgcode", None),
+                        disconnected, retry,
+                    )
+                    if not retry:
+                        return jsonify({
+                            "error": "Database temporarily unavailable. Please try again." if disconnected else "Database error",
+                            "request_id": incident,
+                            "retryable": bool(disconnected),
+                        }), 503 if disconnected else 500
+                finally:
+                    session.close()
+                if retry:
+                    # The broken session is closed before yielding the thread.
+                    await asyncio.sleep(0.25)
 
             if not user:
                 return jsonify({"error": "User not found"}), 401

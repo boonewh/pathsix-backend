@@ -1,4 +1,4 @@
-from sqlalchemy.orm import scoped_session, sessionmaker, declarative_base
+from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy import create_engine, event
 from app.config import SQLALCHEMY_DATABASE_URI, SLOW_QUERY_THRESHOLD_MS
 import os
@@ -36,5 +36,7 @@ def receive_before_cursor_execute(conn, cursor, statement, parameters, context, 
 def receive_after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
     _log_slow_query(conn, cursor, statement, parameters, context, executemany)
 
-SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
+# Quart requests share an event-loop thread. A thread-local scoped_session would
+# let concurrent requests reuse (and close/rollback) each other's session.
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
