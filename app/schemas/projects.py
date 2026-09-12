@@ -170,7 +170,7 @@ class ProjectUpdateSchema(BaseModel):
 
 class ProjectAssignSchema(BaseModel):
     """Schema for assigning a project to a user via PUT /api/projects/{id}/assign"""
-    assigned_to: int = Field(..., gt=0, description="User ID to assign the project to")
+    assigned_to: int = Field(..., strict=True, gt=0, description="User ID to assign the project to")
 
 
 class ProjectResponseSchema(BaseModel):

@@ -18,26 +18,8 @@ class SearchService:
         return owned_record_filter(model, self.principal)
 
     def _project_access(self):
-        # Validate parent tenant even for an admin or directly assigned project.
-        valid_parent = or_(
-            and_(Project.client_id.is_(None), Project.lead_id.is_(None)),
-            and_(Project.lead_id.is_(None), Project.client.has(and_(
-                Client.tenant_id == self.principal.tenant_id, Client.deleted_at.is_(None)))),
-            and_(Project.client_id.is_(None), Project.lead.has(and_(
-                Lead.tenant_id == self.principal.tenant_id, Lead.deleted_at.is_(None)))),
-        )
-        if self.principal.is_admin:
-            return valid_parent
-        inherited = or_(
-            Project.client.has(self._parent_access(Client)),
-            Project.lead.has(self._parent_access(Lead)),
-            and_(Project.client_id.is_(None), Project.lead_id.is_(None),
-                 Project.created_by == self.principal.user_id),
-        )
-        return and_(valid_parent, or_(
-            Project.assigned_to == self.principal.user_id,
-            and_(Project.assigned_to.is_(None), inherited),
-        ))
+        from app.services.access import project_access_filter
+        return project_access_filter(self.principal)
 
     def search(self, query: str, limit: int = 10):
         if not isinstance(query, str) or len(query) > 200:

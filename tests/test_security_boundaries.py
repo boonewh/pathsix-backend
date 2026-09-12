@@ -240,7 +240,7 @@ def test_malformed_relationships_do_not_load_other_tenant(crm):
         db.commit()
     for path in ('/api/accounts', '/api/projects/1', '/api/clients/1', '/api/interactions/all'):
         status, data = call('GET', path)
-        assert status == 200, data
+        assert status == (404 if path == '/api/projects/1' else 200), data
         assert 'Private client 2' not in data and 'Private lead 2' not in data
     assert call('GET', '/api/interactions/1/calendar.ics')[0] == 404
 
