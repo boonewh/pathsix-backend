@@ -202,8 +202,9 @@ def test_project_assignment_mail_after_commit_and_no_mail_on_failure(crm, monkey
 
 def test_project_interaction_http_lifecycle_and_purge_conflict(crm):
     call, factory, _ = crm
-    if factory.kw['bind'].dialect.name == 'postgresql':
+    if factory.kw["bind"].dialect.name == "postgresql":
         from test_security_boundaries import _parent_rules
+
         _parent_rules(factory)
     status, body = call("POST", "/api/projects", {"project_name": "Lifecycle"})
     assert status == 201
@@ -236,9 +237,12 @@ def test_project_interaction_http_lifecycle_and_purge_conflict(crm):
         call("GET", f"/api/interactions?project_id={project_id}")[1].find("Follow up")
         == -1
     )
-    if factory.kw['bind'].dialect.name == 'postgresql':
-        assert call('DELETE', path + '/purge')[0] == 409
-        assert call('POST', '/api/projects/bulk-purge', {'project_ids': [project_id]})[0] == 409
+    if factory.kw["bind"].dialect.name == "postgresql":
+        assert call("DELETE", path + "/purge")[0] == 409
+        assert (
+            call("POST", "/api/projects/bulk-purge", {"project_ids": [project_id]})[0]
+            == 409
+        )
     assert call("PUT", path + "/restore")[0] == 200
     assert call("DELETE", f"/api/interactions/{interaction_id}")[0] == 200
     assert (
@@ -285,3 +289,34 @@ def test_interaction_operations_deny_deleted_parents(crm, parent_model):
         for method in ("delete", "complete", "calendar"):
             with pytest.raises(RecordNotFound):
                 getattr(service, method)(1)
+
+
+def test_project_interaction_parent_moves_refresh_loaded_relationships(crm):
+    _, factory, _ = crm
+    with factory() as db:
+        db.get(Project, 1).client_id = 1
+        db.commit()
+    with factory() as db:
+        projects, interactions = (
+            ProjectService(db, ADMIN),
+            InteractionService(db, ADMIN),
+        )
+        assert projects.detail(1)["client_name"] == "Private client 1"
+        updated = projects.update(1, ProjectUpdateSchema(client_id=None, lead_id=1))
+        assert (
+            updated["client_name"] is None and updated["lead_name"] == "Private lead 1"
+        )
+        assert (
+            interactions.list_visible(client_id=1)["interactions"][0]["client_name"]
+            == "Private client 1"
+        )
+        interactions.update(1, InteractionUpdateSchema(client_id=None, lead_id=1))
+        moved = interactions.list_visible(lead_id=1)["interactions"][0]
+        assert moved["client_name"] is None and moved["lead_name"] == "Private lead 1"
+        interactions.transfer(1, 1)
+        moved_back = interactions.list_visible(client_id=1)["interactions"][0]
+        assert (
+            moved_back["client_name"] == "Private client 1"
+            and moved_back["lead_name"] is None
+        )
+        db.rollback()
