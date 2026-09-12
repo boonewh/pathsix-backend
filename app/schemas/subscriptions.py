@@ -3,22 +3,43 @@ Pydantic validation schemas for Subscription entity.
 """
 
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 BILLING_CYCLES = ["monthly", "yearly"]
 SUBSCRIPTION_STATUSES = ["active", "paused", "cancelled"]
 
 
-class SubscriptionCreateSchema(BaseModel):
+class SubscriptionDates(BaseModel):
+    @field_validator("start_date", "renewal_date", mode="before", check_fields=False)
+    @classmethod
+    def normalize_date(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value = datetime.fromisoformat(value)
+        if not isinstance(value, datetime):
+            raise ValueError("Invalid subscription date")
+        if value.tzinfo is not None:
+            value = value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value
+
+
+class SubscriptionCreateSchema(SubscriptionDates):
     model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True)
 
-    client_id: int = Field(..., gt=0, description="Associated client ID")
-    plan_name: str = Field(..., min_length=1, max_length=255, description="Plan or service name")
-    price: float = Field(..., ge=0, description="Price per billing cycle")
+    client_id: int = Field(..., gt=0, strict=True, description="Associated client ID")
+    plan_name: str = Field(
+        ..., min_length=1, max_length=255, description="Plan or service name"
+    )
+    price: float = Field(
+        ..., ge=0, allow_inf_nan=False, description="Price per billing cycle"
+    )
     billing_cycle: str = Field(..., description="Billing cycle: monthly or yearly")
     start_date: datetime = Field(..., description="Subscription start date")
-    renewal_date: Optional[datetime] = Field(None, description="Next renewal date (auto-calculated if not provided)")
+    renewal_date: Optional[datetime] = Field(
+        None, description="Next renewal date (auto-calculated if not provided)"
+    )
     status: Optional[str] = Field("active", description="Subscription status")
     notes: Optional[str] = Field(None, description="Additional notes")
 
@@ -26,7 +47,9 @@ class SubscriptionCreateSchema(BaseModel):
     @classmethod
     def validate_billing_cycle(cls, value: str) -> str:
         if value not in BILLING_CYCLES:
-            raise ValueError(f"billing_cycle must be one of: {', '.join(BILLING_CYCLES)}")
+            raise ValueError(
+                f"billing_cycle must be one of: {', '.join(BILLING_CYCLES)}"
+            )
         return value
 
     @field_validator("status")
@@ -35,15 +58,17 @@ class SubscriptionCreateSchema(BaseModel):
         if value is None or value.strip() == "":
             return "active"
         if value not in SUBSCRIPTION_STATUSES:
-            raise ValueError(f"status must be one of: {', '.join(SUBSCRIPTION_STATUSES)}")
+            raise ValueError(
+                f"status must be one of: {', '.join(SUBSCRIPTION_STATUSES)}"
+            )
         return value
 
 
-class SubscriptionUpdateSchema(BaseModel):
+class SubscriptionUpdateSchema(SubscriptionDates):
     model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True)
 
     plan_name: Optional[str] = Field(None, min_length=1, max_length=255)
-    price: Optional[float] = Field(None, ge=0)
+    price: Optional[float] = Field(None, ge=0, allow_inf_nan=False)
     billing_cycle: Optional[str] = None
     start_date: Optional[datetime] = None
     renewal_date: Optional[datetime] = None
@@ -56,7 +81,9 @@ class SubscriptionUpdateSchema(BaseModel):
         if value is None:
             return value
         if value not in BILLING_CYCLES:
-            raise ValueError(f"billing_cycle must be one of: {', '.join(BILLING_CYCLES)}")
+            raise ValueError(
+                f"billing_cycle must be one of: {', '.join(BILLING_CYCLES)}"
+            )
         return value
 
     @field_validator("status")
@@ -65,7 +92,9 @@ class SubscriptionUpdateSchema(BaseModel):
         if value is None:
             return value
         if value not in SUBSCRIPTION_STATUSES:
-            raise ValueError(f"status must be one of: {', '.join(SUBSCRIPTION_STATUSES)}")
+            raise ValueError(
+                f"status must be one of: {', '.join(SUBSCRIPTION_STATUSES)}"
+            )
         return value
 
 
