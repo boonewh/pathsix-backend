@@ -28,7 +28,17 @@ non-finite prices and out-of-range calculated renewals now return 400 before wri
 Input dates normalize UTC offsets before storage/serialization. The current frontend
 already supplies numeric client IDs and omits blank renewal dates.
 
-## Validation
+## Rollout completed — 2026-09-12
+
+The build worker became available. Subscription live lifecycle and cleanup passed
+(16 HTTP checks). Latest staging is v28 / de3f468, including Recent Activity.
+The combined 34-case PostgreSQL verification required targeted recovery after two
+connection/setup/cleanup interruptions; the final four cases used .internal rather
+than .flycast. See docs/activity-service.md for exact outcomes and final cleanup.
+The earlier deployment blocker below is historical; the database connection issue
+remains unresolved. Production remains untouched.
+
+## Earlier validation and build blocker (historical)
 
 Source commit fe59185. Local suite: 162 passed, 29 PostgreSQL-only skipped
 (61.61 seconds). Focused subscription PostgreSQL suite: 24 passed (26.72 seconds)

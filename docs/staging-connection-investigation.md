@@ -80,3 +80,30 @@ backend. Temporary pytest dependencies were restored before the check. Applicati
 release remains v23 / c23b53b; no app deployment, database migration, machine resize,
 configuration change or production access occurred. The filtered log process was
 stopped after the check. Use these diagnostics on the next necessary validation.
+
+
+## Recurrence — 2026-09-12, Activity/subscription rollout
+
+Staging v28 / de3f468. Combined PostgreSQL tests stopped during subscription
+invalid_create[body1] setup after Activity cases completed. Recovery passed three
+cases before invalid_create[body4] setup and teardown errored. The first run's
+post-test count on a retained admin engine also encountered a closed connection;
+the recovery's new-engine snapshot failed while connecting through .flycast.
+Do not attribute all errors solely to reuse of an idle pooled connection.
+
+Cleanup failed despite early finalizer registration. Exact orphan schemas
+security_test_2f0ee681a4d24b8ead6b3545b16e4b4e and
+security_test_aa929a67bd5245399fe4f14a3c4fb6e5 were each identified and removed.
+No public data was removed. Subsequent fresh probes through .flycast and .internal
+both succeeded; PostgreSQL postmaster time remained 2026-07-31 04:35:29 UTC and
+connection counts were low (13 at the comparison). Filtered logs captured no match.
+These observations do not establish root cause or prove either path reliable.
+
+The final four tests passed through .internal in 5.90 seconds. In aggregate all
+34 cases passed across attempts, not one clean suite. Final direct-address checks
+confirmed zero test schemas, original demo counts, fourteen forced RLS tables and
+unscoped runtime read denial. Runtime DATABASE_URL remains .flycast; no app config,
+resources or automatic retry policy changed. Live subscription and Activity API
+checks passed separately. Prioritize capturing durable redacted test-phase results
+(including cleanup failures) and correlated Fly proxy/database diagnostics before
+more broad staging testing. Do not repeatedly rerun suites or claim this is fixed.
