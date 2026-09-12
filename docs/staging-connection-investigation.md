@@ -107,3 +107,68 @@ resources or automatic retry policy changed. Live subscription and Activity API
 checks passed separately. Prioritize capturing durable redacted test-phase results
 (including cleanup failures) and correlated Fly proxy/database diagnostics before
 more broad staging testing. Do not repeatedly rerun suites or claim this is fixed.
+
+
+## Diagnosis — 2026-09-12 (read-only; supersedes the earlier lack of evidence)
+
+The latest two failures now have a correlated infrastructure explanation. Retained
+Fly logs, fetched with --no-tail and a broader filter, contain events missed by the
+previous streamed filter. That earlier filter omitted generic health failures and
+HAProxy Layer7/backend messages, so its silence was not evidence of healthy routing.
+
+| UTC | Observed staging event |
+| --- | --- |
+| 23:35:06 | VM health failed: resource limits |
+| 23:35:25–26 | Role and PostgreSQL health checks failed |
+| 23:35:31–33 | PostgreSQL client lost; all HAProxy bk_db targets DOWN after roughly 5–6 second Layer7 timeouts; no server available |
+| 23:35:37 | Proxy targets healthy again |
+| 23:38:34–36 | VM/role/database health failed again; proxy targets DOWN after roughly 5.2 second Layer7 timeouts; no server available |
+| 23:38:41 | Proxy targets healthy again |
+
+Historical staging metrics for 23:33–23:41 UTC are retained under docs/diagnostics.
+The VM's CPU burst balance stayed 49,216–50,000 centiseconds and CPU throttle stayed
+zero. Disk-wait CPU increments reached 1,257 and 1,388 centiseconds in 15-second
+samples (approximately 84% and 93%). Outstanding I/O on vda reached 49 in the first
+window and 58–61 in the second; available RAM fell to about 27.5 MiB and 23.3 MiB,
+then recovered. The PostgreSQL data volume vdc had zero sampled outstanding I/O;
+its capacity was only 17% used at the later guest check. CPU quota exhaustion,
+connection-count saturation and a full volume are not supported by these observations.
+
+The VM is shared-cpu-1x with 256 MB configured, about 207 MiB visible to the guest,
+no swap and roughly 45 MiB available when later idle. Guest memory and I/O pressure
+were still elevated in the five-minute averages. Guest VM counters showed substantial
+file-page reclaim/refaults, 114,728 major faults and zero OOM kills since boot.
+Those cumulative counters alone do not timestamp the incident. Exported host-side
+memory-pressure metrics were all zero and differ from the guest /proc/pressure
+readings; do not use them as proof that guest memory was unconstrained. vdb is mounted
+as the writable upper layer, vdc is /data, and vda is the other 8 GB non-data device (the image/lower-layer path is suspected).
+
+Confirmed failure mechanism: resource/I/O stalls cause database health checks to
+time out; HAProxy marks every target unavailable and connections are lost, including
+fresh connections and cleanup. PostgreSQL need not restart for this to happen.
+Likely underlying trigger: limited guest RAM causes file-cache reclaim/refault I/O
+under repeated schema-heavy fixture setup. This is a strong working hypothesis,
+not proof that RAM alone explains the storage latency. No controlled resize or
+reproduction under changed resources was performed, and earlier September incidents
+are not proven to share this cause.
+
+.internal:5432 bypasses Flycast routing but still uses the database's HAProxy
+listener. Therefore its four passing tests are not evidence that changing the app
+hostname fixes this. Keep the current URL; do not add application write retries,
+disable health checks, or lengthen timeouts to conceal resource starvation.
+
+Recommended next experiment: increase only the existing staging database VM from
+256 MB to 512 MB, then run one bounded, serial PostgreSQL validation with durable
+redacted phase logs and before/during/after memory, I/O and health metrics. Success
+means no proxy health drops/disconnects/orphan schemas, not merely a later rerun pass.
+If stalls remain, examine root-image/host I/O and Fly support diagnostics rather than
+assuming more RAM always solves it. A memory increase changes recurring cost and
+restarts the staging database; it has NOT been applied by this diagnostic task.
+
+This diagnosis ran no database test suites, migrations, schema changes, deployments,
+resizes or production operations. Metrics/CLI credentials stayed in memory and are
+not in the saved artifacts. Staging app remains v28 / de3f468.
+
+References: https://fly.io/docs/monitoring/metrics/ (CPU counter units and metrics API),
+https://fly.io/docs/postgres/advanced-guides/high-availability-and-global-replication/
+(port 5432 proxy), and https://fly.io/docs/postgres/managing/scaling/ (VM memory scaling).
