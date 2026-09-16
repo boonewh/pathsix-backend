@@ -64,14 +64,25 @@ def requires_auth(roles: list = None):
                     incident = uuid4().hex
                     # Do not log str(exc), SQL, parameters, tokens or user data.
                     original = getattr(exc, "orig", None)
+                    diagnostics = {
+                        "incident": incident,
+                        "endpoint": request.endpoint,
+                        "method": request.method,
+                        "attempt": attempt + 1,
+                        "exception": type(exc).__name__,
+                        "driver": type(original).__name__,
+                        "sqlstate": getattr(original, "sqlstate", None) or getattr(original, "pgcode", None),
+                        "disconnected": bool(disconnected),
+                        "retry": bool(retry),
+                    }
                     current_app.logger.log(
                         30 if retry else 40,
-                        "Auth database failure incident=%s endpoint=%s method=%s "
-                        "attempt=%s exception=%s driver=%s sqlstate=%s disconnected=%s retry=%s",
-                        incident, request.endpoint, request.method, attempt + 1,
-                        type(exc).__name__, type(original).__name__,
-                        getattr(original, "sqlstate", None) or getattr(original, "pgcode", None),
-                        disconnected, retry,
+                        # A stable rendered summary remains readable in Sentry
+                        # clients that display logentry.message without params.
+                        f"Auth database failure: {diagnostics['exception']} "
+                        f"(driver={diagnostics['driver']}, sqlstate={diagnostics['sqlstate']}, "
+                        f"disconnected={diagnostics['disconnected']}, retry={diagnostics['retry']})",
+                        extra={"database_failure": diagnostics},
                     )
                     if not retry:
                         return jsonify({
