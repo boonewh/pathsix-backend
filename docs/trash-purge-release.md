@@ -37,3 +37,29 @@ The Fly release Dockerfile pins the previously deployed production dependency
 image and copies the reviewed main-based application source. Rollback image:
 registry.fly.io/pathsixsolutions-backend@sha256:c1f3e76cbb4a411376827b078aeb84838085fdb4a1cfbd447d25c80a9e0915fb.
 Machine sizes/counts and database sleep settings are unchanged by this release.
+
+## Production verification
+
+Backend PR #9 merged to main at e2b91c5489b0bc77a530488a211a9fe3af6a9a9c.
+Frontend PR #6 merged to main at 8fcbe4d683879929cfff8d25c538285f39ffd6ba.
+
+The existing Fly machine d894111b636938 is healthy on image
+registry.fly.io/pathsixsolutions-backend@sha256:fda1875520195316ea716790484977afdc7d196a41a37be91a13e1783d1f801d.
+Deployed purge service, HTTP adapter, and auth diagnostics SHA-256 hashes match
+the reviewed source. Health returns 200. A read-only SELECT 1 plus authentication
+lookups for a nonexistent user passed for clients, leads, and projects. No real
+user was impersonated and no customer record was modified.
+
+Vercel production deployment 6598456577 succeeded for frontend main 8fcbe4d.
+https://pathsix-crm.vercel.app/trash serves /assets/index-Zwcc59DK.js, verified to
+contain the blocker dialog, restore/review action, and structured purge contract.
+Frontend main CI passed. No production customer purge was used as a smoke test.
+
+The initial Depot export failed on a compressed base layer. Retrying the same
+source with --compression gzip --depot-scope app --no-cache succeeded before any
+production machine update. Normal recurring resources were not resized or added.
+
+Preserve this narrow production change when later promoting the independent
+staging security/service branches. The release worktrees remain available under
+G:/Projects/pathsix-backend/temp/trash-purge-backend and trash-purge-frontend;
+pre-existing working directories and unrelated local investigation edits remain.
