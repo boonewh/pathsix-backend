@@ -1,3 +1,4 @@
+from app.routes.purge import purge_response
 from quart import Blueprint, request, jsonify
 from datetime import datetime
 from pydantic import ValidationError
@@ -707,23 +708,7 @@ async def restore_project(project_id):
 @projects_bp.route("/<int:project_id>/purge", methods=["DELETE"])
 @requires_auth(roles=["admin"])
 async def purge_project(project_id):
-    user = request.user
-    session = SessionLocal()
-    try:
-        project = session.query(Project).filter(
-            Project.id == project_id,
-            Project.tenant_id == user.tenant_id,
-            Project.deleted_at != None
-        ).first()
-
-        if not project:
-            return jsonify({"error": "Project not found or not eligible for purge"}), 404
-
-        session.delete(project)
-        session.commit()
-        return jsonify({"message": "Project permanently deleted"}), 200
-    finally:
-        session.close()
+    return await purge_response(SessionLocal, "projects", project_id)
 
 
 @projects_bp.route("/bulk-delete", methods=["POST"])
@@ -757,27 +742,5 @@ async def bulk_delete_projects():
 @projects_bp.route("/bulk-purge", methods=["DELETE", "POST"])
 @requires_auth(roles=["admin"])
 async def bulk_purge_projects():
-    user = request.user
-    data = await request.get_json()
-    project_ids = data.get("project_ids", [])
-
-    if not project_ids or not isinstance(project_ids, list):
-        return jsonify({"error": "No project IDs provided"}), 400
-
-    session = SessionLocal()
-    try:
-        # Only purge projects that are already soft-deleted
-        from app.utils.sales_audit import log_bulk_deletion
-        log_bulk_deletion(session, session.query(Project).filter(
-            Project.tenant_id == user.tenant_id, Project.id.in_(project_ids), Project.deleted_at != None))
-        deleted_count = session.query(Project).filter(
-            Project.tenant_id == user.tenant_id,
-            Project.id.in_(project_ids),
-            Project.deleted_at != None
-        ).delete(synchronize_session=False)
-        
-        session.commit()
-        return jsonify({"message": f"{deleted_count} project(s) permanently deleted"})
-    finally:
-        session.close()
+    return await purge_response(SessionLocal, "projects")
 

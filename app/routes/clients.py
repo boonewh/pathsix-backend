@@ -1,3 +1,4 @@
+from app.routes.purge import purge_response
 from quart import Blueprint, request, jsonify
 from datetime import datetime, timedelta
 from pydantic import ValidationError
@@ -647,23 +648,7 @@ async def restore_client(client_id):
 @clients_bp.route("/<int:client_id>/purge", methods=["DELETE"])
 @requires_auth(roles=["admin"])
 async def purge_client(client_id):
-    user = request.user
-    session = SessionLocal()
-    try:
-        client = session.query(Client).filter(
-            Client.id == client_id,
-            Client.tenant_id == user.tenant_id,
-            Client.deleted_at != None
-        ).first()
-
-        if not client:
-            return jsonify({"error": "Client not found or not eligible for purge"}), 404
-
-        session.delete(client)
-        session.commit()
-        return jsonify({"message": "Client permanently deleted"}), 200
-    finally:
-        session.close()
+    return await purge_response(SessionLocal, "clients", client_id)
 
 
 @clients_bp.route("/bulk-delete", methods=["POST"])
@@ -697,27 +682,5 @@ async def bulk_delete_clients():
 @clients_bp.route("/bulk-purge", methods=["DELETE", "POST"])
 @requires_auth(roles=["admin"])
 async def bulk_purge_clients():
-    user = request.user
-    data = await request.get_json()
-    client_ids = data.get("client_ids", [])
-
-    if not client_ids or not isinstance(client_ids, list):
-        return jsonify({"error": "No client IDs provided"}), 400
-
-    session = SessionLocal()
-    try:
-        # Only purge clients that are already soft-deleted
-        from app.utils.sales_audit import log_bulk_deletion
-        log_bulk_deletion(session, session.query(Client).filter(
-            Client.tenant_id == user.tenant_id, Client.id.in_(client_ids), Client.deleted_at != None))
-        deleted_count = session.query(Client).filter(
-            Client.tenant_id == user.tenant_id,
-            Client.id.in_(client_ids),
-            Client.deleted_at != None
-        ).delete(synchronize_session=False)
-        
-        session.commit()
-        return jsonify({"message": f"{deleted_count} client(s) permanently deleted"})
-    finally:
-        session.close()
+    return await purge_response(SessionLocal, "clients")
 
