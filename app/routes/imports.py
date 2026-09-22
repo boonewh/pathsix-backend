@@ -9,6 +9,7 @@ from app.utils.auth_utils import requires_auth
 from app.utils.phone_utils import clean_phone_number
 from app.utils.email_utils import send_email
 from app.constants import PHONE_LABELS
+from app.utils.lead_options import tenant_lead_config, normalize_lead_options
 
 imports_bp = Blueprint("imports", __name__, url_prefix="/api/import")
 
@@ -96,6 +97,7 @@ async def submit_leads():
         if 'name' not in mapped_fields:
             return jsonify({"error": "'name' field (Company Name) is required"}), 400
 
+        lead_config = tenant_lead_config(session, user.tenant_id)
         successful = 0
         failed = 0
         failures = []
@@ -135,8 +137,7 @@ async def submit_leads():
                 if not lead_data.get("name"):
                     raise ValueError("Missing required 'name' field")
 
-                lead_data.setdefault("type", "None")
-                lead_data.setdefault("lead_status", "open")
+                lead_data = normalize_lead_options(lead_data, lead_config, creating=True)
                 if "phone" in lead_data and "phone_label" not in lead_data:
                     lead_data["phone_label"] = "work"
                 if "secondary_phone" in lead_data and "secondary_phone_label" not in lead_data:

@@ -7,6 +7,7 @@ from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
 from app.utils.email_utils import send_assignment_notification
 from app.utils.phone_utils import clean_phone_number
+from app.utils.lead_options import tenant_lead_config, normalize_lead_options
 from app.constants import PHONE_LABELS
 from app.schemas.leads import LeadCreateSchema, LeadUpdateSchema, LeadAssignSchema
 from sqlalchemy import or_, and_
@@ -116,6 +117,10 @@ async def create_lead():
     
     session = SessionLocal()
     try:
+        options = normalize_lead_options(
+            {key: raw_data.get(key) for key in ("type", "lead_status")},
+            tenant_lead_config(session, user.tenant_id), creating=True,
+        )
         lead = Lead(
             tenant_id=user.tenant_id,
             created_by=user.id,
@@ -132,8 +137,8 @@ async def create_lead():
             state=data.state,
             zip=data.zip,
             notes=data.notes,
-            type=data.type,
-            lead_status=data.lead_status,
+            type=options["type"],
+            lead_status=options["lead_status"],
             lead_source=data.lead_source,
             created_at=datetime.utcnow()
         )
@@ -249,6 +254,10 @@ async def update_lead(lead_id):
 
         # Update fields that were provided and validated
         update_data = data.model_dump(exclude_unset=True)
+        if {"type", "lead_status"}.intersection(update_data):
+            update_data = normalize_lead_options(
+                update_data, tenant_lead_config(session, user.tenant_id),
+            )
         
         for field, value in update_data.items():
             if field in ["phone", "secondary_phone"]:
