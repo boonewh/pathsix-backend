@@ -1,3 +1,4 @@
+from app.routes.purge import purge_response
 from quart import Blueprint, request, jsonify
 from datetime import datetime
 from pydantic import ValidationError
@@ -534,29 +535,8 @@ async def bulk_delete_leads():
 @leads_bp.route("/bulk-purge", methods=["DELETE", "POST"])
 @requires_auth(roles=["admin"])
 async def bulk_purge_leads():
-    user = request.user
-    data = await request.get_json()
-    lead_ids = data.get("lead_ids", [])
+    return await purge_response(SessionLocal, "leads")
 
-    if not lead_ids or not isinstance(lead_ids, list):
-        return jsonify({"error": "No lead IDs provided"}), 400
-
-    session = SessionLocal()
-    try:
-        # Only purge leads that are already soft-deleted
-        from app.utils.sales_audit import log_bulk_deletion
-        log_bulk_deletion(session, session.query(Lead).filter(
-            Lead.tenant_id == user.tenant_id, Lead.id.in_(lead_ids), Lead.deleted_at != None))
-        deleted_count = session.query(Lead).filter(
-            Lead.tenant_id == user.tenant_id,
-            Lead.id.in_(lead_ids),
-            Lead.deleted_at != None
-        ).delete(synchronize_session=False)
-        
-        session.commit()
-        return jsonify({"message": f"{deleted_count} lead(s) permanently deleted"})
-    finally:
-        session.close()
 
 @leads_bp.route("/trash", methods=["GET"])
 @requires_auth()
@@ -622,21 +602,5 @@ async def restore_lead(lead_id):
 @leads_bp.route("/<int:lead_id>/purge", methods=["DELETE"])
 @requires_auth(roles=["admin"])
 async def purge_lead(lead_id):
-    user = request.user
-    session = SessionLocal()
-    try:
-        lead = session.query(Lead).filter(
-            Lead.id == lead_id,
-            Lead.tenant_id == user.tenant_id,
-            Lead.deleted_at != None
-        ).first()
-
-        if not lead:
-            return jsonify({"error": "Lead not found or not eligible for purge"}), 404
-
-        session.delete(lead)
-        session.commit()
-        return jsonify({"message": "Lead permanently deleted"}), 200
-    finally:
-        session.close()
+    return await purge_response(SessionLocal, "leads", lead_id)
 
