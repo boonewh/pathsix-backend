@@ -1,4 +1,4 @@
-# Trash purge release — 2026-09-22
+# Trash purge release â€” 2026-09-22
 
 Release base: backend origin/main 81fa52b and frontend origin/main 4785ef8.
 The already-running auth-diagnostics hotfix (original 6c20e17) is preserved.
@@ -26,3 +26,14 @@ CI adds isolated PostgreSQL 18 coverage for purge and production recovery tests.
 
 Deploy backend before merging the frontend to main (Vercel deploys main).
 Do not test permanent deletion of customer records as a production smoke check.
+
+Release validation: all 21 purge cases passed on staging PostgreSQL in 11.97s,
+using disposable schemas; zero new schemas remained. The production-source
+tests ran from /tmp without replacing staging application code or changing its
+runtime role/RLS policy. GitHub PostgreSQL regression and frontend build jobs
+passed, and both Vercel preview projects completed.
+
+The Fly release Dockerfile pins the previously deployed production dependency
+image and copies the reviewed main-based application source. Rollback image:
+registry.fly.io/pathsixsolutions-backend@sha256:c1f3e76cbb4a411376827b078aeb84838085fdb4a1cfbd447d25c80a9e0915fb.
+Machine sizes/counts and database sleep settings are unchanged by this release.
