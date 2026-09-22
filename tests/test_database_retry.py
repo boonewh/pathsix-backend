@@ -121,8 +121,8 @@ def test_write_request_is_not_retried_after_disconnect(monkeypatch):
         response = await client.post(
             "/no-retry", headers={"Authorization": "Bearer test-token"}
         )
-        assert response.status_code == 500
-        assert await response.get_json() == {"error": "Database error"}
+        assert response.status_code == 503
+        assert (await response.get_json())["request_id"]
 
     asyncio.run(exercise_route())
 
@@ -151,7 +151,8 @@ def test_get_with_committed_activity_is_not_replayed(monkeypatch):
 
     async def exercise():
         response = await app.test_client().get('/view', headers={'Authorization': 'Bearer test'})
-        assert response.status_code == 500
+        assert response.status_code == 503
+        assert (await response.get_json())["retryable"] is False
 
     asyncio.run(exercise())
     assert len(calls) == 1

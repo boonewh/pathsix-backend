@@ -27,6 +27,8 @@ async def warmup_db():
     print("[Warmup] Gave up waiting for DB.")
 
 def create_app():
+    from app.utils.sales_audit import register_sales_audit
+    register_sales_audit()
     app = Quart(__name__)
 
     # ✅ Add CORS *before* anything else.

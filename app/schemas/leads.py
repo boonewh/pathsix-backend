@@ -31,7 +31,7 @@ class LeadCreateSchema(BaseModel):
     zip: Optional[str] = Field(None, max_length=20, description="ZIP/Postal code")
     notes: Optional[str] = Field(None, description="Additional notes")
     type: Optional[str] = Field("None", description="Business type/category")
-    lead_status: Optional[str] = Field("open", description="Lead status")
+    lead_status: Optional[str] = Field(None, description="Lead status; tenant default applied by service")
     lead_source: Optional[str] = Field(None, max_length=50, description="Lead source (e.g. Website, Referral)")
 
     @field_validator("type")
@@ -47,7 +47,7 @@ class LeadCreateSchema(BaseModel):
     def validate_lead_status(cls, value: Optional[str]) -> str:
         """Normalize lead_status field - permissive validation (accepts any string)"""
         if value is None or value.strip() == "":
-            return "open"
+            return None
         return value.strip()
 
     @field_validator("phone_label", "secondary_phone_label")

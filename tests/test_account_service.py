@@ -47,7 +47,7 @@ def test_account_service_parent_move_and_rollback(crm):
         assert service.detail(1)["client_name"] == "Destination"
         assert retained.client.name == "Destination"
         service.record_view(1)
-        assert db.query(ActivityLog).count() == 1
+        assert db.query(ActivityLog).filter_by(action="viewed").count() == 1
         db.rollback()
     with factory() as db:
         assert db.get(Account, 1).client_id == 1

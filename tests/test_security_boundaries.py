@@ -99,6 +99,8 @@ def crm(tmp_path, monkeypatch, request):
             monkeypatch.setattr(importlib.import_module(f'app.routes.{name}'), 'SessionLocal', runtime_factory)
         monkeypatch.setattr(auth_utils, 'SessionLocal', runtime_factory)
     app = Quart(__name__)
+    from app.utils.sales_audit import register_sales_audit
+    register_sales_audit()
     app.config['SECRET_KEY'] = 'test-only-signing-key'
     register_blueprints(app)
 
@@ -459,7 +461,7 @@ def test_client_rest_lifecycle_and_read_audit(crm):
     with factory() as db:
         client = db.get(Client, client_id)
         assert (client.tenant_id, client.created_by, client.updated_by) == (1, 3, 3)
-        assert db.query(ActivityLog).filter_by(entity_id=client_id, user_id=3, tenant_id=1).count() == 1
+        assert db.query(ActivityLog).filter_by(entity_type='client', entity_id=client_id, user_id=3, tenant_id=1, action='viewed').count() == 1
     assert call('DELETE', path, user=3)[0] == 200
     assert call('GET', path, user=3)[0] == 404
     assert call('PUT', path + '/restore', user=3)[0] == 200
@@ -857,8 +859,9 @@ def test_lead_service_ownership_pure_detail_and_rollback(crm):
             service.detail(1)
         db.get(Lead, 1).assigned_to = 3
         db.flush()
+        before = db.query(ActivityLog).count()
         assert [c['name'] for c in service.detail(1)['contacts']] == ['Allowed Contact']
-        assert db.query(ActivityLog).count() == 0
+        assert db.query(ActivityLog).count() == before
         service.update(1, LeadUpdateSchema(lead_status='won', phone='123-456-7890'))
         converted = db.get(Lead, 1).converted_on
         assert converted is not None
@@ -896,7 +899,7 @@ def test_lead_rest_service_lifecycle_and_view_audit(crm):
         lead = db.get(Lead, lead_id)
         assert (lead.tenant_id, lead.created_by, lead.updated_by) == (1, 3, 3)
         assert lead.converted_on is not None
-        assert db.query(ActivityLog).filter_by(entity_type='lead', entity_id=lead_id, user_id=3, tenant_id=1).count() == 1
+        assert db.query(ActivityLog).filter_by(entity_type='lead', entity_id=lead_id, user_id=3, tenant_id=1, action='viewed').count() == 1
     assert call('GET', path, user=2)[0] == 404
     assert call('DELETE', path, user=3)[0] == 200
     assert call('GET', path, user=3)[0] == 404

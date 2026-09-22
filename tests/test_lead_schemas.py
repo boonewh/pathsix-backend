@@ -24,7 +24,7 @@ def test_lead_create_accepts_valid_options_and_normalizes_phone():
 def test_lead_create_defaults_and_accepts_tenant_defined_status():
     lead = LeadCreateSchema(name="Acme Corp", type=None, phone=None, lead_status=None)
 
-    assert lead.lead_status == "open"
+    assert lead.lead_status is None
     assert lead.type == "None"
     assert lead.phone is None
 

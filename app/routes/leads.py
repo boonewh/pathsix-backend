@@ -1,3 +1,4 @@
+from app.routes.purge import purge_response
 from quart import Blueprint, request, jsonify
 from pydantic import ValidationError
 from app.database import SessionLocal
@@ -175,19 +176,7 @@ async def bulk_delete_leads():
 @leads_bp.route("/bulk-purge", methods=["DELETE", "POST"])
 @requires_auth(roles=["admin"])
 async def bulk_purge_leads():
-    data = await request.get_json()
-    with SessionLocal() as session:
-        try:
-            result = LeadService(session, request.principal).bulk_purge(data.get("lead_ids") if isinstance(data, dict) else None)
-            session.commit()
-            return jsonify({"message": f"{result} lead(s) permanently deleted"})
-        except PermissionError as exc:
-            return jsonify({"error": str(exc)}), 403
-        except RecordNotFound as exc:
-            return jsonify({"error": str(exc)}), 404
-        except ValueError as exc:
-            return jsonify({"error": str(exc)}), 400
-
+    return await purge_response(SessionLocal, "leads")
 
 @leads_bp.route("/trash", methods=["GET"])
 @requires_auth()
@@ -221,15 +210,4 @@ async def restore_lead(lead_id):
 @leads_bp.route("/<int:lead_id>/purge", methods=["DELETE"])
 @requires_auth(roles=["admin"])
 async def purge_lead(lead_id):
-    with SessionLocal() as session:
-        try:
-            result = LeadService(session, request.principal).purge(lead_id)
-            session.commit()
-            return jsonify({"message": "Lead permanently deleted"}), 200
-        except PermissionError as exc:
-            return jsonify({"error": str(exc)}), 403
-        except RecordNotFound as exc:
-            return jsonify({"error": str(exc)}), 404
-        except ValueError as exc:
-            return jsonify({"error": str(exc)}), 400
-
+    return await purge_response(SessionLocal, "leads", lead_id)

@@ -9,6 +9,27 @@ from dateutil.parser import parse as parse_date
 reports_bp = Blueprint("reports", __name__, url_prefix="/api/reports")
 
 
+@reports_bp.route("/sales-activity", methods=["GET"])
+@requires_auth(roles=["admin"])
+async def sales_activity_report():
+    from app.utils.sales_activity_report import build_report
+    if not any(role.name == "admin" for role in request.user.roles):
+        return jsonify({"error": "Forbidden"}), 403
+    session = SessionLocal()
+    try:
+        args = request.args
+        page = int(args.get("page", "1"))
+        user_id = int(args["user_id"]) if args.get("user_id") else None
+        if page < 1 or (user_id is not None and user_id < 1):
+            raise ValueError("Invalid page or user")
+        return jsonify(build_report(session, request.user.tenant_id,
+            args.get("start_date"), args.get("end_date"), user_id, page))
+    except (ValueError, OverflowError):
+        return jsonify({"error": "Use a valid date range (YYYY-MM-DD), user and page."}), 400
+    finally:
+        session.close()
+
+
 # ============================================================================
 # LEGACY ENDPOINTS (keeping for backwards compatibility)
 # ============================================================================

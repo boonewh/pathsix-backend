@@ -4,11 +4,14 @@ import io
 import json
 from datetime import datetime
 from app.models import Lead, User
+from app.services.leads import LeadService
+from app.schemas.leads import LeadCreateSchema
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
 from app.utils.phone_utils import clean_phone_number
 from app.utils.email_utils import send_email
 from app.constants import PHONE_LABELS
+from app.utils.lead_options import tenant_lead_config, normalize_lead_options
 
 imports_bp = Blueprint("imports", __name__, url_prefix="/api/import")
 
@@ -96,6 +99,7 @@ async def submit_leads():
         if 'name' not in mapped_fields:
             return jsonify({"error": "'name' field (Company Name) is required"}), 400
 
+        lead_config = tenant_lead_config(session, user.tenant_id)
         successful = 0
         failed = 0
         failures = []
@@ -135,23 +139,18 @@ async def submit_leads():
                 if not lead_data.get("name"):
                     raise ValueError("Missing required 'name' field")
 
-                lead_data.setdefault("type", "None")
-                lead_data.setdefault("lead_status", "open")
+                lead_data = normalize_lead_options(lead_data, lead_config, creating=True)
                 if "phone" in lead_data and "phone_label" not in lead_data:
                     lead_data["phone_label"] = "work"
                 if "secondary_phone" in lead_data and "secondary_phone_label" not in lead_data:
                     lead_data["secondary_phone_label"] = "mobile"
 
-                lead = Lead(
-                    tenant_id=user.tenant_id,
-                    created_by=user.id,
-                    assigned_to=assigned_user.id,
-                    created_at=datetime.utcnow(),
-                    **lead_data
-                )
+                # Each failed row rolls back only its own work and activity history.
+                with session.begin_nested():
+                    LeadService(session, request.principal).create(
+                        LeadCreateSchema(**lead_data), assigned_to=assigned_user.id
+                    )
                 successful_leads.append(lead_data.copy())
-                session.add(lead)
-                session.flush()
                 successful += 1
             except Exception as e:
                 failed += 1
@@ -160,7 +159,6 @@ async def submit_leads():
                     "data": row.dropna().to_dict(),
                     "error": str(e)
                 })
-                session.rollback()
 
         if successful:
             session.commit()

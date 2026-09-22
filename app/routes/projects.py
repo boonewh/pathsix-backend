@@ -1,3 +1,4 @@
+from app.routes.purge import purge_response
 from quart import Blueprint, request, jsonify, Response
 from pydantic import ValidationError
 from app.database import SessionLocal
@@ -276,21 +277,7 @@ async def restore_project(project_id):
 @projects_bp.route("/<int:project_id>/purge", methods=["DELETE"])
 @requires_auth(roles=["admin"])
 async def purge_project(project_id):
-    with SessionLocal() as session:
-        try:
-            service = ProjectService(session, request.principal)
-            result = service.purge(project_id)
-            session.commit()
-            response = jsonify(result)
-            response.headers["Cache-Control"] = "no-store"
-            return response
-        except RecordNotFound as exc:
-            return jsonify({"error": str(exc)}), 404
-        except PermissionError as exc:
-            return jsonify({"error": str(exc)}), 403
-        except ValueError as exc:
-            return jsonify({"error": str(exc)}), 400
-
+    return await purge_response(SessionLocal, "projects", project_id)
 
 @projects_bp.route("/bulk-delete", methods=["POST"])
 @requires_auth(roles=["admin"])
@@ -317,20 +304,4 @@ async def bulk_delete_projects():
 @projects_bp.route("/bulk-purge", methods=["DELETE", "POST"])
 @requires_auth(roles=["admin"])
 async def bulk_purge_projects():
-    raw = await request.get_json()
-    if not isinstance(raw, dict):
-        return jsonify({"error": "Invalid request body"}), 400
-    with SessionLocal() as session:
-        try:
-            service = ProjectService(session, request.principal)
-            result = service.bulk_purge(raw.get("project_ids"))
-            session.commit()
-            response = jsonify(result)
-            response.headers["Cache-Control"] = "no-store"
-            return response
-        except RecordNotFound as exc:
-            return jsonify({"error": str(exc)}), 404
-        except PermissionError as exc:
-            return jsonify({"error": str(exc)}), 403
-        except ValueError as exc:
-            return jsonify({"error": str(exc)}), 400
+    return await purge_response(SessionLocal, "projects")
