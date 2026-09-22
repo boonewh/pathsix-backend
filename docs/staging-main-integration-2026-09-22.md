@@ -54,5 +54,55 @@ the integrated implementation. Backend incident/diagnostic documents and remote
 attachments remain untouched. The deferred database-stall investigation remains
 outside this integration.
 
-Deployment identities and final checks will be recorded after rollout. Future
-main fixes should use this same main-to-staging merge process.
+## Verified rollout
+
+- Backend [PR #12](https://github.com/boonewh/pathsix-backend/pull/12) merged
+  normally into staging as `68d7d4b5a8204f86c29721be8dc013c99c0fb0ee`.
+  Fly staging **v29** runs that revision on both existing machines. Image digest:
+  `sha256:1a93abc877184b76d19564d49b8b4d227742a33e606214428167896788086c1c`.
+- Frontend [PR #8](https://github.com/boonewh/pathsixdesigns-crm/pull/8) merged
+  normally into staging as `93c9618486fea0dc85ad98330867b9dfe7dd7b45`.
+  Vercel deployment:
+  `https://pathsixdesigns-crm-staging-12pbj9y9p-boonewhs-projects.vercel.app`.
+  Stable URL: `https://pathsixdesigns-crm-staging.vercel.app`.
+- Backend [PR CI](https://github.com/boonewh/pathsix-backend/actions/runs/35790681665)
+  passed **255 tests with zero skips** against PostgreSQL 18 and restricted-role
+  RLS. [Merged staging CI](https://github.com/boonewh/pathsix-backend/actions/runs/35790986390)
+  also passed. Frontend typecheck, build and **33 browser regressions** passed
+  locally and in [PR CI](https://github.com/boonewh/pathsixdesigns-crm/actions/runs/35790475235)
+  and [merged staging CI](https://github.com/boonewh/pathsixdesigns-crm/actions/runs/35791263668).
+- Both backend machines passed health checks. Live staging login and protected
+  reads (me, clients, leads, projects, Activity) passed before frontend promotion
+  and again after cleanup. Deployed runtime is `pathsix_crm_staging_runtime`,
+  `rolsuper=false`, `rolbypassrls=false`, `CRM_RLS_ENABLED=1`.
+- Schema remains `parent_link_rules` with 14 RLS tables. No migration ran.
+  Both existing app machine IDs, 1 GB sizes, auto-stop/start and minimum zero
+  settings remain intact. Database machine `830376c7157038` remains 256 MB,
+  with `FLY_SCALE_TO_ZERO=1h`. Sleeping still depends on active connections.
+- The live frontend bundle `/assets/index-CGpFhWsJ.js` references only
+  `https://pathsixsolutions-backend-staging.fly.dev` as its backend host.
+  Browser login and dashboard passed. Activity showed correctly attributed
+  synthetic changes; Last 7 days filtered 33 events down to the 10 current events.
+  Client, lead and project Trash dialogs each displayed the named record and
+  its one linked interaction, preserved the record, and offered recovery.
+  Lead Restore and review opened the correct detail page. A note-only edit
+  saved successfully while preserving `qualified` and `Technology`.
+- Cleanup removed only this run's client 15, lead 10, project 3 and interactions
+  2/3/4. The parents returned 404 afterward. Transactional audit history remains
+  intentionally retained; pre-existing records/history were not purged.
+- SHA-256 verification found **zero changes to all 21 originally modified or
+  untracked files** (15 backend, 6 frontend). All three original checkout HEADs
+  are unchanged. Local evidence and manifests are under
+  `G:/Projects/pathsix-backend/temp/staging-integration/`.
+- Main refs remain backend `2eb62a2d25a8d5f4aa969f81646be2c8c441a151` and
+  frontend `21ed0a5c7b86495ffead7b5e966cc004a592414b`; both are ancestors of
+  their integrated staging merges. The production frontend deployment still
+  points to `21ed0a5` (September 22, 20:15:33 UTC). No production deploy or
+  infrastructure/data mutation was performed.
+
+The final handoff is documentation only; the deployed application source
+identities above remain authoritative. Future main fixes should use the same
+main-to-staging merge process. Existing frontend bundle-size/Browserslist and
+backend deprecation warnings are non-blocking and unchanged in scope. Staging
+SMTP delivery and the earlier database-stall investigation remain outside this
+rollout; neither was claimed fixed.
