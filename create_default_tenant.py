@@ -137,28 +137,28 @@ DEFAULT_TENANT_CONFIG = {
         "interaction": "Interaction",
     },
     "leads": {
-        "statuses": ["new", "contacted", "qualified", "lost", "converted"],
+        "statuses": ["open", "qualified", "proposal", "won", "lost"],
         "statusConfig": {
             "colors": {
-                "new": "bg-yellow-100 text-yellow-800",
-                "contacted": "bg-blue-100 text-blue-800",
+                "open": "bg-yellow-100 text-yellow-800",
+                "proposal": "bg-blue-100 text-blue-800",
                 "qualified": "bg-orange-100 text-orange-800",
                 "lost": "bg-red-100 text-red-800",
-                "converted": "bg-green-100 text-green-800"
+                "won": "bg-green-100 text-green-800"
             },
             "icons": {
-                "new": "circle-yellow",
-                "contacted": "phone",
+                "open": "circle-yellow",
+                "proposal": "phone",
                 "qualified": "circle-orange",
                 "lost": "circle-red",
-                "converted": "circle-green"
+                "won": "circle-green"
             },
             "labels": {
-                "new": "New",
-                "contacted": "Contacted",
+                "open": "Open",
+                "proposal": "Proposal",
                 "qualified": "Qualified",
                 "lost": "Lost",
-                "converted": "Converted"
+                "won": "Won"
             }
         },
         "sources": [

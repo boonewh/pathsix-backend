@@ -21,15 +21,14 @@ def test_lead_create_accepts_valid_options_and_normalizes_phone():
     assert lead.type == "Retail"
 
 
-def test_lead_create_defaults_and_rejects_invalid_status():
+def test_lead_create_defaults_and_accepts_custom_status():
     lead = LeadCreateSchema(name="Acme Corp", type=None, phone=None, lead_status=None)
 
     assert lead.lead_status == "open"
     assert lead.type == "None"
     assert lead.phone is None
 
-    with pytest.raises(ValidationError):
-        LeadCreateSchema(name="Acme Corp", lead_status="invalid")
+    assert LeadCreateSchema(name="Acme Corp", lead_status=" Custom ").lead_status == "Custom"
 
 
 @pytest.mark.parametrize("field", ["phone_label", "secondary_phone_label"])
@@ -38,14 +37,13 @@ def test_lead_create_rejects_invalid_phone_labels(field):
         LeadCreateSchema(name="Acme Corp", **{field: "pager"})
 
 
-def test_lead_update_validates_type_and_normalizes_phone():
+def test_lead_update_accepts_custom_type_and_normalizes_phone():
     lead = LeadUpdateSchema(type="Services", phone="   ")
 
     assert lead.type == "Services"
     assert lead.phone is None
 
-    with pytest.raises(ValidationError):
-        LeadUpdateSchema(type="Invalid-Type")
+    assert LeadUpdateSchema(type=" Oil & Gas ").type == "Oil & Gas"
 
 
 @pytest.mark.parametrize("field", ["phone_label", "secondary_phone_label"])

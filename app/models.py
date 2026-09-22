@@ -162,7 +162,7 @@ class Lead(Base):
     type = Column(String(50), nullable=True, default="None")
     notes = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
-    lead_status = Column(String(20), default="open")  # Valid: "open", "converted", "closed", "lost"
+    lead_status = Column(String(20), default="open")  # Tenant-configured; default pipeline: open, qualified, proposal, won, lost
     converted_on = Column(DateTime, nullable=True)
     lead_source = Column(String(50), nullable=True, index=True)  # Website, Referral, Cold Call, Email Campaign, etc.
 
