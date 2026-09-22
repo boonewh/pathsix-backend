@@ -21,7 +21,7 @@ TYPE_OPTIONS = [
 
 
 # Lead-specific statuses
-LEAD_STATUS_OPTIONS = ["open", "qualified", "proposal", "closed"]
+LEAD_STATUS_OPTIONS = ["open", "qualified", "proposal", "won", "lost"]
 
 # Lead sources
 LEAD_SOURCE_OPTIONS = [

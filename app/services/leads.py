@@ -3,6 +3,8 @@
 Methods never commit. Adapters commit once after a successful operation; failures
 must roll back. Detail reads are pure; web activity logging is a separate method.
 """
+from app.services.purge import PurgeService
+from app.utils.lead_options import normalize_lead_options, tenant_lead_config
 from datetime import datetime
 from app.models import Lead, Contact, ActivityLog, ActivityType, User
 from sqlalchemy import or_, and_
@@ -31,13 +33,21 @@ class LeadService:
             raise RecordNotFound("Lead not found")
         return lead
 
-    def create(self, data: LeadCreateSchema):
+    def create(self, data: LeadCreateSchema, *, assigned_to=None):
         if not isinstance(data, LeadCreateSchema):
             raise TypeError("Validated lead data required")
-        fields = data.model_dump()
+        fields = normalize_lead_options(data.model_dump(), tenant_lead_config(self.session, self.principal.tenant_id), creating=True)
         for field in ('phone', 'secondary_phone'):
             fields[field] = clean_phone_number(fields[field]) if fields[field] else None
         fields['email'] = str(data.email) if data.email else None
+        if assigned_to is not None:
+            self._require_admin()
+            if self.session.query(User).filter(
+                User.id == assigned_to, User.tenant_id == self.principal.tenant_id,
+                User.is_active.is_(True),
+            ).first() is None:
+                raise ValueError("Assigned user not found or not active")
+            fields['assigned_to'] = assigned_to
         lead = Lead(**fields, tenant_id=self.principal.tenant_id,
                         created_by=self.principal.user_id)
         self.session.add(lead)
@@ -48,7 +58,7 @@ class LeadService:
         if not isinstance(data, LeadUpdateSchema):
             raise TypeError("Validated lead data required")
         lead = self._get(lead_id)
-        fields = data.model_dump(exclude_unset=True)
+        fields = normalize_lead_options(data.model_dump(exclude_unset=True), tenant_lead_config(self.session, self.principal.tenant_id))
         if 'name' in fields and fields['name'] is None:
             raise ValueError("Lead name cannot be null")
         for field, value in fields.items():
@@ -228,6 +238,9 @@ class LeadService:
         if not isinstance(lead_ids, list) or not lead_ids or any(type(i) is not int or i < 1 for i in lead_ids):
             raise ValueError("Positive integer lead IDs are required")
         # Soft delete only leads that belong to this tenant and haven't already been deleted
+        from app.utils.sales_audit import log_bulk_deletion
+        log_bulk_deletion(self.session, self.session.query(Lead).filter(
+            Lead.tenant_id == self.principal.tenant_id, Lead.id.in_(lead_ids), Lead.deleted_at.is_(None)))
         updated_count = self.session.query(Lead).filter(
             Lead.tenant_id == self.principal.tenant_id,
             Lead.id.in_(lead_ids),
@@ -239,31 +252,10 @@ class LeadService:
         return updated_count
 
     def bulk_purge(self, lead_ids):
-        self._require_admin()
-        if not isinstance(lead_ids, list) or not lead_ids or any(type(i) is not int or i < 1 for i in lead_ids):
-            raise ValueError("Positive integer lead IDs are required")
-        # Only purge leads that are already soft-deleted
-        deleted_count = self.session.query(Lead).filter(
-            Lead.tenant_id == self.principal.tenant_id,
-            Lead.id.in_(lead_ids),
-            Lead.deleted_at != None
-        ).delete(synchronize_session=False)
-
-        return deleted_count
+        return len(PurgeService(self.session, self.principal).purge("leads", lead_ids)["deleted_ids"])
 
     def purge(self, lead_id):
-        self._require_admin()
-        lead = self.session.query(Lead).filter(
-            Lead.id == lead_id,
-            Lead.tenant_id == self.principal.tenant_id,
-            Lead.deleted_at != None
-        ).first()
-
-        if not lead:
-            raise RecordNotFound("Lead not found or not eligible for purge")
-
-        self.session.delete(lead)
-        self.session.flush()
+        PurgeService(self.session, self.principal).purge("leads", [lead_id], single=True)
 
     def _require_admin(self):
         if not self.principal.is_admin:

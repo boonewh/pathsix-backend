@@ -2,6 +2,8 @@ import bcrypt
 import logging
 import sentry_sdk
 import time
+import asyncio
+from uuid import uuid4
 from authlib.jose import jwt, JoseError, JsonWebToken
 from quart import request, jsonify, current_app
 from functools import wraps
@@ -68,6 +70,7 @@ def requires_auth(roles: list = None):
             max_attempts = 2 if request.method in {"GET", "HEAD"} else 1
 
             for attempt in range(max_attempts):
+                retry = False
                 for attr in ('principal', 'user'):
                     if hasattr(request, attr):
                         delattr(request, attr)
@@ -88,27 +91,41 @@ def requires_auth(roles: list = None):
 
                     request.principal = Principal(user.id, user.tenant_id, frozenset(role.name for role in user.roles))
                     request.user = user
+                    # Eagerly loaded identity remains usable after releasing the lookup connection.
+                    session.close()
                     return await fn(*args, **kwargs)
-                except DBAPIError as exc:
-                    _rollback_quietly(session)
-                    if (request.method == 'DELETE' or 'purge' in request.path) and getattr(exc.orig, 'pgcode', None) in {'23503', '23514'}:
-                        return jsonify({'error': 'Related records prevent permanent deletion. Remove or reassign them first.'}), 409
-                    if (exc.connection_invalidated and attempt + 1 < max_attempts
-                            and not getattr(request, "database_write_started", False)):
-                        logger.warning(
-                            "Retrying read-only request after database disconnect",
-                            extra={"path": request.path, "attempt": attempt + 1},
-                        )
-                        continue
-
-                    sentry_sdk.capture_exception(exc)
-                    return jsonify({"error": "Database error"}), 500
                 except SQLAlchemyError as exc:
                     _rollback_quietly(session)
-                    sentry_sdk.capture_exception(exc)
-                    return jsonify({"error": "Database error"}), 500
+                    if (request.method == 'DELETE' or 'purge' in request.path) and getattr(getattr(exc, 'orig', None), 'pgcode', None) in {'23503', '23514'}:
+                        return jsonify({'error': 'Related records prevent permanent deletion. Remove or reassign them first.'}), 409
+                    disconnected = isinstance(exc, DBAPIError) and exc.connection_invalidated
+                    retry = bool(disconnected and attempt + 1 < max_attempts
+                                 and not getattr(request, "database_write_started", False))
+                    incident = uuid4().hex
+                    original = getattr(exc, "orig", None)
+                    diagnostics = {
+                        "incident": incident, "endpoint": request.endpoint,
+                        "method": request.method, "attempt": attempt + 1,
+                        "exception": type(exc).__name__, "driver": type(original).__name__,
+                        "sqlstate": getattr(original, "sqlstate", None) or getattr(original, "pgcode", None),
+                        "disconnected": bool(disconnected), "retry": retry,
+                    }
+                    current_app.logger.log(
+                        30 if retry else 40,
+                        f"Auth database failure: {diagnostics['exception']} "
+                        f"(driver={diagnostics['driver']}, sqlstate={diagnostics['sqlstate']}, "
+                        f"disconnected={diagnostics['disconnected']}, retry={diagnostics['retry']})",
+                        extra={"database_failure": diagnostics},
+                    )
+                    if not retry:
+                        return jsonify({
+                            "error": "Database temporarily unavailable. Please try again." if disconnected else "Database error",
+                            "request_id": incident, "retryable": bool(disconnected and not getattr(request, "database_write_started", False)),
+                        }), 503 if disconnected else 500
                 finally:
                     session.close()
+                if retry:
+                    await asyncio.sleep(0.25)
         return decorated
     return wrapper
 

@@ -128,8 +128,9 @@ def test_project_interaction_service_pure_read_transfer_and_rollback(crm):
         )
         project_id = created["id"]
         assert db.get(Project, project_id).tenant_id == 1
+        before = db.query(ActivityLog).count()
         assert projects.detail(project_id)["project_name"] == "Rollback"
-        assert db.query(ActivityLog).count() == 0
+        assert db.query(ActivityLog).count() == before
         item = interactions.create(
             InteractionCreateSchema(
                 project_id=project_id,
@@ -226,7 +227,7 @@ def test_project_interaction_http_lifecycle_and_purge_conflict(crm):
     with factory() as db:
         assert (
             db.query(ActivityLog)
-            .filter_by(entity_type="project", entity_id=project_id)
+            .filter_by(entity_type="project", entity_id=project_id, action="viewed")
             .count()
             == 1
         )

@@ -1,0 +1,3 @@
+# Preserve the exact production runtime and change only auth diagnostics.
+FROM registry.fly.io/pathsixsolutions-backend@sha256:fec38111a662efb2ea6feb9acf11c10e8d7fad8181356705190935ced71fc0c3
+COPY app/utils/auth_utils.py /app/app/utils/auth_utils.py

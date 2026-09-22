@@ -1,5 +1,6 @@
 """Tenant-bound operations; adapters own commits and notification delivery."""
 
+from app.services.purge import PurgeService
 from datetime import datetime
 from app.models import Project, ActivityLog, ActivityType, Client, Lead, User
 from app.utils.phone_utils import clean_phone_number
@@ -631,25 +632,15 @@ class ProjectService(TenantService):
         return {"message": "Project restored successfully"}
 
     def purge(self, project_id):
-        self._require_admin()
-        project = (
-            self._query(Project)
-            .filter(
-                Project.id == project_id,
-                Project.tenant_id == self.principal.tenant_id,
-                Project.deleted_at != None,
-            )
-            .first()
-        )
-        if not project:
-            raise RecordNotFound("Project not found or not eligible for purge")
-        self.session.delete(project)
-        self.session.flush()
+        PurgeService(self.session, self.principal).purge("projects", [project_id], single=True)
         return {"message": "Project permanently deleted"}
 
     def bulk_delete(self, project_ids):
         self._require_admin()
         self._ids(project_ids)
+        from app.utils.sales_audit import log_bulk_deletion
+        log_bulk_deletion(self.session, self.session.query(Project).filter(
+            Project.tenant_id == self.principal.tenant_id, Project.id.in_(project_ids), Project.deleted_at.is_(None)))
         updated_count = (
             self._query(Project)
             .filter(
@@ -669,19 +660,9 @@ class ProjectService(TenantService):
         return {"message": f"{updated_count} project(s) deleted"}
 
     def bulk_purge(self, project_ids):
-        self._require_admin()
-        self._ids(project_ids)
-        deleted_count = (
-            self._query(Project)
-            .filter(
-                Project.tenant_id == self.principal.tenant_id,
-                Project.id.in_(project_ids),
-                Project.deleted_at != None,
-            )
-            .delete(synchronize_session=False)
-        )
-        self.session.flush()
-        return {"message": f"{deleted_count} project(s) permanently deleted"}
+        result = PurgeService(self.session, self.principal).purge("projects", project_ids)
+        count = len(result["deleted_ids"])
+        return {"message": f"{count} project(s) permanently deleted"}
 
     def record_view(self, project_id):
         project = self._require_record(Project, project_id)

@@ -34,22 +34,22 @@ TENANT_CONFIG = {
     },
     "labels": {"client": "Client", "lead": "Lead", "project": "Project", "interaction": "Interaction"},
     "leads": {
-        "statuses": ["new", "contacted", "qualified", "lost", "converted"],
+        "statuses": ["open", "qualified", "proposal", "won", "lost"],
         "statusConfig": {
             "colors": {
-                "new": "bg-yellow-100 text-yellow-800",
-                "contacted": "bg-blue-100 text-blue-800",
+                "open": "bg-yellow-100 text-yellow-800",
+                "proposal": "bg-blue-100 text-blue-800",
                 "qualified": "bg-orange-100 text-orange-800",
                 "lost": "bg-red-100 text-red-800",
-                "converted": "bg-green-100 text-green-800",
+                "won": "bg-green-100 text-green-800",
             },
             "icons": {
-                "new": "circle-yellow", "contacted": "phone", "qualified": "circle-orange",
-                "lost": "circle-red", "converted": "circle-green",
+                "open": "circle-yellow", "proposal": "phone", "qualified": "circle-orange",
+                "lost": "circle-red", "won": "circle-green",
             },
             "labels": {
-                "new": "New", "contacted": "Contacted", "qualified": "Qualified",
-                "lost": "Lost", "converted": "Converted",
+                "open": "Open", "proposal": "Proposal", "qualified": "Qualified",
+                "lost": "Lost", "won": "Won",
             },
         },
         "sources": ["Website", "Referral", "Cold Call", "Email Campaign",
@@ -123,9 +123,9 @@ def main():
             if not session.query(Lead).filter_by(tenant_id=tenant.id).first():
                 session.add_all([
                     Lead(tenant_id=tenant.id, created_by=admin.id, name="Cypress Health",
-                         email="ops@cypress.test", phone="7135550103", lead_status="new", lead_source="Website"),
+                         email="ops@cypress.test", phone="7135550103", lead_status="open", lead_source="Website"),
                     Lead(tenant_id=tenant.id, created_by=admin.id, name="Delta Logistics",
-                         email="hi@delta.test", phone="8325550104", lead_status="contacted", lead_source="Referral"),
+                         email="hi@delta.test", phone="8325550104", lead_status="proposal", lead_source="Referral"),
                 ])
             session.commit()
         except Exception as e:

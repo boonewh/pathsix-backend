@@ -1,0 +1,4 @@
+# Preserve the exact dependency/runtime image already serving production.
+# This release changes application code only; no dependency or schema migration.
+FROM registry.fly.io/pathsixsolutions-backend@sha256:c1f3e76cbb4a411376827b078aeb84838085fdb4a1cfbd447d25c80a9e0915fb
+COPY app/ /app/app/

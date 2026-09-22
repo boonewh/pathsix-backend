@@ -15,3 +15,8 @@ agents/
 .codex/
 .claude/
 .pytest-harness*/
+
+tests/
+*.db
+temp/
+.codex-remote-attachments/
