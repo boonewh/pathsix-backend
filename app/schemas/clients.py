@@ -151,7 +151,7 @@ class ClientAssignSchema(BaseModel):
 
     model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True)
 
-    assigned_to: int = Field(..., gt=0, description="User ID to assign the client to")
+    assigned_to: int = Field(..., strict=True, gt=0, description="User ID to assign the client to")
 
 
 class ClientResponseSchema(BaseModel):
