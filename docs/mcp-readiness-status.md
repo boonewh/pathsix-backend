@@ -7,8 +7,8 @@ as the CRM, with delegated user consent and read-only tools before writes.
 ## Baseline and release status
 
 Work resumed from staging `aa1d830`, which merges the September 22 handoff.
-The current verified live backend is **v31 / `30c6ab2`** after the client and report
-service increments. PostgreSQL/RLS CI passes **274 tests with zero skips**; both
+The current verified live backend is **v32 / `2149bb6`** after the client, report and storage
+service increments. PostgreSQL/RLS CI passes **299 tests with zero skips**; both
 staging machines pass health checks and runtime inspection confirms restricted
 credentials with RLS enabled. Frontend `93c9618` was not changed or redeployed.
 The earlier 33 browser regressions belong to the September 22 rollout, not new
@@ -19,7 +19,10 @@ The client-service increment merged through PR #14 and first deployed as v30 /
 `4301ba4`. See [client operations](client-service-operations.md). The report-service
 increment merged through PR #15 and deployed as v31 / `30c6ab2`; see
 [report service](report-service.md) for verification, rollout and rollback details.
-This handoff is documentation only; v31's application source remains authoritative.
+Storage operations now use StorageService through PR #17, deployed as v32 /
+`2149bb6`. All 25 focused storage checks passed against deployed code in disposable
+PostgreSQL schemas, with public users/files unchanged. See [storage service](storage-service.md).
+This handoff is documentation only; v32's application source remains authoritative.
 
 ## Reconciled gates
 
@@ -46,8 +49,9 @@ This handoff is documentation only; v31's application source remains authoritati
   September 22 integration. Import orchestration/assignee lookup remains in the
   route; do not describe the whole import workflow as extracted.
 - All report reads now use an admin-only ReportService, including
-  the legacy summary alias and Sales Activity adapter. File metadata/object storage,
-  user administration and preferences still contain route-owned queries.
+  the legacy summary alias and Sales Activity adapter. StorageService owns file
+  metadata/object access with current-role checks, confined paths and ordinary-failure
+  compensation. User administration and preferences still contain route-owned queries.
   Background tasks require explicit identity review.
   Global backup/restore is a platform operation; keep it outside tenant/MCP APIs.
 - Review remaining model issues separately, including global account-number
@@ -59,9 +63,11 @@ This handoff is documentation only; v31's application source remains authoritati
 1. Client services are verified in PostgreSQL CI and deployed to staging.
 2. ReportService is verified in PostgreSQL CI and staging. Report reads now have a
    reusable admin boundary; no MCP scope enforcement is implied.
-3. Next implementation: storage metadata/object access, then import orchestration,
-   user/preferences and background-context
+3. StorageService is verified in PostgreSQL CI and deployed to staging. Durable
+   storage/reconciliation and bounded file reads remain prerequisites for a file MCP
+   pilot; staging currently has ephemeral local storage on two machines.
+4. Next implementation: import orchestration, user/preferences and background-context
    boundaries with focused adversarial tests. Keep the operational DB-stall issue
    visible; do not infer it is fixed from a successful CI run.
-4. Reconcile Gate 2/3 exit criteria, then implement delegated authorization and a
+5. Reconcile Gate 2/3 exit criteria, then implement delegated authorization and a
    bounded read-only MCP pilot. No user AI access is enabled by this increment.
