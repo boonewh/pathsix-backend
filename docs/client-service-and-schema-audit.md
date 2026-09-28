@@ -1,5 +1,9 @@
 # Client service and staging schema audit
 
+For the September 28 completion of client lists, assignment and bulk soft deletion,
+see [client operations](client-service-operations.md). The audit below records the
+earlier lifecycle/schema milestone.
+
 ## Service migration
 
 Client create, detail, update, soft delete and restore now use `ClientService` with

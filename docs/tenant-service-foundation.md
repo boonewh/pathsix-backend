@@ -1,5 +1,8 @@
 # Tenant-bound service foundation
 
+For the reconciled September 28 progress and remaining gates, see
+[MCP readiness status](mcp-readiness-status.md). The milestones below are historical.
+
 Latest: client lifecycle migration and live schema audit completed in staging v10
 (`64dfe15`, 68 passing tests). See [the client-service report](client-service-and-schema-audit.md).
 The search milestone below is retained as history.
