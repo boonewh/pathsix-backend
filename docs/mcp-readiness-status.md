@@ -6,16 +6,20 @@ as the CRM, with delegated user consent and read-only tools before writes.
 
 ## Baseline and release status
 
-Work resumes from staging `aa1d830`, which merges the September 22 handoff.
-The last recorded live backend is v29 / `68d7d4b`; frontend is `93c9618`.
-That rollout passed 255 PostgreSQL/RLS tests and 33 browser regressions.
-See [the verified integration handoff](staging-main-integration-2026-09-22.md).
-These are recorded release results, not a fresh live-environment inspection.
+Work resumed from staging `aa1d830`, which merges the September 22 handoff.
+The current verified live backend is **v31 / `30c6ab2`** after the client and report
+service increments. PostgreSQL/RLS CI passes **274 tests with zero skips**; both
+staging machines pass health checks and runtime inspection confirms restricted
+credentials with RLS enabled. Frontend `93c9618` was not changed or redeployed.
+The earlier 33 browser regressions belong to the September 22 rollout, not new
+browser testing for these backend-only increments. See
+[the earlier integration handoff](staging-main-integration-2026-09-22.md).
 
-The September 28 client-service increment merged through PR #14 and is deployed
-on staging v30 / `4301ba4`. See [client operations](client-service-operations.md).
-The next report-service increment is on `codex/report-service-boundary`; see
-[report service](report-service.md) for its verification and rollout status.
+The client-service increment merged through PR #14 and first deployed as v30 /
+`4301ba4`. See [client operations](client-service-operations.md). The report-service
+increment merged through PR #15 and deployed as v31 / `30c6ab2`; see
+[report service](report-service.md) for verification, rollout and rollback details.
+This handoff is documentation only; v31's application source remains authoritative.
 
 ## Reconciled gates
 
@@ -41,7 +45,7 @@ The next report-service increment is on `codex/report-service-boundary`; see
 - CSV lead creation already calls LeadService with row savepoints after the
   September 22 integration. Import orchestration/assignee lookup remains in the
   route; do not describe the whole import workflow as extracted.
-- This branch moves all report reads into an admin-only ReportService, including
+- All report reads now use an admin-only ReportService, including
   the legacy summary alias and Sales Activity adapter. File metadata/object storage,
   user administration and preferences still contain route-owned queries.
   Background tasks require explicit identity review.
@@ -53,9 +57,10 @@ The next report-service increment is on `codex/report-service-boundary`; see
 ## Next increments
 
 1. Client services are verified in PostgreSQL CI and deployed to staging.
-2. Complete PostgreSQL CI and staging verification of ReportService. Report reads
-   now have a reusable admin boundary; no MCP scope enforcement is implied.
-3. Complete storage, import orchestration, user/preferences and background-context
+2. ReportService is verified in PostgreSQL CI and staging. Report reads now have a
+   reusable admin boundary; no MCP scope enforcement is implied.
+3. Next implementation: storage metadata/object access, then import orchestration,
+   user/preferences and background-context
    boundaries with focused adversarial tests. Keep the operational DB-stall issue
    visible; do not infer it is fixed from a successful CI run.
 4. Reconcile Gate 2/3 exit criteria, then implement delegated authorization and a
