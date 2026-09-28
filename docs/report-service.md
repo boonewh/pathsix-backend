@@ -32,6 +32,8 @@ actor/event semantics; the adapter now obtains its tenant from ReportService.
   Invalid parameters produce 400 rather than unbounded reads or arithmetic errors.
 - Duration calculations use the actual bound database dialect, enabling both
   PostgreSQL and SQLite test sessions without global connection-string guesses.
+  PostgreSQL Decimal averages are normalized to JSON numbers; previously Quart
+  serialized those duration fields as strings, unlike the SQLite path.
 - Reads never commit or create view/audit records. This is still a web report
   boundary: unpaginated legacy reports must be bounded/minimized before MCP exposure,
   and OAuth grants/scopes remain unimplemented.

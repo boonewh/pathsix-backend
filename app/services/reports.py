@@ -248,7 +248,7 @@ class ReportService(TenantService):
                 "total_leads": total_leads,
                 "converted_leads": converted_leads,
                 "conversion_rate": overall_rate,
-                "avg_days_to_convert": round(avg_days, 1) if avg_days else None
+                "avg_days_to_convert": round(float(avg_days), 1) if avg_days else None
             },
             "by_user": by_user
         }
@@ -487,7 +487,7 @@ class ReportService(TenantService):
             } for row in status_counts],
             "total_projects": total_projects,
             "win_rate": win_rate,
-            "avg_duration_days": round(avg_duration, 1) if avg_duration else None,
+            "avg_duration_days": round(float(avg_duration), 1) if avg_duration else None,
             "avg_project_value": round(float(avg_value), 2) if avg_value else None
         }
 
