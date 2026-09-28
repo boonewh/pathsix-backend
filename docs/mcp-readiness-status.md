@@ -12,9 +12,10 @@ That rollout passed 255 PostgreSQL/RLS tests and 33 browser regressions.
 See [the verified integration handoff](staging-main-integration-2026-09-22.md).
 These are recorded release results, not a fresh live-environment inspection.
 
-The September 28 client-service increment is on `codex/client-service-boundary`.
-It requires no migration, configuration change or frontend change. Its verification
-and deployment status are recorded in [client operations](client-service-operations.md).
+The September 28 client-service increment merged through PR #14 and is deployed
+on staging v30 / `4301ba4`. See [client operations](client-service-operations.md).
+The next report-service increment is on `codex/report-service-boundary`; see
+[report service](report-service.md) for its verification and rollout status.
 
 ## Reconciled gates
 
@@ -40,8 +41,10 @@ and deployment status are recorded in [client operations](client-service-operati
 - CSV lead creation already calls LeadService with row savepoints after the
   September 22 integration. Import orchestration/assignee lookup remains in the
   route; do not describe the whole import workflow as extracted.
-- Reports, file metadata/object storage, user administration and preferences still
-  contain route-owned queries. Background tasks require explicit identity review.
+- This branch moves all report reads into an admin-only ReportService, including
+  the legacy summary alias and Sales Activity adapter. File metadata/object storage,
+  user administration and preferences still contain route-owned queries.
+  Background tasks require explicit identity review.
   Global backup/restore is a platform operation; keep it outside tenant/MCP APIs.
 - Review remaining model issues separately, including global account-number
   uniqueness and polymorphic activity references. Database RLS protects tenant
@@ -49,10 +52,9 @@ and deployment status are recorded in [client operations](client-service-operati
 
 ## Next increments
 
-1. Validate the client-service increment in PostgreSQL CI and staging.
-2. Extract report reads behind an admin-authorized tenant service, including
-   aggregate/count tests outside HTTP. This is needed before any pipeline-summary
-   MCP tool can reuse those queries safely.
+1. Client services are verified in PostgreSQL CI and deployed to staging.
+2. Complete PostgreSQL CI and staging verification of ReportService. Report reads
+   now have a reusable admin boundary; no MCP scope enforcement is implied.
 3. Complete storage, import orchestration, user/preferences and background-context
    boundaries with focused adversarial tests. Keep the operational DB-stall issue
    visible; do not infer it is fixed from a successful CI run.

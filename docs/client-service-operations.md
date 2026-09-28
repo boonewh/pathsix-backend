@@ -38,7 +38,28 @@ failure ordering and transactional bulk history. Local runs use isolated SQLite
 fixtures; PostgreSQL CI supplies the restricted runtime role and RLS.
 
 Full local suite: **239 passed, 29 PostgreSQL-only skipped**. Compile and diff
-whitespace checks passed. PostgreSQL CI is pending. No live staging or production
-deployment has been performed for this increment.
+whitespace checks passed. PostgreSQL 18 restricted-role/RLS CI passed **268 tests
+with zero skips** in [PR #14](https://github.com/boonewh/pathsix-backend/pull/14).
+Merged staging CI also passed.
+
+## Staging rollout
+
+PR #14 merged as `4301ba49627e5cc0bd566ae0a40f967c20e400e9`. Staging **v30**
+deployed that source on both existing machines on September 28. Both passed health
+checks. The 1 GB VM configuration, HTTP services and sleep settings are unchanged.
+Runtime inspection returned `pathsix_crm_staging_runtime`, `rolsuper=false`,
+`rolbypassrls=false` and `CRM_RLS_ENABLED=1`.
+
+Live checks passed for synthetic client creation, self-assignment, assigned lists,
+active/inactive filters with activity sorting, interaction counts, invalid pages,
+bulk soft deletion, named dependency rejection and restore. Cleanup initially used
+an unsupported interaction detail GET (405); recovery verified exact IDs and marker
+through the interaction list and removed clients 16/17 and interactions 5/6.
+No synthetic records remain from this run; transactional history is retained.
+All 15 report GET endpoints also passed, with a response baseline saved for the
+next report-service rollout. Evidence is under `temp/client-service-rollout/`.
+
+Rollback image: `registry.fly.io/pathsixsolutions-backend-staging:68d7d4b5a8204f86c29721be8dc013c99c0fb0ee`.
+No migration, production deployment or main-branch change was performed.
 
 The broader remaining work is tracked in [MCP readiness status](mcp-readiness-status.md).
