@@ -56,7 +56,43 @@ attachment handling, batch validation, write/commit failure compensation, ambigu
 commit acknowledgement, failed-compensation logging, fresh-session enforcement,
 legacy paths, symlink isolation and S3 missing-object/stream handling.
 
-PostgreSQL/RLS CI and staging rollout verification are pending. S3 behavior is
+The first PostgreSQL/RLS run passed 297 tests and exposed two alert-capture failures:
+Alembic disabled existing application loggers during in-process migration tests.
+Migration logging now preserves existing loggers; all 25 focused cases pass locally.
+Corrected [PostgreSQL 18/RLS CI](https://github.com/boonewh/pathsix-backend/actions/runs/36487906519)
+passed **299 tests with zero skips**. S3 behavior is
 tested with an in-memory object backend and adapter doubles, not a live S3 bucket.
-The previous verified staging application is v31 / `30c6ab2`; its image is the
-rollback target. Production and frontend deployment remain unchanged.
+
+## Verified staging rollout
+
+[PR #17](https://github.com/boonewh/pathsix-backend/pull/17) application revision
+`2149bb6e5e960ff5a91093c864dc710872f22e6e` is deployed as **staging v32**.
+Both existing machines, `82549ec7079218` and `7812092ae397d8`, have that revision
+and passing health checks. VM size, HTTP services, sleep behavior and mount
+configuration match the saved predeployment baseline. Image digest:
+`sha256:f667ab8c8b97c606191d764041c002e5b1b17bb96af6a3b0b02078be975642da`.
+
+The 25 focused storage checks also passed against the deployed application in
+19 seconds, using disposable PostgreSQL schemas and the restricted runtime role.
+This includes local-file and object-double round trips, two-tenant boundaries,
+HTTP multipart/download handling and failure recovery. Before/after counts were
+unchanged: **zero public files, one public user, zero test schemas**. Runtime
+inspection confirmed `pathsix_crm_staging_runtime`, `rolsuper=false`,
+`rolbypassrls=false` and `CRM_RLS_ENABLED=1`.
+
+Live public-API login, six health/protected reads and four storage checks passed:
+empty listing, missing download, and upload/delete denial for the existing admin
+without `file_uploads`. No public role, user or file was created or modified.
+The positive upload/delete HTTP tests used isolated schemas on the staging
+machine, not its shared public tenant. S3 remains unverified against a live bucket.
+
+All 21 originally changed files and all three original checkout HEADs were
+verified unchanged. Production and frontend deployment remain unchanged. Safe
+machine evidence, the exact source archive and isolated verification scripts/results
+are under `temp/storage-service-rollout/`. The earlier intermittent staging DB
+stall remains unresolved; this run does not establish its cause or resolution.
+
+Rollback image:
+`registry.fly.io/pathsixsolutions-backend-staging:30c6ab2476648535c5922e7da40a70e6a7ffa525`.
+The final handoff commit changes documentation only; v32's application source is
+still the tested `2149bb6` revision.
