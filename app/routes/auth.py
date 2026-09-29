@@ -1,9 +1,10 @@
 from quart import Blueprint, request, jsonify, current_app
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload
-from app.models import User, Tenant
+from app.models import User
 from app.database import SessionLocal
 from app.services.database_context import auth_lookup
+from app.services.identity import IdentityService
 from app.utils.auth_utils import (
     verify_password,
     create_token,
@@ -139,91 +140,42 @@ async def reset_password():
     finally:
         session.close()
 
-@auth_bp.route("/change-password", methods=["POST"])
+def _identity_response(operation, *, write=False):
+    with SessionLocal() as session:
+        try:
+            if write:
+                request.database_write_started = True
+            result = operation(IdentityService(session, request.principal))
+            if write:
+                session.commit()
+            response = jsonify(result)
+            response.headers['Cache-Control'] = 'no-store'
+            return response
+        except PermissionError as exc:
+            session.rollback()
+            return jsonify({'error': str(exc)}), 403
+        except ValueError as exc:
+            session.rollback()
+            return jsonify({'error': str(exc)}), 400
+        except SQLAlchemyError:
+            session.rollback()
+            raise
+
+
+@auth_bp.route('/change-password', methods=['POST'])
 @requires_auth()
 async def change_password():
     data = await request.get_json()
-    current_password = data.get("current_password")
-    new_password = data.get("new_password")
-    user = request.user
-
-    if not current_password or not new_password:
-        return jsonify({"error": "Missing required fields"}), 400
-
-    if not verify_password(current_password, user.password_hash):
-        return jsonify({"error": "Incorrect current password"}), 403
-
-    session = SessionLocal()
-    try:
-        user = session.get(User, user.id)
-        user.password_hash = hash_password(new_password)
-        session.commit()
-        return jsonify({"message": "Password changed successfully"})
-    except SQLAlchemyError:
-        session.rollback()
-        return jsonify({"error": "Server error"}), 500
-    finally:
-        session.close()
+    return _identity_response(lambda service: service.change_password(data), write=True)
 
 
-@auth_bp.route("/me", methods=["GET"])
+@auth_bp.route('/me', methods=['GET'])
 @requires_auth()
 async def get_me():
-    user = request.user
-    session = SessionLocal()
-    try:
-        # Reload user with tenant to get config
-        user = session.query(User)\
-            .options(joinedload(User.tenant), joinedload(User.roles))\
-            .filter_by(id=user.id)\
-            .first()
-
-        response_data = {
-            "id": user.id,
-            "email": user.email,
-            "roles": [r.name for r in user.roles],
-            "tenant_id": user.tenant_id,
-        }
-
-        if user.tenant:
-            response_data["tenant"] = {
-                "id": user.tenant.id,
-                "name": user.tenant.name,
-                "slug": user.tenant.slug,
-                "config": user.tenant.config
-            }
-
-        return jsonify(response_data)
-    finally:
-        session.close()
+    return _identity_response(lambda service: service.me())
 
 
-@auth_bp.route("/tenant/config", methods=["GET"])
+@auth_bp.route('/tenant/config', methods=['GET'])
 @requires_auth()
 async def get_tenant_config():
-    """
-    Get the current user's tenant configuration.
-
-    This endpoint returns the full CRM config for the user's tenant,
-    allowing the frontend to dynamically configure itself based on
-    the authenticated user's organization.
-    """
-    user = request.user
-    session = SessionLocal()
-    try:
-        tenant = session.query(Tenant).filter_by(id=user.tenant_id).first()
-
-        if not tenant:
-            return jsonify({"error": "Tenant not found"}), 404
-
-        if not tenant.is_active:
-            return jsonify({"error": "Tenant is inactive"}), 403
-
-        return jsonify({
-            "id": tenant.id,
-            "name": tenant.name,
-            "slug": tenant.slug,
-            "config": tenant.config
-        })
-    finally:
-        session.close()
+    return _identity_response(lambda service: service.tenant_config())
