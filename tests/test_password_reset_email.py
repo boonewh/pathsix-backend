@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from quart import Quart
+from test_security_boundaries import crm
 
 from app.routes import auth as auth_routes
 from app.routes import users as user_routes
@@ -119,74 +120,28 @@ def test_forgot_password_allows_six_requests_per_five_minutes(monkeypatch):
     asyncio.run(exercise())
 
 
-def test_admin_can_send_password_reset_within_tenant(monkeypatch):
-    admin = SimpleNamespace(id=1, tenant_id=7, tenant=SimpleNamespace(is_active=True), roles=[SimpleNamespace(name="admin")])
-    target = SimpleNamespace(id=2, tenant_id=7, email="user@example.test")
-    auth_session = _Session(admin)
-    target_session = _Session(target)
-    send_password_reset_email = AsyncMock()
-
-    monkeypatch.setattr(auth_utils, "SessionLocal", lambda: auth_session)
-    monkeypatch.setattr(
-        auth_utils,
-        "decode_token",
-        lambda token: {"sub": 1, "roles": ["admin"]},
-    )
-    monkeypatch.setattr(user_routes, "SessionLocal", lambda: target_session)
-    monkeypatch.setattr(
-        user_routes, "send_password_reset_email", send_password_reset_email
-    )
-
-    app = Quart(__name__)
-    app.register_blueprint(user_routes.users_bp)
-
-    async def exercise():
-        client = app.test_client()
-        response = await client.post(
-            "/api/users/2/send-password-reset",
-            headers={"Authorization": "Bearer test-token"},
-        )
-        assert response.status_code == 200
-        assert await response.get_json() == {"message": "Password reset email sent"}
-
-    asyncio.run(exercise())
-
-    send_password_reset_email.assert_awaited_once_with("user@example.test")
-    assert auth_session.closed
-    assert target_session.closed
+def test_admin_can_send_password_reset_within_tenant(crm, monkeypatch):
+    call, _, _ = crm
+    sessions = []
+    factory = user_routes.SessionLocal
+    def track_session():
+        session = factory()
+        sessions.append(session)
+        return session
+    async def deliver(recipient):
+        assert recipient == 'ordinary@example.test'
+        assert sessions and not sessions[-1].in_transaction()
+    delivery = AsyncMock(side_effect=deliver)
+    monkeypatch.setattr(user_routes, 'SessionLocal', track_session)
+    monkeypatch.setattr(user_routes, 'send_password_reset_email', delivery)
+    status, body = call('POST', '/api/users/3/send-password-reset')
+    assert status == 200 and 'Password reset email sent' in body
+    delivery.assert_awaited_once_with('ordinary@example.test')
 
 
-def test_admin_password_reset_reports_delivery_failure(monkeypatch):
-    admin = SimpleNamespace(id=1, tenant_id=7, tenant=SimpleNamespace(is_active=True), roles=[SimpleNamespace(name="admin")])
-    target = SimpleNamespace(id=2, tenant_id=7, email="user@example.test")
-    send_password_reset_email = AsyncMock(side_effect=RuntimeError("SMTP unavailable"))
-
-    monkeypatch.setattr(auth_utils, "SessionLocal", lambda: _Session(admin))
-    monkeypatch.setattr(
-        auth_utils,
-        "decode_token",
-        lambda token: {"sub": 1, "roles": ["admin"]},
-    )
-    monkeypatch.setattr(user_routes, "SessionLocal", lambda: _Session(target))
-    monkeypatch.setattr(
-        user_routes, "send_password_reset_email", send_password_reset_email
-    )
-
-    app = Quart(__name__)
-    app.register_blueprint(user_routes.users_bp)
-
-    async def exercise():
-        client = app.test_client()
-        response = await client.post(
-            "/api/users/2/send-password-reset",
-            headers={"Authorization": "Bearer test-token"},
-        )
-        assert response.status_code == 503
-        assert await response.get_json() == {
-            "error": (
-                "Unable to send the password reset email right now. "
-                "Please try again later."
-            )
-        }
-
-    asyncio.run(exercise())
+def test_admin_password_reset_reports_delivery_failure(crm, monkeypatch):
+    delivery = AsyncMock(side_effect=RuntimeError('SMTP secret unavailable'))
+    monkeypatch.setattr(user_routes, 'send_password_reset_email', delivery)
+    status, body = crm[0]('POST', '/api/users/3/send-password-reset')
+    assert status == 503 and 'Unable to send the password reset email' in body
+    assert 'SMTP secret' not in body
