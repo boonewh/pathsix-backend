@@ -6,6 +6,7 @@ import subprocess
 import hashlib
 from datetime import datetime, timedelta
 from app.database import SessionLocal
+from app.workers.authorization import require_platform_operation
 from app.models import Backup
 from app.config import (
     SQLALCHEMY_DATABASE_URI,
@@ -27,6 +28,7 @@ def run_backup_job(backup_id: int, backup_type: str = "manual"):
     6. Update backup record with metadata
     7. Cleanup local files
     """
+    require_platform_operation('backup')
     session = SessionLocal()
     backup = None
     local_dump_path = None
@@ -222,6 +224,7 @@ def cleanup_old_backups():
     """
     Delete backups older than BACKUP_RETENTION_DAYS from both database and B2.
     """
+    require_platform_operation('cleanup')
     session = SessionLocal()
     storage = get_backup_storage()
 

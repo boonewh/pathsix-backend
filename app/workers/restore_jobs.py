@@ -7,6 +7,7 @@ import hashlib
 import json
 from datetime import datetime
 from app.database import SessionLocal
+from app.workers.authorization import require_platform_operation
 from app.models import Backup, BackupRestore, User
 from app.config import (
     SQLALCHEMY_DATABASE_URI,
@@ -27,6 +28,7 @@ def run_restore_job(restore_id: int):
     6. Update restore record (will likely fail since record was wiped)
     7. Cleanup local files
     """
+    require_platform_operation('restore')
     session = SessionLocal()
     restore = None
     local_encrypted_path = None

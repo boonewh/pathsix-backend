@@ -7,8 +7,9 @@ as the CRM, with delegated user consent and read-only tools before writes.
 ## Baseline and release status
 
 Work resumed from staging `aa1d830`, which merges the September 22 handoff.
-The current verified live backend is **v34 / `448a6c0`** after the client, report, storage,
-import, user and preference service increments. PostgreSQL/RLS CI passes **359 tests with zero skips**; both
+The current verified live backend is **v35 / `6c8ce18`** after the client, report, storage,
+import, user, preference and identity/platform-boundary increments. PostgreSQL/RLS CI
+passes **395 tests with zero skips**; both
 staging machines pass health checks and runtime inspection confirms restricted
 credentials with RLS enabled. Frontend `93c9618` was not changed or redeployed.
 The earlier 33 browser regressions belong to the September 22 rollout, not new
@@ -30,7 +31,13 @@ through PR #19, deployed as v34 / `448a6c0`. All 40 focused user/preference and
 password-reset checks passed against deployed code in disposable PostgreSQL schemas.
 Public users, roles and preferences were unchanged. See
 [user and preference services](user-preference-services.md).
-The handoff documentation does not change v34's verified application source.
+Current-user configuration/password operations now use IdentityService, and platform
+backup/restore/cleanup jobs have an explicit fail-closed worker boundary through PR #20.
+Staging v35 / `6c8ce18` passed all 36 focused identity/platform checks, including
+concurrent password changes. Public credentials and identity/configuration stayed
+unchanged, and platform jobs remain disabled. See
+[identity and platform boundaries](identity-platform-boundaries.md).
+The handoff documentation does not change v35's verified application source.
 
 ## Reconciled gates
 
@@ -62,8 +69,13 @@ The handoff documentation does not change v34's verified application source.
   metadata/object access with current-role checks, confined paths and ordinary-failure
   compensation. User administration now uses an admin-only UserService. PreferenceService
   scopes personal preferences by both user and tenant, including outside HTTP/RLS.
-  Background tasks require explicit identity review.
-  Global backup/restore is a platform operation; keep it outside tenant/MCP APIs.
+  IdentityService owns current-user/configuration reads and authenticated password
+  changes. Login and signed-reset lookups remain authentication-boundary operations.
+  Existing background jobs are global backup/restore/retention: their entry points
+  now require an explicit operation allowlist and privileged PostgreSQL connection
+  without tenant identity, and reject HTTP contexts. They remain outside tenant/MCP
+  APIs and disabled on the web deployment. Operator/queue security, restore approval
+  and actual backup/restore reliability still require review.
 - Review remaining model issues separately, including global account-number
   uniqueness and polymorphic activity references. Database RLS protects tenant
   boundaries; record permissions within a tenant still require service predicates.
@@ -81,9 +93,9 @@ The handoff documentation does not change v34's verified application source.
 5. UserService and PreferenceService are verified in PostgreSQL CI and staging.
    Current web identity/role checks are preserved; no delegated administrative grants
    or MCP account-management tools are enabled.
-6. Next implementation: review background identity and remaining service paths with
-   focused adversarial tests. Global backup/restore workers are platform operations,
-   not tenant services. Keep the operational DB-stall issue
+6. IdentityService and the fail-closed platform-job boundary are verified in PostgreSQL
+   CI and staging. No real platform job was run or enabled. Keep the operational DB-stall issue
    visible; do not infer it is fixed from a successful CI run.
-7. Reconcile Gate 2/3 exit criteria, then implement delegated authorization and a
+7. Next: reconcile Gate 2/3 exit criteria and address remaining isolation proof gaps,
+   then implement delegated authorization and a
    bounded read-only MCP pilot. No user AI access is enabled by this increment.
