@@ -89,7 +89,37 @@ limits, durable invocation auditing and the connection-management UI remain open
 
 ## Validation and rollout
 
-CI, migration rehearsal and staging evidence will be recorded after validation.
+[PostgreSQL 18/RLS CI](https://github.com/boonewh/pathsix-backend/actions/runs/36641962370)
+passed **487 tests with zero skips**, including real migration failure/rollback and
+concurrent creation limits. The final focused local suite passed 32 tests with nine
+PostgreSQL-only skips. The earlier full local run passed 427 with 54 skips; the final
+CI run also includes the later migration/concurrency/daily-limit additions.
+
+The live staging migration was first fully rehearsed inside a rolled-back transaction,
+then applied atomically from the reviewed source. All 17 pre-existing application
+tables retained identical full-row digests; migration history advanced from
+`parent_link_rules` to `ai_consent_grants`. No real client was registered.
+
+All **92 focused tests passed** against the deployed code in disposable PostgreSQL
+schemas. This includes consent/migration tests and the expanded isolation proofs.
+Before/after full-row digests across all **19 public application tables** were equal;
+both new tables stayed empty and no disposable schemas remained. Live catalog/history
+reads, explicit-approval and unregistered-client denials, no-store headers and the
+existing login/identity/config/password-denial checks passed. Restricted runtime
+credentials, RLS and the **15-table/21-policy** catalog attestation were verified;
+platform operations remain disabled.
+
+Application `3770a2d6fb1df2d8f5ec92c8e866435f3dae51b6`, built from a clean Git archive,
+runs as **staging v37** with image digest
+`sha256:0977cd1d48145491bf5923c7c968e4713f1e4d4c291ba47625fbd8d7528f9156`.
+Both existing machines passed health checks, with unchanged capacity/services/mounts.
+`MCP_RESOURCE_URI` is `https://pathsixsolutions-backend-staging.fly.dev/mcp`; this
+binds consent and does not expose that endpoint. All 21 original dirty files and
+three original checkout revisions were preserved. The final documentation update
+does not change verified application, test, migration or operations source.
+The SSH wrapper's known post-output Windows handle warning occurred after successful
+test/snapshot output; process exit and saved JSON evidence confirmed completion.
+
 No production/frontend deployment or platform worker changes. Application rollback
 target is staging v36 `898cc7a17b604502b95568f45e7b375048ee8702`; the additive tables
 may remain safely in place when rolling back the app. Never erase consent history
