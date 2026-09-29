@@ -2,7 +2,7 @@ from sqlalchemy import Column, Integer, String, DateTime, Text, Float, ForeignKe
 from sqlalchemy.orm import relationship, backref
 from datetime import datetime
 from app.database import Base
-from sqlalchemy import Enum, Index, UniqueConstraint, JSON
+from sqlalchemy import Enum, Index, UniqueConstraint, JSON, ForeignKeyConstraint, CheckConstraint
 import enum
 
 # Association table for many-to-many User ↔ Role
@@ -57,6 +57,7 @@ class Tenant(Base):
 
 class User(Base):
     __tablename__ = 'users'
+    __table_args__ = (UniqueConstraint('tenant_id', 'id', name='uq_users_tenant_id_id'),)
     id = Column(Integer, primary_key=True)
     tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     email = Column(String(120), unique=True, nullable=False, index=True)
@@ -80,6 +81,36 @@ class Role(Base):
 
     def __repr__(self):
         return f"<Role {self.name}>"
+
+
+class AIClient(Base):
+    """Operator-managed client catalog; the web runtime has read access only."""
+    __tablename__ = 'ai_clients'
+    id = Column(String(200), primary_key=True)
+    name = Column(String(100), nullable=False)
+    is_active = Column(Boolean, nullable=False, default=False)
+    allowed_scopes = Column(JSON, nullable=False, default=list)
+
+
+class AIConnection(Base):
+    """An owner's consent record, never a bearer credential or web identity."""
+    __tablename__ = 'ai_connections'
+    __table_args__ = (
+        ForeignKeyConstraint(['tenant_id', 'user_id'], ['users.tenant_id', 'users.id'],
+                             name='fk_ai_connections_owner_same_tenant'),
+        CheckConstraint('expires_at > created_at', name='ck_ai_connections_expiry'),
+        Index('ix_ai_connections_owner_created', 'tenant_id', 'user_id', 'created_at', 'id'),
+    )
+    id = Column(String(36), primary_key=True)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
+    user_id = Column(Integer, nullable=False)
+    client_id = Column(String(200), ForeignKey('ai_clients.id'), nullable=False)
+    resource = Column(String(500), nullable=False)
+    scopes = Column(JSON, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    revoked_at = Column(DateTime)
+    last_used_at = Column(DateTime)
 
 
 class Client(Base):

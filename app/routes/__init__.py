@@ -15,6 +15,7 @@ from app.routes.imports import imports_bp
 from app.routes.user_preferences import preferences_bp
 from app.routes.storage import storage_bp
 from app.routes.subscriptions import subscriptions_bp
+from app.routes.ai_connections import ai_connections_bp
 
 def register_blueprints(app):
     app.register_blueprint(auth_bp)
@@ -34,3 +35,4 @@ def register_blueprints(app):
     app.register_blueprint(storage_bp)
     # Whole-database operations are not available to tenant accounts.
     app.register_blueprint(subscriptions_bp)
+    app.register_blueprint(ai_connections_bp)

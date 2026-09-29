@@ -6,7 +6,9 @@ Call within the intended schema's search_path using a transaction-scoped connect
 """
 import re
 from sqlalchemy import text
-from migrations.versions.tenant_rls_prepare import TABLES, BUSINESS
+from migrations.versions.tenant_rls_prepare import TABLES as LEGACY_TABLES, BUSINESS
+
+TABLES = LEGACY_TABLES + ('ai_connections',)
 
 
 def expected_policies():
@@ -15,6 +17,8 @@ def expected_policies():
         ('tenant_id','auth_user_id','auth_tenant_id','reset_user_id')]
     own = f'(tenant_id = {tenant})'
     result = {(name,'crm_all','ALL'):(own,own) for name in BUSINESS}
+    connection_owner = f'({own} AND (user_id = {setting("user_id")}))'
+    result[('ai_connections','crm_all','ALL')] = (connection_owner,connection_owner)
     result[('tenants','crm_select','SELECT')] = (f'((id = {tenant}) OR (id = {auth_tenant}))',None)
     result[('users','crm_select','SELECT')] = (f'({own} OR ((id = {auth_user}) AND (tenant_id = {auth_tenant})))',None)
     result[('users','crm_insert','INSERT')] = (None,own)

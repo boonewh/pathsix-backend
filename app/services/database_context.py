@@ -46,7 +46,8 @@ def bind_principal(session, principal, *, _transaction_start=False):
             table = state.mapper.local_table.name
             if ((tenant is not None and tenant != principal.tenant_id)
                     or (table == 'tenants' and state.dict.get('id') != principal.tenant_id)
-                    or (table == 'user_preferences' and state.dict.get('user_id') != principal.user_id)):
+                    or (table in ('user_preferences', 'ai_connections')
+                        and state.dict.get('user_id') != principal.user_id)):
                 raise ValueError('A tenant session cannot adopt foreign cached records')
     session.info['principal'] = principal
     if enabled() and session.in_transaction() and previous is None and not _transaction_start:
@@ -85,6 +86,7 @@ def apply_context(session, connection):
                 reset_user = auth_user
     # Set every value, including empty values, on every new transaction. SET LOCAL
     # clears at commit/rollback, so pooled connections cannot carry tenant identity.
-    for key, value in (('crm.tenant_id', tenant), ('crm.auth_user_id', auth_user),
+    for key, value in (('crm.tenant_id', tenant), ('crm.user_id', str(principal.user_id) if principal else ''),
+                       ('crm.auth_user_id', auth_user),
                        ('crm.auth_tenant_id', auth_tenant), ('crm.reset_user_id', reset_user)):
         connection.execute(text('SELECT set_config(:key, :value, true)'), {'key': key, 'value': value})
