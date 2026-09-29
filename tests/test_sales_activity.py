@@ -76,6 +76,7 @@ def test_transactional_actor_audit_dedup_pagination_and_rollback(session):
     async def exercise():
         async with app.test_request_context("/api/interactions", method="POST"):
             request.user = SimpleNamespace(id=2, tenant_id=1)
+            request.principal = session.info['principal']
             lead = Lead(tenant_id=1, created_by=2, assigned_to=1, name="New lead")
             interaction = Interaction(tenant_id=1, summary="New call")
             session.add_all([lead, interaction])
@@ -109,6 +110,7 @@ def test_soft_delete_and_restore_are_recorded_once(session):
     async def exercise():
         async with app.test_request_context("/api/leads/1", method="DELETE"):
             request.user = SimpleNamespace(id=2, tenant_id=1)
+            request.principal = session.info['principal']
             lead = Lead(tenant_id=1, created_by=2, name="Soft delete")
             session.add(lead)
             session.commit()

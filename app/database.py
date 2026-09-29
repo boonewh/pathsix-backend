@@ -40,7 +40,15 @@ def receive_after_cursor_execute(conn, cursor, statement, parameters, context, e
 # Quart serves concurrent requests as async tasks on the same thread. A default
 # scoped_session is thread-local, so separate requests can accidentally receive
 # the same Session. Always return a fresh Session instead.
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+class IdentitySession(Session):
+    def get(self, *args, **kwargs):
+        # get() can return a cached row without executing SQL or ORM events.
+        from app.services.database_context import validate_session_context
+        validate_session_context(self)
+        return super().get(*args, **kwargs)
+
+
+SessionLocal = sessionmaker(bind=engine, class_=IdentitySession, autoflush=False, autocommit=False)
 Base = declarative_base()
 
 
@@ -54,6 +62,8 @@ def initialize_database_identity(session, transaction, connection):
 @event.listens_for(Session, "before_commit")
 def mark_request_write(session, *args):
     from quart import has_request_context, request
+    from app.services.database_context import validate_session_context
+    validate_session_context(session)
     if has_request_context():
         request.database_write_started = True
 
@@ -66,6 +76,8 @@ def scope_authenticated_queries(state):
     defense in depth for authenticated HTTP requests, not database row security.
     """
     from quart import has_request_context, request
+    from app.services.database_context import validate_session_context
+    validate_session_context(state.session)
     if not has_request_context() or not hasattr(request, "principal"):
         return
     if state.is_insert or state.is_update or state.is_delete:
