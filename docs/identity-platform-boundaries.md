@@ -55,10 +55,30 @@ independent config responses, forged IDs, password rollback/commit failures, sta
 hash reload and concurrent changes. Platform checks prove entry denial before side
 effects, operation allowlists, HTTP denial, database-role/context checks and safe
 database errors. The full local suite passed **365 tests**, with **30 PostgreSQL-only
-skips**. PostgreSQL/RLS and staging results will be recorded before merge.
-Positive password tests use disposable schemas; public staging identity
-and credentials must remain unchanged. Platform operations are tested only by guarded
+skips**. [PostgreSQL 18/RLS CI](https://github.com/boonewh/pathsix-backend/actions/runs/36631759633)
+passed **395 tests with zero skips**, including concurrent password changes and
+actual restricted-role rejection. All **36 focused tests passed** against deployed
+staging code in disposable PostgreSQL schemas, including the concurrent-password
+case. Positive password tests used isolated data; the digest of public users,
+memberships and preferences was unchanged (including password hashes). Public counts
+remained one user, one membership, zero preferences, two leads and 67 activities;
+no test schemas remained. Platform operations were tested only by guarded
 denials or mocked authorization, never by running real jobs.
+
+The live HTTP checks passed for identity/config response compatibility, no-store
+headers, malformed/wrong-current-password rejection and the absent backup API.
+The pre/post identity/configuration fingerprint was unchanged. The temporary HTTP
+checker was corrected to accept the unregistered endpoint's normal HTML 404.
+
+Application revision `6c8ce189d42e9e06be73a8bee59b418a561801a7`, built from a clean Git
+archive, runs as **staging v35**. Image digest:
+`sha256:d9aa911279e3fabd3eae9b6409f4500365ddd83fdb15085cd4631045709eab8d`.
+Both existing machines (`82549ec7079218`, `185777d6c554e8`) passed health checks with
+unchanged capacity, service configuration and mounts. Runtime inspection confirmed
+the restricted `pathsix_crm_staging_runtime` role, neither superuser nor BYPASSRLS,
+and RLS enabled. A separate process-settings check confirmed the platform allowlist
+is absent. All 21 original dirty files and original checkout revisions were preserved.
+Final documentation does not change the verified application, tests or migrations.
 
 Rollback target: staging v34 application `448a6c0c8db5bc794fbb61fb2f207912cbd5d49b`
 (`registry.fly.io/pathsixsolutions-backend-staging:448a6c0c8db5bc794fbb61fb2f207912cbd5d49b`).
