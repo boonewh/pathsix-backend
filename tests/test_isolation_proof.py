@@ -18,8 +18,8 @@ from app.services.users import UserService
 from app.services.database_context import auth_lookup, bind_principal
 from app.services.principal import Principal
 from app.services.errors import RecordNotFound
-from migrations.versions.tenant_rls_prepare import TABLES, BUSINESS
-from ops.isolation_contract import verify_isolation_contract, expected_policies
+from migrations.versions.tenant_rls_prepare import BUSINESS
+from ops.isolation_contract import TABLES, verify_isolation_contract, expected_policies
 
 A=Principal(1,1,frozenset({'admin'}))
 B=Principal(2,2,frozenset({'admin'}))
@@ -27,7 +27,7 @@ B=Principal(2,2,frozenset({'admin'}))
 
 def test_every_model_has_an_explicit_isolation_classification():
     # Adding a model requires choosing and proving its isolation boundary.
-    assert set(Base.metadata.tables)==set(TABLES)|{'roles','backups','backup_restores'}
+    assert set(Base.metadata.tables)==set(TABLES)|{'roles','backups','backup_restores','ai_clients'}
     for table in BUSINESS+('users',):
         assert 'tenant_id' in Base.metadata.tables[table].columns
 
@@ -195,8 +195,16 @@ def test_foreign_changes_do_not_affect_lists_search_reports_or_counts(crm):
 
 @pytest.fixture
 def populated_runtime(rls_runtime):
+    from app.models import AIClient, AIConnection
+    from datetime import timedelta
     runtime,admin,schema=rls_runtime
     with admin() as db:
+        db.add(AIClient(id='proof',name='Proof client',is_active=True,allowed_scopes=['clients:read']))
+        db.flush()
+        for tenant in (1,2):
+            db.add(AIConnection(id=str(tenant),tenant_id=tenant,user_id=tenant,client_id='proof',
+                                resource='https://example.test/mcp',scopes=['clients:read'],
+                                expires_at=datetime.utcnow()+timedelta(days=1)))
         db.add_all([Account(id=2,tenant_id=2,client_id=2,account_number='B'),
                     Contact(id=2,tenant_id=2,client_id=2,first_name='B')])
         for tenant in (1,2):
@@ -234,11 +242,12 @@ def test_all_tables_deny_missing_context_and_foreign_reads_writes(populated_runt
             assert error.value.orig.pgcode=='42501'
         else:
             assert db.execute(text(f'UPDATE {table} SET {column}={column} WHERE {column}=2')).rowcount==0
-            assert db.execute(text(f'DELETE FROM {table} WHERE {column}=2')).rowcount==0
+            if table != 'ai_connections':  # Consent history has no runtime DELETE grant.
+                assert db.execute(text(f'DELETE FROM {table} WHERE {column}=2')).rowcount==0
             with db.begin_nested() as savepoint:
                 with pytest.raises(DBAPIError) as error:
                     db.execute(text(f'UPDATE {table} SET {column}=2 WHERE {column}=1'))
-                assert error.value.orig.pgcode=='42501'
+                assert error.value.orig.pgcode in ({'23514','42501'} if table=='ai_connections' else {'42501'})
                 savepoint.rollback()
         db.rollback()
 
@@ -249,7 +258,7 @@ def test_policy_attestation_detects_faults_on_every_protected_table(rls_runtime,
     _,admin,schema=rls_runtime
     with admin() as db:
         connection=db.connection()
-        assert verify_isolation_contract(connection,schema,os.environ['SECURITY_TEST_ROLE'])['tables']==14
+        assert verify_isolation_contract(connection,schema,os.environ['SECURITY_TEST_ROLE'])['tables']==len(TABLES)
         quote=connection.dialect.identifier_preparer.quote
         for table in TABLES:
             key=next(key for key in expected_policies() if key[0]==table)
