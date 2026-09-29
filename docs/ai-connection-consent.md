@@ -1,5 +1,9 @@
 # AI connection consent foundation
 
+This records the earlier v37 foundation. The subsequent browser/token increment
+is described in [OAuth browser flow](oauth-browser-flow.md); its catalog reports
+`tokens_available` only when an available client has operator-enabled OAuth.
+
 This is the first delegated-authorization increment. It provides durable consent,
 current permission evaluation and owner-only management APIs. It does **not** issue
 tokens, implement the OAuth authorization-code flow, expose MCP tools or add the
