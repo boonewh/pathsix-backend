@@ -7,8 +7,8 @@ as the CRM, with delegated user consent and read-only tools before writes.
 ## Baseline and release status
 
 Work resumed from staging `aa1d830`, which merges the September 22 handoff.
-The current verified live backend is **v33 / `dfd8230`** after the client, report, storage
-and import service increments. PostgreSQL/RLS CI passes **324 tests with zero skips**; both
+The current verified live backend is **v34 / `448a6c0`** after the client, report, storage,
+import, user and preference service increments. PostgreSQL/RLS CI passes **359 tests with zero skips**; both
 staging machines pass health checks and runtime inspection confirms restricted
 credentials with RLS enabled. Frontend `93c9618` was not changed or redeployed.
 The earlier 33 browser regressions belong to the September 22 rollout, not new
@@ -25,7 +25,12 @@ PostgreSQL schemas, with public users/files unchanged. See [storage service](sto
 Import orchestration now uses ImportService through PR #18, deployed as v33 /
 `dfd8230`. All 25 focused import checks passed against deployed code in disposable
 PostgreSQL schemas, with public data unchanged. See [import service](import-service.md).
-The handoff documentation does not change v33's verified application source.
+User administration and personal preferences now use UserService and PreferenceService
+through PR #19, deployed as v34 / `448a6c0`. All 40 focused user/preference and
+password-reset checks passed against deployed code in disposable PostgreSQL schemas.
+Public users, roles and preferences were unchanged. See
+[user and preference services](user-preference-services.md).
+The handoff documentation does not change v34's verified application source.
 
 ## Reconciled gates
 
@@ -55,7 +60,8 @@ The handoff documentation does not change v33's verified application source.
 - All report reads now use an admin-only ReportService, including
   the legacy summary alias and Sales Activity adapter. StorageService owns file
   metadata/object access with current-role checks, confined paths and ordinary-failure
-  compensation. User administration and preferences still contain route-owned queries.
+  compensation. User administration now uses an admin-only UserService. PreferenceService
+  scopes personal preferences by both user and tenant, including outside HTTP/RLS.
   Background tasks require explicit identity review.
   Global backup/restore is a platform operation; keep it outside tenant/MCP APIs.
 - Review remaining model issues separately, including global account-number
@@ -72,8 +78,12 @@ The handoff documentation does not change v33's verified application source.
    pilot; staging currently has ephemeral local storage on two machines.
 4. ImportService is verified in PostgreSQL CI and staging. Import idempotency and
    durable notification delivery remain prerequisites for MCP import writes.
-5. Next implementation: user/preferences and background-context boundaries with
-   focused adversarial tests. Keep the operational DB-stall issue
+5. UserService and PreferenceService are verified in PostgreSQL CI and staging.
+   Current web identity/role checks are preserved; no delegated administrative grants
+   or MCP account-management tools are enabled.
+6. Next implementation: review background identity and remaining service paths with
+   focused adversarial tests. Global backup/restore workers are platform operations,
+   not tenant services. Keep the operational DB-stall issue
    visible; do not infer it is fixed from a successful CI run.
-6. Reconcile Gate 2/3 exit criteria, then implement delegated authorization and a
+7. Reconcile Gate 2/3 exit criteria, then implement delegated authorization and a
    bounded read-only MCP pilot. No user AI access is enabled by this increment.

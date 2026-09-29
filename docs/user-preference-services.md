@@ -42,10 +42,26 @@ tests replace route-query mocks. PostgreSQL fixtures now also bind preference ro
 to their isolated test schema and restricted runtime role.
 
 The full local suite passed **330 tests**, with **29 PostgreSQL-only skips**.
-PostgreSQL/RLS CI and staging verification results will be recorded here before
-the staging merge. Positive account/preference writes and password-reset tests
-use disposable staging schemas with email delivery mocked. Public staging users,
-roles and preferences must remain unchanged.
+[PostgreSQL 18/RLS CI](https://github.com/boonewh/pathsix-backend/actions/runs/36606247316)
+passed **359 tests with zero skips**. All **40 focused checks** (35 user/preference
+cases and five password-reset cases) passed against deployed staging code in disposable
+PostgreSQL schemas. Positive account/preference writes and password-reset tests mocked
+email delivery. The runtime role was `pathsix_crm_staging_runtime`, with neither
+superuser nor RLS bypass privileges and `CRM_RLS_ENABLED=1`.
+
+Before/after public snapshots matched: one user, one role membership, zero preferences,
+two leads and 67 activities. A digest of all user/membership/preference rows was
+unchanged, and no test schemas remained. Live HTTP reads and rejected self-deactivation,
+mixed roles, invalid email bodies/preferences and missing reset recipients also passed;
+the public users/roles/preferences response fingerprint was unchanged.
+
+Application revision `448a6c0c8db5bc794fbb61fb2f207912cbd5d49b`, built from a clean Git
+archive, runs as **staging v34**. Image digest:
+`sha256:b9dd9ed983b1f34f0bb0c4ea44fc539c283599c2f93f90a216c277634c1ea6c7`.
+Both existing machines (`82549ec7079218`, `185777d6c554e8`) passed health checks with
+unchanged 1 GiB capacity, services and mounts. All 21 preexisting dirty files and
+the original backend/frontend checkout revisions were preserved. Final documentation
+does not change the verified application, tests or migrations.
 
 Rollback target: staging v33 application `dfd8230a449f9ea5f1e4e01944d9fa67e428f1ec`
 (`registry.fly.io/pathsixsolutions-backend-staging:dfd8230a449f9ea5f1e4e01944d9fa67e428f1ec`).
