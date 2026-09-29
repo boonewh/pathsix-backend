@@ -7,9 +7,9 @@ as the CRM, with delegated user consent and read-only tools before writes.
 ## Baseline and release status
 
 Work resumed from staging `aa1d830`, which merges the September 22 handoff.
-The current verified live backend is **v35 / `6c8ce18`** after the client, report, storage,
-import, user, preference and identity/platform-boundary increments. PostgreSQL/RLS CI
-passes **395 tests with zero skips**; both
+The current verified live backend is **v36 / `898cc7a`** after the client, report, storage,
+import, user, preference, identity/platform and isolation-proof increments. PostgreSQL/RLS CI
+passes **445 tests with zero skips**; both
 staging machines pass health checks and runtime inspection confirms restricted
 credentials with RLS enabled. Frontend `93c9618` was not changed or redeployed.
 The earlier 33 browser regressions belong to the September 22 rollout, not new
@@ -37,7 +37,13 @@ Staging v35 / `6c8ce18` passed all 36 focused identity/platform checks, includin
 concurrent password changes. Public credentials and identity/configuration stayed
 unchanged, and platform jobs remain disabled. See
 [identity and platform boundaries](identity-platform-boundaries.md).
-The handoff documentation does not change v35's verified application source.
+Session identity is now fixed across cached access, transaction lifecycle and request
+reuse. A complete model/table inventory and deliberate predicate/policy failures
+close the named current-web proof gaps through PR #21. Staging v36 / `898cc7a`
+passed all 50 focused tests, the 14-table/20-policy live attestation, and unchanged
+full-row digests across all 17 public application tables. See
+[isolation proof](isolation-proof.md). The handoff documentation does not change
+v36's verified application source.
 
 ## Reconciled gates
 
@@ -45,8 +51,8 @@ The handoff documentation does not change v35's verified application source.
 | --- | --- | --- |
 | 0: operational baseline | Partial | Integrated staging source and CI are reproducible. Staging DB sleep is documented as one hour. Original dirty checkouts are preserved separately. Full resource/cost inventory, restore drill and earlier staging DB-stall investigation remain open. |
 | 1: immediate REST security | Completed documented milestone | Current server-side roles and active user/tenant checks, parent authorization, admin reports/import, protected calendars, disabled tenant backup API, JWT validation and reset protections. See reliability-security-2026-09-06.md. |
-| 2: structural isolation | Substantial progress; incomplete | Trusted per-operation web Principal, tenant services, restricted DB role, tenant FKs/indexes, 30 same-tenant relationship FKs, parent rules and forced RLS on 14 tables. Connection/grant identity and remaining service paths still need work. |
-| 3: adversarial isolation proof | Partial | PostgreSQL CI exercises restricted-role RLS and cross-tenant HTTP/service boundaries. File/object paths, remaining route/worker paths and intentional missing-policy/predicate failure coverage still need completion. Passing existing tests does not certify every roadmap invariant. |
+| 2: structural isolation | Current web foundation implemented; delegated identity remains | Trusted fixed-identity web sessions, tenant services, restricted DB role, tenant FKs/indexes, 30 same-tenant relationship FKs, parent rules and forced RLS on 14 tables. Model inventory classifies all 17 tables. Delegated connection/grant identity remains Gate 4 work; model caveats below remain open. |
+| 3: adversarial isolation proof | Current web proof gaps addressed; delegated/MCP proof remains | Tests cover service, HTTP, file/object and platform boundaries plus session/cache reuse, all protected tables, aggregate secrecy and deliberate missing/weakened predicates/policies. Read-only policy attestation detects drift. See isolation-proof.md; this is not a certification of future grants/scopes or operational durability. |
 | 4: delegated AI authorization | Not implemented | Authorization server selection, discovery, PKCE consent, audience-bound scoped tokens, refresh/revocation, connection/grant storage and connected-AI management UI remain. Web Principal is not delegated authorization. |
 | 5: read-only MCP pilot | Not implemented | No MCP endpoint or tools. Tool scope checks, bounded/minimized results, durable MCP audit events and MCP isolation tests remain. |
 | 6: write tools | Not implemented | Separate write grants, confirmation, idempotency, optimistic concurrency and replay/partial-failure tests remain. |
@@ -96,6 +102,9 @@ The handoff documentation does not change v35's verified application source.
 6. IdentityService and the fail-closed platform-job boundary are verified in PostgreSQL
    CI and staging. No real platform job was run or enabled. Keep the operational DB-stall issue
    visible; do not infer it is fixed from a successful CI run.
-7. Next: reconcile Gate 2/3 exit criteria and address remaining isolation proof gaps,
-   then implement delegated authorization and a
-   bounded read-only MCP pilot. No user AI access is enabled by this increment.
+7. The current-web Gate 2/3 proof gaps are addressed by fixed-identity sessions,
+   a complete model/table inventory, missing/weakened protection tests and policy
+   attestation. See [isolation proof](isolation-proof.md) for the exact evidence
+   and remaining limits. Next: delegated authorization with connection/grant identity
+   and negative scope/revocation tests, followed by a bounded read-only MCP pilot.
+   No user AI access is enabled by this increment.

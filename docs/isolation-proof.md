@@ -57,7 +57,31 @@ operation is part of this increment.
 
 ## Validation and rollout
 
-Rollout evidence will be recorded here after PostgreSQL CI and disposable staging
-verification. Rollback target is staging v35 application
+The full local suite passed **396 tests**, with **49 PostgreSQL-only skips**; the
+final focused proof suite passed **31**, with **19 PostgreSQL-only skips**.
+[PostgreSQL 18/RLS CI](https://github.com/boonewh/pathsix-backend/actions/runs/36635630754)
+passed **445 tests with zero skips**, including all deliberate-failure proofs.
+All **50 focused tests passed** against the deployed staging code in disposable
+PostgreSQL schemas, including all 56 policy injections. The live public catalog
+passed the read-only check before and after: **14 tables, 20 policies**, restricted
+runtime credentials and RLS enabled. Counts and full-row digests across all **17
+public application tables** were identical; no test schemas remained. Platform
+operations remained disabled and were checked only through their guarded denials.
+
+Live HTTP login/protected reads, current identity/configuration response compatibility,
+no-store headers, malformed/wrong-current-password rejection and the unregistered
+backup API all passed. The identity/configuration fingerprint was unchanged.
+
+Application `898cc7a17b604502b95568f45e7b375048ee8702`, built from a clean Git archive,
+runs as **staging v36**. Image digest:
+`sha256:b928dd3da9fe0209aa9d24e1098d49d000c2d321b46790dce1672cc7089a7226`.
+Both existing machines passed health checks and retained their capacity, services
+and mounts. All 21 original dirty files and the three original checkout revisions
+were preserved. The final documentation commit changes no deployed application,
+test, migration or operations source. The Windows SSH wrapper emitted its known
+post-output handle warning; pytest, both snapshots and the process exit confirmed
+successful completion.
+
+Rollback target is staging v35 application
 `6c8ce189d42e9e06be73a8bee59b418a561801a7`:
 `registry.fly.io/pathsixsolutions-backend-staging:6c8ce189d42e9e06be73a8bee59b418a561801a7`.
