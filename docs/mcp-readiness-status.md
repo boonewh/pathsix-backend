@@ -1,4 +1,4 @@
-# MCP readiness status — September 28, 2026
+# MCP readiness status — September 29, 2026
 
 This reconciles the historical September 6 frontend roadmap against the integrated
 backend. The goal remains a remote MCP adapter over the same tenant-bound services
@@ -7,8 +7,8 @@ as the CRM, with delegated user consent and read-only tools before writes.
 ## Baseline and release status
 
 Work resumed from staging `aa1d830`, which merges the September 22 handoff.
-The current verified live backend is **v32 / `2149bb6`** after the client, report and storage
-service increments. PostgreSQL/RLS CI passes **299 tests with zero skips**; both
+The current verified live backend is **v33 / `dfd8230`** after the client, report, storage
+and import service increments. PostgreSQL/RLS CI passes **324 tests with zero skips**; both
 staging machines pass health checks and runtime inspection confirms restricted
 credentials with RLS enabled. Frontend `93c9618` was not changed or redeployed.
 The earlier 33 browser regressions belong to the September 22 rollout, not new
@@ -22,7 +22,10 @@ increment merged through PR #15 and deployed as v31 / `30c6ab2`; see
 Storage operations now use StorageService through PR #17, deployed as v32 /
 `2149bb6`. All 25 focused storage checks passed against deployed code in disposable
 PostgreSQL schemas, with public users/files unchanged. See [storage service](storage-service.md).
-This handoff is documentation only; v32's application source remains authoritative.
+Import orchestration now uses ImportService through PR #18, deployed as v33 /
+`dfd8230`. All 25 focused import checks passed against deployed code in disposable
+PostgreSQL schemas, with public data unchanged. See [import service](import-service.md).
+The handoff documentation does not change v33's verified application source.
 
 ## Reconciled gates
 
@@ -45,9 +48,10 @@ This handoff is documentation only; v32's application source remains authoritati
   activity filters/statistics, assignment and bulk soft deletion; the client HTTP
   module now has no direct ORM queries. Permanent deletion uses the existing shared
   PurgeService adapter.
-- CSV lead creation already calls LeadService with row savepoints after the
-  September 22 integration. Import orchestration/assignee lookup remains in the
-  route; do not describe the whole import workflow as extracted.
+- ImportService now owns bounded CSV/XLSX parsing, mappings, tenant-bound active
+  assignee lookup and row orchestration through LeadService. Routes adapt requests,
+  commit and send the prepared notification after commit. Direct service calls
+  enforce admin authorization; row failures preserve batch rollback semantics.
 - All report reads now use an admin-only ReportService, including
   the legacy summary alias and Sales Activity adapter. StorageService owns file
   metadata/object access with current-role checks, confined paths and ordinary-failure
@@ -66,8 +70,10 @@ This handoff is documentation only; v32's application source remains authoritati
 3. StorageService is verified in PostgreSQL CI and deployed to staging. Durable
    storage/reconciliation and bounded file reads remain prerequisites for a file MCP
    pilot; staging currently has ephemeral local storage on two machines.
-4. Next implementation: import orchestration, user/preferences and background-context
-   boundaries with focused adversarial tests. Keep the operational DB-stall issue
+4. ImportService is verified in PostgreSQL CI and staging. Import idempotency and
+   durable notification delivery remain prerequisites for MCP import writes.
+5. Next implementation: user/preferences and background-context boundaries with
+   focused adversarial tests. Keep the operational DB-stall issue
    visible; do not infer it is fixed from a successful CI run.
-5. Reconcile Gate 2/3 exit criteria, then implement delegated authorization and a
+6. Reconcile Gate 2/3 exit criteria, then implement delegated authorization and a
    bounded read-only MCP pilot. No user AI access is enabled by this increment.
