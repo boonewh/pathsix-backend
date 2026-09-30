@@ -195,7 +195,7 @@ def test_foreign_changes_do_not_affect_lists_search_reports_or_counts(crm):
 
 @pytest.fixture
 def populated_runtime(rls_runtime):
-    from app.models import AIClient, AIConnection, OAuthCredential
+    from app.models import AIClient, AIConnection, OAuthCredential, AIToolAudit
     from datetime import timedelta
     runtime,admin,schema=rls_runtime
     with admin() as db:
@@ -208,6 +208,8 @@ def populated_runtime(rls_runtime):
         db.flush()
         for tenant in (1,2):
             db.add(OAuthCredential(token_hash=str(tenant)*64,tenant_id=tenant,user_id=tenant,connection_id=str(tenant),kind='access',scopes=['clients:read'],expires_at=datetime.utcnow()+timedelta(minutes=5)))
+        for tenant in (1,2):
+            db.add(AIToolAudit(id=str(tenant),tenant_id=tenant,user_id=tenant,connection_id=str(tenant),tool='list_clients',outcome='success',result_count=0))
         db.add_all([Account(id=2,tenant_id=2,client_id=2,account_number='B'),
                     Contact(id=2,tenant_id=2,client_id=2,first_name='B')])
         for tenant in (1,2):
@@ -240,7 +242,13 @@ def test_all_tables_deny_missing_context_and_foreign_reads_writes(populated_runt
         bind_principal(db,A)
         values=db.execute(text(f'SELECT {column} FROM {table}')).scalars().all()
         assert values and set(values)=={1}
-        if table=='tenants':
+        if table=='ai_tool_audits':
+            for verb in ('UPDATE ai_tool_audits SET result_count=0','DELETE FROM ai_tool_audits'):
+                with db.begin_nested() as sp:
+                    with pytest.raises(DBAPIError) as error: db.execute(text(verb))
+                    assert error.value.orig.pgcode=='42501'
+                    sp.rollback()
+        elif table=='tenants':
             with pytest.raises(DBAPIError) as error: db.execute(text('UPDATE tenants SET name=name'))
             assert error.value.orig.pgcode=='42501'
         else:

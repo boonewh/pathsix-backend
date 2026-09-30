@@ -3,7 +3,8 @@
 This increment adds a backend-served sign-in/approval page, connection management,
 authorization-server discovery and Authlib 1.8 authorization-code/PKCE exchanges.
 It remains an operator-registered pilot: no client is automatically enrolled and
-there is no MCP resource endpoint or tool yet.
+the later [read-only MCP increment](mcp-readonly-pilot.md) supplies the resource
+endpoint and two client-summary tools.
 
 ## Public endpoints
 
@@ -107,10 +108,10 @@ the result. Later documentation changes do not alter the verified application.
 
 ## Remaining MCP work
 
-The next increment is a narrow read-only MCP adapter with token authentication,
-tool-specific scope checks, the existing record-level service rules, bounded
-results, invocation auditing and adversarial delegated-access tests. Do not
-advertise protected-resource metadata until that resource works. Real client
+The [read-only MCP increment](mcp-readonly-pilot.md) now supplies token
+authentication, tool-specific scope checks, existing record rules, bounded client
+summaries, invocation auditing, delegated-access tests and working protected-resource
+metadata. Real client
 registration, dynamic client metadata/SSRF protection, broader callback support,
 production rollout and all write tools remain separate work.
 

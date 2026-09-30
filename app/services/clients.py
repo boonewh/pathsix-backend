@@ -14,6 +14,26 @@ from app.services.errors import RecordNotFound
 
 
 class ClientService(TenantService):
+    def summaries(self, *, after_id=0, limit=20, client_id=None):
+        """Bounded projection shared with delegated reads; no contacts or notes."""
+        if (type(after_id) is not int or not 0 <= after_id <= 2147483647
+                or type(limit) is not int or not 1 <= limit <= 50
+                or (client_id is not None and (type(client_id) is not int or not 1 <= client_id <= 2147483647))):
+            raise ValueError('Invalid client selection')
+        query = self._query(Client).filter(owned_record_filter(Client, self.principal))
+        if client_id is not None:
+            query = query.filter(Client.id == client_id)
+        else:
+            query = query.filter(Client.id > after_id)
+        # Truncate at the database boundary, before constructing a response.
+        rows = query.with_entities(Client.id, func.substr(Client.name,1,200).label('name'),
+            func.substr(Client.city,1,100).label('city'), func.substr(Client.state,1,50).label('state'),
+            func.substr(Client.type,1,100).label('type')).order_by(Client.id).limit(limit+1).all()
+        if client_id is not None and not rows:
+            raise RecordNotFound('Client not found')
+        return {'clients':[dict(row._mapping) for row in rows[:limit]],
+                'next_after_id':rows[limit-1].id if len(rows)>limit else None}
+
     def _get(self, client_id, *, include_deleted=False):
         client = self._query(Client).filter(
             Client.id == client_id,

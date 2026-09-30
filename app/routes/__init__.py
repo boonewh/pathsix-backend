@@ -38,3 +38,5 @@ def register_blueprints(app):
     app.register_blueprint(subscriptions_bp)
     app.register_blueprint(ai_connections_bp)
     app.register_blueprint(oauth_bp)
+    from app.mcp_server import install_mcp
+    install_mcp(app)

@@ -52,6 +52,7 @@ def crm(tmp_path, monkeypatch, request):
     for name in ('accounts', 'activity', 'subscriptions', 'contacts', 'projects', 'interactions', 'clients', 'leads', 'auth', 'reports', 'imports', 'users', 'search', 'storage', 'user_preferences', 'ai_connections', 'oauth'):
         monkeypatch.setattr(importlib.import_module(f'app.routes.{name}'), 'SessionLocal', factory)
     monkeypatch.setattr(auth_utils, 'SessionLocal', factory)
+    monkeypatch.setattr(importlib.import_module('app.mcp_server'),'SessionLocal',factory)
     with factory() as db:
         db.add_all([Tenant(id=1, name='A', slug='a'), Tenant(id=2, name='B', slug='b')])
         admin = Role(name='admin')
@@ -94,6 +95,8 @@ def crm(tmp_path, monkeypatch, request):
                 secure(connection, schema, runtime_role)
                 from migrations.versions.oauth_browser_flow import secure as secure_oauth
                 secure_oauth(connection, schema, runtime_role)
+                from migrations.versions.mcp_read_audit import secure as secure_mcp
+                secure_mcp(connection,schema,runtime_role)
         runtime_factory = sessionmaker(bind=engine)
         @event.listens_for(runtime_factory, 'after_begin')
         def set_runtime_role(session, transaction, connection):
@@ -102,6 +105,7 @@ def crm(tmp_path, monkeypatch, request):
         for name in ('accounts', 'activity', 'subscriptions', 'contacts', 'projects', 'interactions', 'clients', 'leads', 'auth', 'reports', 'imports', 'users', 'search', 'storage', 'user_preferences', 'ai_connections', 'oauth'):
             monkeypatch.setattr(importlib.import_module(f'app.routes.{name}'), 'SessionLocal', runtime_factory)
         monkeypatch.setattr(auth_utils, 'SessionLocal', runtime_factory)
+        monkeypatch.setattr(importlib.import_module('app.mcp_server'),'SessionLocal',runtime_factory)
     app = Quart(__name__)
     from app.utils.sales_audit import register_sales_audit
     register_sales_audit()
@@ -256,7 +260,7 @@ def test_every_data_route_requires_authentication(crm):
     call, _, app = crm
     public = {'auth.login', 'auth.forgot_password', 'auth.reset_password', 'static',
                   'oauth.static', 'oauth.metadata', 'oauth.authorize', 'oauth.connections',
-                  'oauth.token', 'oauth.revoke'}  # Dedicated credential/CSRF proofs in test_oauth.py.
+                  'oauth.token', 'oauth.revoke', 'mcp_metadata.metadata'}  # Dedicated credential/CSRF proofs in test_oauth.py.
     for rule in app.url_map.iter_rules():
         if rule.endpoint in public:
             continue

@@ -7,9 +7,9 @@ as the CRM, with delegated user consent and read-only tools before writes.
 ## Baseline and release status
 
 Work resumed from staging `aa1d830`, which merges the September 22 handoff.
-The current verified live backend is **v38 / `7b99deb`** after the client, report, storage,
-import, user, preference, identity/platform, isolation-proof, AI consent and OAuth browser increments. PostgreSQL/RLS CI
-passes **531 tests with zero skips**; both
+The current verified live backend is **v39 / `2b31aed`** after the client, report, storage,
+import, user, preference, identity/platform, isolation-proof, AI consent, OAuth browser and read-only MCP increments. PostgreSQL/RLS CI
+passes **585 tests with zero skips**; both
 staging machines pass health checks and runtime inspection confirms restricted
 credentials with RLS enabled. Frontend `93c9618` was not changed or redeployed.
 The earlier 33 browser regressions belong to the September 22 rollout. The new
@@ -56,7 +56,10 @@ Staging v38 passed 136 focused tests using disposable schemas over the private
 database endpoint, with all 20 public application tables unchanged. An initial
 Flycast connection drop and database resource-pressure signal remain recorded as
 an open operational issue. See [OAuth browser flow](oauth-browser-flow.md).
-No real client is enrolled and no MCP resource/tool is advertised.
+The subsequent [read-only MCP pilot](mcp-readonly-pilot.md) adds client summaries,
+protected-resource metadata and durable invocation auditing. Staging v39 passed
+190 deployed checks with all 21 public application tables unchanged and both
+machines healthy. No real client is enrolled.
 
 ## Reconciled gates
 
@@ -64,10 +67,10 @@ No real client is enrolled and no MCP resource/tool is advertised.
 | --- | --- | --- |
 | 0: operational baseline | Partial | Integrated staging source and CI are reproducible. Staging DB sleep is documented as one hour. Original dirty checkouts are preserved separately. Full resource/cost inventory, restore drill and earlier staging DB-stall investigation remain open. |
 | 1: immediate REST security | Completed documented milestone | Current server-side roles and active user/tenant checks, parent authorization, admin reports/import, protected calendars, disabled tenant backup API, JWT validation and reset protections. See reliability-security-2026-09-06.md. |
-| 2: structural isolation | Current web and delegated-identity foundations implemented | Trusted fixed-identity web sessions, tenant services, restricted DB role, tenant FKs/indexes, 30 earlier same-tenant relationship FKs plus consent/credential owner FKs, parent rules and forced RLS on 16 tables. Model inventory classifies all 20 tables. A separate validated DelegatedIdentity exists; safe MCP service adaptation remains Gate 5 work; model caveats below remain open. |
-| 3: adversarial isolation proof | Current web proof gaps addressed; delegated/MCP proof remains | Tests cover service, HTTP, file/object and platform boundaries plus session/cache reuse, all protected tables, aggregate secrecy and deliberate missing/weakened predicates/policies. Read-only policy attestation detects drift. See isolation-proof.md; this is not a certification of future grants/scopes or operational durability. |
+| 2: structural isolation | Current web and delegated-identity foundations implemented | Trusted fixed-identity web sessions, tenant services, restricted DB role, tenant FKs/indexes, 30 earlier same-tenant relationship FKs plus grant/credential/audit owner FKs, parent rules and forced RLS on 17 tables. Model inventory classifies all 21 tables. The narrow MCP adapter validates raw credentials and scopes before invoking ClientService; model caveats below remain open. |
+| 3: adversarial isolation proof | Current web and limited client MCP proof implemented | Tests cover service, HTTP, file/object and platform boundaries plus session/cache reuse, all protected tables, aggregate secrecy and deliberate missing/weakened predicates/policies. Read-only policy attestation detects drift. The two client MCP tools add protocol, scope, revocation, ownership and audit-failure proofs. See isolation-proof.md and mcp-readonly-pilot.md; broader tools and operational durability remain separate gates. |
 | 4: delegated AI authorization | Pre-registered OAuth pilot implemented | Owner grants, browser S256 consent, discovery, hashed short resource-bound tokens, refresh rotation/replay revocation, current-state validation and mobile connection management are implemented. Real client enrollment and broader registration/callback support remain. Grant IDs and web JWTs cannot authenticate delegated access. |
-| 5: read-only MCP pilot | Not implemented | No MCP endpoint or tools. Tool scope checks, bounded/minimized results, durable MCP audit events and MCP isolation tests remain. |
+| 5: read-only MCP pilot | Limited client tools implemented | Official SDK stateless transport; list_clients/get_client with clients:read, existing record permissions, bounded summaries, append-only owner audits and durable call limits. Real AI client enrollment and its end-to-end connection trial remain. |
 | 6: write tools | Not implemented | Separate write grants, confirmation, idempotency, optimistic concurrency and replay/partial-failure tests remain. |
 | 7: production MCP rollout | Not started | Threat model, external review, distributed limits, monitoring/runbooks and gradual opt-in pilot remain. |
 
@@ -123,7 +126,7 @@ No real client is enrolled and no MCP resource/tool is advertised.
    Negative scope, expiry, revocation, inactive-identity and concurrent-limit tests
    pass. The OAuth browser flow and backend connection-management screen are now
    implemented for operator-registered HTTPS clients; no real client is enrolled.
-9. Next: a bounded read-only MCP pilot with explicit tool scopes, the existing
-   record rules, durable invocation auditing and adversarial delegated-access
-   proofs. The OAuth validator returns a distinct delegated identity; connecting
-   that identity to tenant services must preserve both scopes and record access.
+9. The read-only client MCP adapter and its adversarial proofs are implemented.
+   The next functional step is enrolling one explicitly chosen AI client for an
+   end-to-end staging consent, read and revocation trial. Keep enrollment scoped
+   to the two summary tools; dynamic registration and production stay separate.
