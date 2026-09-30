@@ -71,8 +71,39 @@ duplicate parameters, PKCE, resource/client/redirect mismatch, expiry, rotation,
 scope reduction, replay-family revocation, current membership/role/client changes,
 cross-owner isolation, immutable history, concurrent exchange and real migration
 rollback. Existing CRM regression and complete table-policy fault tests also run.
-Release-specific CI, browser and deployed verification evidence is recorded below
-after completion.
+[PostgreSQL 18/RLS CI](https://github.com/boonewh/pathsix-backend/actions/runs/36646829642)
+passed **531 tests with zero skips**. The local suite passed 465 with 66
+PostgreSQL-only skips. A real browser flow with synthetic accounts passed sign-in,
+explicit approval, code exchange, connection management and revocation at 390x844
+and 1280x900 layouts, without JavaScript errors or persisted browser credentials.
+
+The migration was rehearsed with rollback, then applied on staging. Full-row
+fingerprints for all 19 pre-existing application tables remained unchanged. The
+new credential table and client catalog remained empty. Live HTTP discovery,
+management page/assets, unknown-client/token denials, revocation semantics and
+existing CRM login/identity/configuration checks passed.
+
+An initial deployed proof run hit a database connection drop after 37 passing
+checks; that run is incomplete. The staging database VM reported memory/CPU/I/O
+pressure while PostgreSQL and primary-role checks remained healthy. This is not
+an OAuth correctness failure or evidence that the earlier staging connection
+issue is fixed. Subsequent verification uses the same primary's private endpoint
+with paced disposable-schema work; **all 136 focused checks passed**. All 20
+public application tables retained identical full-row fingerprints, no test
+schemas remained, and the restricted runtime/16-table/22-policy attestation
+matched before and after. Public Flycast availability is checked
+separately through HTTP. No capacity, app connection settings or test assertions
+were weakened.
+
+The clean Git archive of `7b99deb1cda59e11be897a24eeb4e74d4cae12b3` runs as
+**staging v38**, image digest
+`sha256:9a2518f96579b2f03700fde06e02848ff8d0dae215398664423b280fb1440f06`.
+Both existing machines passed health checks with unchanged capacity, services and
+mounts. Production, frontend deployment and platform workers were unchanged.
+All 21 original dirty files and all three original checkout revisions remain
+preserved. The SSH wrapper emitted its known Windows handle warning after
+successful pytest/snapshot output; saved JSON and process completion confirmed
+the result. Later documentation changes do not alter the verified application.
 
 ## Remaining MCP work
 

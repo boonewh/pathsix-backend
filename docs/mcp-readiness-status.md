@@ -7,13 +7,13 @@ as the CRM, with delegated user consent and read-only tools before writes.
 ## Baseline and release status
 
 Work resumed from staging `aa1d830`, which merges the September 22 handoff.
-The current verified live backend is **v37 / `3770a2d`** after the client, report, storage,
-import, user, preference, identity/platform, isolation-proof and AI consent increments. PostgreSQL/RLS CI
-passes **487 tests with zero skips**; both
+The current verified live backend is **v38 / `7b99deb`** after the client, report, storage,
+import, user, preference, identity/platform, isolation-proof, AI consent and OAuth browser increments. PostgreSQL/RLS CI
+passes **531 tests with zero skips**; both
 staging machines pass health checks and runtime inspection confirms restricted
 credentials with RLS enabled. Frontend `93c9618` was not changed or redeployed.
-The earlier 33 browser regressions belong to the September 22 rollout, not new
-browser testing for these backend-only increments. See
+The earlier 33 browser regressions belong to the September 22 rollout. The new
+backend-served OAuth screens have separate synthetic mobile/desktop browser evidence. See
 [the earlier integration handoff](staging-main-integration-2026-09-22.md).
 
 The client-service increment merged through PR #14 and first deployed as v30 /
@@ -46,10 +46,17 @@ full-row digests across all 17 public application tables. See
 Owner-bound AI consent records and their management APIs now support explicit read
 permissions, expiry, terminal revocation and current-state checks through PR #22.
 Staging v37 / `3770a2d` passed 92 focused consent/migration/isolation checks, with
-all 19 public application tables unchanged by verification. The two new tables are
-empty; no AI client, token endpoint or MCP tool is enabled. See
+all 19 public application tables unchanged by verification. The two new tables were
+empty at that release; no AI client or MCP tool was enabled. See
 [AI connection consent](ai-connection-consent.md). The handoff documentation does
-not change v37's verified application source.
+not change v37's verified application source. The subsequent OAuth browser flow adds
+authorization-server discovery, explicit mobile consent, resource-bound opaque tokens,
+refresh rotation/replay revocation and a backend-served connection management page.
+Staging v38 passed 136 focused tests using disposable schemas over the private
+database endpoint, with all 20 public application tables unchanged. An initial
+Flycast connection drop and database resource-pressure signal remain recorded as
+an open operational issue. See [OAuth browser flow](oauth-browser-flow.md).
+No real client is enrolled and no MCP resource/tool is advertised.
 
 ## Reconciled gates
 
@@ -57,9 +64,9 @@ not change v37's verified application source.
 | --- | --- | --- |
 | 0: operational baseline | Partial | Integrated staging source and CI are reproducible. Staging DB sleep is documented as one hour. Original dirty checkouts are preserved separately. Full resource/cost inventory, restore drill and earlier staging DB-stall investigation remain open. |
 | 1: immediate REST security | Completed documented milestone | Current server-side roles and active user/tenant checks, parent authorization, admin reports/import, protected calendars, disabled tenant backup API, JWT validation and reset protections. See reliability-security-2026-09-06.md. |
-| 2: structural isolation | Current web foundation implemented; delegated identity remains | Trusted fixed-identity web sessions, tenant services, restricted DB role, tenant FKs/indexes, 30 earlier same-tenant relationship FKs plus the new consent-owner FK, parent rules and forced RLS on 15 tables. Model inventory classifies all 19 tables. Authenticated delegated Principal remains Gate 4 work; model caveats below remain open. |
+| 2: structural isolation | Current web and delegated-identity foundations implemented | Trusted fixed-identity web sessions, tenant services, restricted DB role, tenant FKs/indexes, 30 earlier same-tenant relationship FKs plus consent/credential owner FKs, parent rules and forced RLS on 16 tables. Model inventory classifies all 20 tables. A separate validated DelegatedIdentity exists; safe MCP service adaptation remains Gate 5 work; model caveats below remain open. |
 | 3: adversarial isolation proof | Current web proof gaps addressed; delegated/MCP proof remains | Tests cover service, HTTP, file/object and platform boundaries plus session/cache reuse, all protected tables, aggregate secrecy and deliberate missing/weakened predicates/policies. Read-only policy attestation detects drift. See isolation-proof.md; this is not a certification of future grants/scopes or operational durability. |
-| 4: delegated AI authorization | Consent/grant foundation implemented; OAuth flow remains | Owner-bound persisted grants, scoped approval/expiry/revocation APIs and current-state permission checks are verified. Authorization-server integration, discovery, browser PKCE consent, resource-bound tokens, refresh rotation/token revocation and connected-AI UI remain. Grant IDs and web Principal are not delegated credentials. |
+| 4: delegated AI authorization | Pre-registered OAuth pilot implemented | Owner grants, browser S256 consent, discovery, hashed short resource-bound tokens, refresh rotation/replay revocation, current-state validation and mobile connection management are implemented. Real client enrollment and broader registration/callback support remain. Grant IDs and web JWTs cannot authenticate delegated access. |
 | 5: read-only MCP pilot | Not implemented | No MCP endpoint or tools. Tool scope checks, bounded/minimized results, durable MCP audit events and MCP isolation tests remain. |
 | 6: write tools | Not implemented | Separate write grants, confirmation, idempotency, optimistic concurrency and replay/partial-failure tests remain. |
 | 7: production MCP rollout | Not started | Threat model, external review, distributed limits, monitoring/runbooks and gradual opt-in pilot remain. |
@@ -114,6 +121,9 @@ not change v37's verified application source.
    and remaining limits.
 8. Consent/grant storage and owner management are verified in PostgreSQL CI and staging.
    Negative scope, expiry, revocation, inactive-identity and concurrent-limit tests
-   pass. Next: the browser authorization-code/PKCE flow, token issuance and refresh/
-   revocation integration, then the connected-AI UI and bounded read-only MCP pilot.
-   No external AI access is enabled by the consent foundation alone.
+   pass. The OAuth browser flow and backend connection-management screen are now
+   implemented for operator-registered HTTPS clients; no real client is enrolled.
+9. Next: a bounded read-only MCP pilot with explicit tool scopes, the existing
+   record rules, durable invocation auditing and adversarial delegated-access
+   proofs. The OAuth validator returns a distinct delegated identity; connecting
+   that identity to tenant services must preserve both scopes and record access.
