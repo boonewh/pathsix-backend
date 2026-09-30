@@ -195,7 +195,7 @@ def test_foreign_changes_do_not_affect_lists_search_reports_or_counts(crm):
 
 @pytest.fixture
 def populated_runtime(rls_runtime):
-    from app.models import AIClient, AIConnection
+    from app.models import AIClient, AIConnection, OAuthCredential
     from datetime import timedelta
     runtime,admin,schema=rls_runtime
     with admin() as db:
@@ -205,6 +205,9 @@ def populated_runtime(rls_runtime):
             db.add(AIConnection(id=str(tenant),tenant_id=tenant,user_id=tenant,client_id='proof',
                                 resource='https://example.test/mcp',scopes=['clients:read'],
                                 expires_at=datetime.utcnow()+timedelta(days=1)))
+        db.flush()
+        for tenant in (1,2):
+            db.add(OAuthCredential(token_hash=str(tenant)*64,tenant_id=tenant,user_id=tenant,connection_id=str(tenant),kind='access',scopes=['clients:read'],expires_at=datetime.utcnow()+timedelta(minutes=5)))
         db.add_all([Account(id=2,tenant_id=2,client_id=2,account_number='B'),
                     Contact(id=2,tenant_id=2,client_id=2,first_name='B')])
         for tenant in (1,2):
@@ -242,12 +245,12 @@ def test_all_tables_deny_missing_context_and_foreign_reads_writes(populated_runt
             assert error.value.orig.pgcode=='42501'
         else:
             assert db.execute(text(f'UPDATE {table} SET {column}={column} WHERE {column}=2')).rowcount==0
-            if table != 'ai_connections':  # Consent history has no runtime DELETE grant.
+            if table not in ('ai_connections','oauth_credentials'):  # Consent history has no runtime DELETE grant.
                 assert db.execute(text(f'DELETE FROM {table} WHERE {column}=2')).rowcount==0
             with db.begin_nested() as savepoint:
                 with pytest.raises(DBAPIError) as error:
                     db.execute(text(f'UPDATE {table} SET {column}=2 WHERE {column}=1'))
-                assert error.value.orig.pgcode in ({'23514','42501'} if table=='ai_connections' else {'42501'})
+                assert error.value.orig.pgcode in ({'23514','42501'} if table in ('ai_connections','oauth_credentials') else {'42501'})
                 savepoint.rollback()
         db.rollback()
 

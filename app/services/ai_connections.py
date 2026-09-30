@@ -119,9 +119,9 @@ class AIConnectionService(TenantService):
         for client in clients:
             available = sorted(scope_set(client.allowed_scopes) & permitted)
             if available:
-                result.append({'id': client.id, 'name': client.name, 'scopes': available})
+                result.append({'id': client.id, 'name': client.name, 'scopes': available, 'oauth_enabled': client.oauth_enabled})
         return {'clients': result, 'scopes': {s: READ_SCOPES[s] for s in sorted(permitted)},
-                'consent_days': CONSENT_DAYS, 'tokens_available': False}
+                'consent_days': CONSENT_DAYS, 'tokens_available': any(client['oauth_enabled'] for client in result)}
 
     def preview(self, data):
         if not isinstance(data, dict) or set(data) != {'client_id', 'scopes'}:

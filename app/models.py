@@ -90,12 +90,15 @@ class AIClient(Base):
     name = Column(String(100), nullable=False)
     is_active = Column(Boolean, nullable=False, default=False)
     allowed_scopes = Column(JSON, nullable=False, default=list)
+    redirect_uris = Column(JSON, nullable=False, default=list)
+    oauth_enabled = Column(Boolean, nullable=False, default=False)
 
 
 class AIConnection(Base):
     """An owner's consent record, never a bearer credential or web identity."""
     __tablename__ = 'ai_connections'
     __table_args__ = (
+        UniqueConstraint('tenant_id', 'user_id', 'id', name='uq_ai_connections_owner_id'),
         ForeignKeyConstraint(['tenant_id', 'user_id'], ['users.tenant_id', 'users.id'],
                              name='fk_ai_connections_owner_same_tenant'),
         CheckConstraint('expires_at > created_at', name='ck_ai_connections_expiry'),
@@ -111,6 +114,30 @@ class AIConnection(Base):
     expires_at = Column(DateTime, nullable=False)
     revoked_at = Column(DateTime)
     last_used_at = Column(DateTime)
+
+
+class OAuthCredential(Base):
+    """Hashed, single-purpose credentials; raw secrets are returned only once."""
+    __tablename__ = 'oauth_credentials'
+    __table_args__ = (
+        ForeignKeyConstraint(['tenant_id', 'user_id', 'connection_id'],
+                             ['ai_connections.tenant_id', 'ai_connections.user_id', 'ai_connections.id'],
+                             name='fk_oauth_credentials_owner_grant'),
+        CheckConstraint("kind IN ('code','access','refresh')", name='ck_oauth_credential_kind'),
+        Index('ix_oauth_credentials_owner_grant', 'tenant_id', 'user_id', 'connection_id', 'created_at'),
+    )
+    token_hash = Column(String(64), primary_key=True)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
+    user_id = Column(Integer, nullable=False)
+    connection_id = Column(String(36), nullable=False)
+    kind = Column(String(10), nullable=False)
+    scopes = Column(JSON, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime)
+    redirect_uri = Column(String(1000))
+    code_challenge = Column(String(43))
+    intent_hash = Column(String(64), unique=True)
 
 
 class Client(Base):

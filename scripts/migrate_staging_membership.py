@@ -17,7 +17,7 @@ NEW_HEAD = 'tenant_membership_indexes'
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--apply', action='store_true')
-    parser.add_argument('--revision', choices=[NEW_HEAD, 'tenant_relationships', 'tenant_rls_prepare', 'tenant_row_security', 'parent_link_rules', 'ai_consent_grants'], default=NEW_HEAD)
+    parser.add_argument('--revision', choices=[NEW_HEAD, 'tenant_relationships', 'tenant_rls_prepare', 'tenant_row_security', 'parent_link_rules', 'ai_consent_grants', 'oauth_browser_flow'], default=NEW_HEAD)
     args = parser.parse_args()
     if os.getenv('FLY_APP_NAME') != 'pathsixsolutions-backend-staging':
         raise RuntimeError('Refusing non-staging app')
@@ -33,7 +33,7 @@ def main():
             connection.execute(text("SET LOCAL lock_timeout='5s'"))
             connection.execute(text("SET LOCAL statement_timeout='60s'"))
             heads = set(connection.execute(text('SELECT version_num FROM public.alembic_version')).scalars())
-            predecessors = {'tenant_relationships': NEW_HEAD, 'tenant_rls_prepare': 'tenant_relationships', 'tenant_row_security': 'tenant_rls_prepare', 'parent_link_rules': 'tenant_row_security', 'ai_consent_grants': 'parent_link_rules'}
+            predecessors = {'tenant_relationships': NEW_HEAD, 'tenant_rls_prepare': 'tenant_relationships', 'tenant_row_security': 'tenant_rls_prepare', 'parent_link_rules': 'tenant_row_security', 'ai_consent_grants': 'parent_link_rules', 'oauth_browser_flow':'ai_consent_grants'}
             allowed_heads = (OLD_HEADS, {NEW_HEAD}) if args.revision == NEW_HEAD else ({predecessors[args.revision]}, {args.revision})
             if heads not in allowed_heads:
                 raise RuntimeError('Unexpected migration history; refusing to replay legacy migrations')
@@ -56,6 +56,11 @@ def main():
                     raise RuntimeError('Enable application database identity before consent storage')
                 from migrations.versions.ai_consent_grants import reconcile as consent
                 reconcile = lambda c, s: consent(c, s, 'pathsix_crm_staging_runtime')
+            elif args.revision == 'oauth_browser_flow':
+                if os.getenv('CRM_RLS_ENABLED') != '1':
+                    raise RuntimeError('Enable application database identity before OAuth storage')
+                from migrations.versions.oauth_browser_flow import reconcile as oauth
+                reconcile = lambda c, s: oauth(c, s, 'pathsix_crm_staging_runtime')
             counts = {table: connection.execute(text(f'SELECT count(*) FROM public.{table}')).scalar_one()
                       for table in TABLES}
             # This transactional plan is deliberately limited to small staging data.
