@@ -130,6 +130,33 @@ def test_duplicate_parameters_and_json_tokens_are_rejected(oauth):
     assert oauth.request('POST','/oauth/token',data='client_id=pilot&client_id=evil',headers={'Content-Type':'application/x-www-form-urlencoded'})[0]==400
 
 
+@pytest.mark.parametrize('locales',['en-US','fr-CA fr en','zz-ZZ'])
+def test_ui_locales_hint_allows_consent_and_token_exchange(oauth,locales):
+    oauth.params['ui_locales']=locales
+    tokens=oauth.tokens()
+    identity=oauth.access(tokens['access_token'])
+    assert identity.scopes==frozenset({'clients:read'})
+
+
+def test_duplicate_ui_locales_are_rejected(oauth):
+    status,_,headers=oauth.request('GET','/oauth/authorize?'+urlencode(oauth.params)+'&ui_locales=en-US&ui_locales=fr')
+    assert status==400 and 'Location' not in headers
+    with oauth.admin() as db:
+        assert db.query(AIConnection).count()==db.query(OAuthCredential).count()==0
+
+
+@pytest.mark.parametrize('change',[
+    {'redirect_uri':'https://evil.test/callback'}, {'scope':'clients:write'},
+    {'code_challenge_method':'plain'}, {'resource':None}, {'unexpected':'value'}])
+def test_ui_locales_does_not_relax_authorization_checks(oauth,change):
+    oauth.params.update(ui_locales='en-US',**change)
+    params={key:value for key,value in oauth.params.items() if value is not None}
+    status,_,headers=oauth.request('GET','/oauth/authorize?'+urlencode(params))
+    assert status==400 and 'Location' not in headers
+    with oauth.admin() as db:
+        assert db.query(AIConnection).count()==db.query(OAuthCredential).count()==0
+
+
 @pytest.mark.parametrize('case',['origin','intent','cookie','approval','denied'])
 def test_consent_requires_browser_binding_and_explicit_decision(oauth,case):
     oauth.begin()

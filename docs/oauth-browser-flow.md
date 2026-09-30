@@ -24,6 +24,11 @@ assets, a restrictive CSP, no framing, no referrer and no-store responses. OAuth
 errors and token responses also prevent caching. Authorization responses include
 `iss` to identify the authorization server.
 
+ChatGPT includes the optional `ui_locales` language preference in authorization
+requests. The English consent page accepts and ignores this hint, including
+unsupported locales. Duplicate parameters, required OAuth fields, registered
+callbacks, resource binding, read scopes and S256 PKCE retain their validation.
+
 ## Credential lifecycle
 
 Codes expire after two minutes and can be exchanged once with the S256 verifier.
