@@ -235,13 +235,14 @@ class DelegatedIdentity:
     scopes: frozenset
 
 
-def validate_access(db, principal, raw, resource, required_scopes):
+def validate_access(db, principal, raw, resource, required_scopes=None):
     """Internal resource-server boundary; not accepted by existing web services."""
     if principal is None or not valid_secret(raw): raise InvalidGrantError()
     service = AIConnectionService(db, principal)
     row = db.query(OAuthCredential).populate_existing().filter_by(token_hash=digest(raw),kind='access',
         tenant_id=principal.tenant_id,user_id=principal.user_id).first()
     if row is None or row.used_at is not None or row.expires_at <= datetime.utcnow(): raise InvalidGrantError()
+    required_scopes = row.scopes if required_scopes is None else required_scopes
     required = scope_set(required_scopes)
     if not required <= scope_set(row.scopes): raise InvalidScopeError()
     try:

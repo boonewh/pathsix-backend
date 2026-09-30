@@ -140,6 +140,25 @@ class OAuthCredential(Base):
     intent_hash = Column(String(64), unique=True)
 
 
+class AIToolAudit(Base):
+    """Append-only invocation metadata; never stores arguments or CRM content."""
+    __tablename__ = 'ai_tool_audits'
+    __table_args__ = (
+        ForeignKeyConstraint(['tenant_id','user_id','connection_id'],
+            ['ai_connections.tenant_id','ai_connections.user_id','ai_connections.id'], name='fk_ai_tool_audits_owner_grant'),
+        CheckConstraint("outcome IN ('success','not_found','invalid_arguments','forbidden','unknown_tool')", name='ck_ai_tool_audits_outcome'),
+        Index('ix_ai_tool_audits_owner_created','tenant_id','user_id','connection_id','created_at'),
+    )
+    id = Column(String(36),primary_key=True)
+    tenant_id = Column(Integer,ForeignKey('tenants.id'),nullable=False)
+    user_id = Column(Integer,nullable=False)
+    connection_id = Column(String(36),nullable=False)
+    tool = Column(String(40),nullable=False)
+    outcome = Column(String(30),nullable=False)
+    result_count = Column(Integer,nullable=False)
+    created_at = Column(DateTime,nullable=False,default=datetime.utcnow)
+
+
 class Client(Base):
     __tablename__ = 'clients'
     id = Column(Integer, primary_key=True, index=True)
