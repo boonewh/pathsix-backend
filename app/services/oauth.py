@@ -140,6 +140,9 @@ class Server(AuthorizationServer):
         if not all(valid_redirect(uri) for uri in row.redirect_uris): return None
         return Client(row)
     def validate_authorization(self, data):
+        # ChatGPT sends this optional UI language hint. Our consent UI currently
+        # uses English; ignore the hint without relaxing any OAuth requirements.
+        data = {key: value for key, value in data.items() if key != 'ui_locales'}
         if (set(data) != {'client_id','redirect_uri','response_type','scope','state','resource','code_challenge','code_challenge_method'}
                 or data['resource'] != resource_uri() or data['code_challenge_method'] != 'S256'
                 or not re.fullmatch(r'[A-Za-z0-9_-]{43}', data['code_challenge'])
