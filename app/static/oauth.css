@@ -10,4 +10,5 @@ label{display:block;font-size:14px;font-weight:600;margin:16px 0 7px}input{width
 button{width:100%;min-height:46px;border:1px solid transparent;border-radius:6px;background:#174f60;color:white;font:inherit;font-weight:600;padding:11px 16px;margin-top:20px;cursor:pointer}
 button:hover{background:#123e4b}button:disabled{opacity:.6;cursor:wait}.secondary{background:#fff;color:#244b5b;border-color:#c4d0d6;margin-top:10px}.secondary:hover{background:#f4f7f8}
 :focus-visible{outline:3px solid #147da0;outline-offset:3px}#identity{overflow-wrap:anywhere}#message{color:#9c2d29;margin:16px 0 0;font-size:14px}[hidden]{display:none!important}
+.environment{padding:14px 16px;margin:0 0 24px;background:#f1f6f8;border-left:4px solid #174f60;border-radius:4px}.environment p{font-size:14px;margin:6px 0 0}.environment strong{font-size:15px}
 @media(min-width:700px){main{padding-top:64px}.wordmark{margin-bottom:48px}}

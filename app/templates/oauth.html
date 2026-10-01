@@ -4,19 +4,24 @@
 <title>Connect {{ client_name }} · PathSix</title>
 <link rel="stylesheet" href="{{ url_for('oauth.static', filename='oauth.css') }}">
 <script src="{{ url_for('oauth.static', filename='oauth.js') }}" defer></script></head>
-<body><main data-intent="{{ intent }}" data-client="{{ client_id }}" data-scopes="{{ scopes }}">
+<body><main data-intent="{{ intent }}" data-client="{{ client_id }}" data-scopes="{{ scopes }}" data-intent-seconds="{{ intent_seconds }}" data-staging="{{ 'true' if staging else 'false' }}">
 <a class="wordmark" href="https://pathsixsolutions.com" rel="noreferrer">PathSix</a>
+{% include 'oauth_environment.html' %}
 <p class="eyebrow">AI CONNECTION</p><h1>Connect {{ client_name }}</h1>
 <p class="intro">Choose whether this AI client can read your PathSix information.</p>
 <section aria-labelledby="permission-title"><h2 id="permission-title">Requested access</h2>
 <ul>{% for permission in permissions %}<li>{{ permission }}</li>{% endfor %}</ul>
 <p class="note">Access lasts up to 30 days. You can revoke it from <a href="/oauth/connections" target="_blank" rel="noopener noreferrer">your AI connections</a>. This connection cannot change or delete records.</p></section>
 <form id="login"><h2>Sign in to review</h2>
+<p class="note">Sign in with your PathSix{% if staging %} staging test{% endif %} account.</p>
 <label for="email">Email</label><input id="email" name="email" type="email" autocomplete="username" required>
 <label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required>
 <button type="submit">Continue</button></form>
 <section id="approval" hidden><h2>Approve for your account</h2><p id="identity"></p>
-<button id="approve" type="button">Allow access</button><button id="deny" class="secondary" type="button">Decline</button></section>
-<p id="message" role="status" aria-live="polite"></p>
-<p class="footer">After your decision, you’ll return to <strong>{{ callback_host }}</strong>.</p>
+<button id="approve" type="button">Allow access</button><button id="deny" class="secondary" type="button">Decline</button>
+<button id="switch-account" class="secondary" type="button">Use a different account</button></section>
+<p id="message" role="status" aria-live="polite" tabindex="-1"></p>
+<p id="expiry-note" class="footer">Complete this connection within five minutes. If it expires, start again from your AI app.</p>
+<noscript><p>Enable JavaScript to sign in and approve this connection.</p></noscript>
+<p id="callback-note" class="footer">After your decision, you’ll return to <strong>{{ callback_host }}</strong>.</p>
 </main></body></html>
