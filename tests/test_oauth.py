@@ -1,5 +1,6 @@
 import asyncio
 import html
+import json
 import re
 import secrets
 import time
@@ -261,6 +262,59 @@ def test_expired_intent_and_role_loss_prevent_approval(oauth,monkeypatch):
     monkeypatch.setattr(itsdangerous.timed.TimestampSigner,'get_timestamp',lambda self:original(self)+301)
     assert oauth.decision()[0]==400
     with oauth.admin() as db: assert db.query(AIConnection).count()==0
+
+
+@pytest.mark.parametrize('approved', [True, False])
+def test_expired_browser_request_reports_restart_without_issuing_credentials(oauth,monkeypatch,approved):
+    oauth.begin()
+    import itsdangerous.timed
+    original=itsdangerous.timed.TimestampSigner.get_timestamp
+    monkeypatch.setattr(itsdangerous.timed.TimestampSigner,'get_timestamp',lambda self:original(self)+301)
+    # A browser also loses its binding cookie after five minutes.
+    oauth.client.cookie_jar.clear()
+    status,body,headers=oauth.decision(approved)
+    assert status==400
+    assert json.loads(body)=={'error':'invalid_request','reason':'expired_intent','restart_required':True}
+    assert 'Location' not in headers and headers['Cache-Control']=='no-store'
+    assert oauth.intent not in body and oauth.params['state'] not in body
+    with oauth.admin() as db:
+        assert db.query(AIConnection).count()==db.query(OAuthCredential).count()==0
+
+
+def test_another_browser_request_invalidates_old_page_with_recovery(oauth):
+    oauth.begin()
+    previous=oauth.intent
+    oauth.begin()  # Replaces the browser binding, as another connection tab would.
+    status,body,_=oauth.decision(intent=previous)
+    assert status==400 and json.loads(body)['reason']=='browser_mismatch'
+    assert json.loads(body)['restart_required'] is True
+    with oauth.admin() as db:
+        assert db.query(AIConnection).count()==db.query(OAuthCredential).count()==0
+    assert oauth.decision()[0]==200  # The fresh request still works.
+
+
+def test_disabled_client_during_sign_in_offers_restart(oauth):
+    oauth.begin()
+    with oauth.admin() as db:
+        db.get(AIClient,'pilot').oauth_enabled=False
+        db.commit()
+    status,body,_=oauth.decision()
+    assert status==400 and json.loads(body)['reason']=='connection_changed'
+    assert json.loads(body)['restart_required'] is True
+    with oauth.admin() as db:
+        assert db.query(AIConnection).count()==db.query(OAuthCredential).count()==0
+
+
+@pytest.mark.parametrize('staging', [False, True])
+@pytest.mark.parametrize('path', ['/oauth/authorize', '/oauth/connections'])
+def test_browser_pages_identify_separate_staging_accounts(oauth,staging,path):
+    oauth.app.config['OAUTH_STAGING']=staging
+    if path.endswith('authorize'): path+='?'+urlencode(oauth.params)
+    status,body,_=oauth.request('GET',path)
+    assert status==200
+    assert ('Your live CRM account does not sign in here.' in body) is staging
+    assert 'Use a different account' in body
+    assert f'data-staging="{str(staging).lower()}"' in body
 
 
 def test_consent_intent_cannot_create_a_second_grant(oauth):

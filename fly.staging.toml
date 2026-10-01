@@ -7,6 +7,9 @@ primary_region = "iad"
 
 [build]
 
+[env]
+  OAUTH_STAGING = "true"
+
 [processes]
   app = "hypercorn asgi:app --bind 0.0.0.0:8000 --keep-alive 600"
 

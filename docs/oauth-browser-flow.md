@@ -29,6 +29,37 @@ requests. The English consent page accepts and ignores this hint, including
 unsupported locales. Duplicate parameters, required OAuth fields, registered
 callbacks, resource binding, read scopes and S256 PKCE retain their validation.
 
+## Browser onboarding and recovery
+
+The five-minute approval window still begins when the authorization page opens.
+Signing in does not extend it. The browser explains that window, checks expiry
+when returning from a background tab, and clears the form and in-memory identity
+when the request expires. The server independently enforces the original signed
+intent expiry and browser binding. A stale tab, expired intent, changed client or
+replayed decision returns restart guidance without issuing another credential.
+Users restart from their AI app; the page never reconstructs an authorization
+request or automatically approves access.
+
+Sign-in, permission, throttling, network and server failures have distinct recovery
+messages. An expired CRM sign-in returns to the login form. An uncertain approval
+response asks users to check the connection in their AI app before starting again.
+Users can switch accounts before approval and on the management page. Switching
+accounts or leaving the page clears the in-memory token and displayed identity;
+late responses from the previous identity are ignored.
+
+`OAUTH_STAGING=true` labels both pages as using separate staging test accounts.
+The setting defaults to false and is enabled explicitly in `fly.staging.toml`.
+No test credentials are embedded in the page. This increment needs no migration
+and does not change scopes, callback registration or credential lifetimes.
+
+Onboarding validation: 132 focused OAuth/consent/MCP tests passed locally with
+10 PostgreSQL-only skips. Browser verification at 390x844 and 1280x900 covered
+wrong passwords, account switching, successful approval/code exchange, decline,
+revocation, server/local expiry, throttling, non-JSON service outages, expired web
+sign-in and returning to a page after its credentials were cleared. No JavaScript
+errors or persistent browser credentials were observed. Full PostgreSQL CI and
+staging release verification are recorded with the release.
+
 ## Credential lifecycle
 
 Codes expire after two minutes and can be exchanged once with the S256 verifier.

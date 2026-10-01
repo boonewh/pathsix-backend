@@ -2,7 +2,7 @@
 import secrets
 from datetime import datetime
 from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl
-from itsdangerous import URLSafeTimedSerializer, BadSignature
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from quart import Blueprint, current_app, request, jsonify, render_template, make_response
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from authlib.oauth2.rfc6749.errors import OAuth2Error, InvalidRequestError
@@ -17,6 +17,7 @@ from app.utils.rate_limiter import rate_limit
 
 oauth_bp = Blueprint('oauth', __name__, template_folder='../templates', static_folder='../static', static_url_path='/oauth/assets')
 COOKIE = '__Host-pathsix-oauth'
+INTENT_SECONDS = 300
 
 
 def signer():
@@ -27,6 +28,11 @@ def reply(body, status=200):
     response = jsonify(body)
     response.status_code = status
     return response
+
+
+def restart_required(reason):
+    # Browser-only guidance; never return the signed intent or request parameters.
+    return reply({'error': 'invalid_request', 'reason': reason, 'restart_required': True}, 400)
 
 
 @oauth_bp.before_request
@@ -71,7 +77,7 @@ def single_values(values):
 
 @oauth_bp.route('/oauth/connections')
 async def connections():
-    return await render_template('oauth_connections.html')
+    return await render_template('oauth_connections.html', staging=current_app.config.get('OAUTH_STAGING', False))
 
 
 @oauth_bp.route('/oauth/authorize')
@@ -86,8 +92,9 @@ async def authorize():
     intent = signer().dumps({'request':data,'binding':digest(binding),'nonce':secrets.token_urlsafe(16)})
     response = await make_response(await render_template('oauth.html', intent=intent,
         client_name=name, callback_host=urlsplit(data['redirect_uri']).netloc,
-        permissions=[READ_SCOPES[s] for s in data['scope'].split()], client_id=data['client_id'], scopes=data['scope']))
-    response.set_cookie(COOKIE,binding,max_age=300,secure=True,httponly=True,samesite='Lax',path='/')
+        permissions=[READ_SCOPES[s] for s in data['scope'].split()], client_id=data['client_id'], scopes=data['scope'],
+        intent_seconds=INTENT_SECONDS, staging=current_app.config.get('OAUTH_STAGING', False)))
+    response.set_cookie(COOKIE,binding,max_age=INTENT_SECONDS,secure=True,httponly=True,samesite='Lax',path='/')
     return response
 
 
@@ -100,12 +107,14 @@ async def decision():
     if not isinstance(data,dict) or set(data) != {'intent','approved'} or type(data['approved']) is not bool:
         raise InvalidRequestError()
     try:
-        intent = signer().loads(data['intent'],max_age=300)
+        intent = signer().loads(data['intent'],max_age=INTENT_SECONDS)
         binding = request.cookies.get(COOKIE,'')
         if not valid_secret(binding) or not secrets.compare_digest(intent['binding'],digest(binding)):
-            raise ValueError()
+            return restart_required('browser_mismatch')
+    except SignatureExpired:
+        return restart_required('expired_intent')
     except (BadSignature,ValueError,TypeError,KeyError):
-        raise InvalidRequestError() from None
+        return restart_required('invalid_intent')
     request.database_write_started = True
     with SessionLocal() as db:
         try:
@@ -116,11 +125,14 @@ async def decision():
             redirect = dict(headers).get('Location')
             if status != 302 or not redirect:
                 db.rollback()
-                return reply({'error':'invalid_request'},400)
+                return restart_required('connection_changed')
             db.commit()
         except IntegrityError:
             db.rollback()
-            return reply({'error':'invalid_request'},400)
+            return restart_required('connection_changed')
+        except OAuth2Error:
+            db.rollback()
+            return restart_required('connection_changed')
         except (PermissionError,ValueError,RecordNotFound):
             db.rollback()
             return reply({'error':'access_denied'},403)

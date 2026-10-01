@@ -1,12 +1,15 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Your AI connections · PathSix</title><link rel="stylesheet" href="{{ url_for('oauth.static', filename='oauth.css') }}">
 <script src="{{ url_for('oauth.static', filename='oauth.js') }}" defer></script></head>
-<body><main data-mode="manage"><span class="wordmark">PathSix</span><p class="eyebrow">YOUR ACCOUNT</p>
+<body><main data-mode="manage" data-staging="{{ 'true' if staging else 'false' }}"><span class="wordmark">PathSix</span>
+{% include 'oauth_environment.html' %}<p class="eyebrow">YOUR ACCOUNT</p>
 <h1>AI connections</h1><p class="intro">Review the access you’ve approved and revoke a connection at any time.</p>
 <form id="login"><h2>Sign in to your account</h2><label for="email">Email</label>
 <input id="email" name="email" type="email" autocomplete="username" required>
 <label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required>
 <button type="submit">Continue</button></form>
 <section id="approval" hidden><h2>Your connected clients</h2><p id="identity"></p><div id="connections"></div>
-<button type="button" id="more" class="secondary" hidden>Load more</button></section>
-<p id="message" role="status" aria-live="polite"></p></main></body></html>
+<button type="button" id="more" class="secondary" hidden>Load more</button>
+<button id="switch-account" class="secondary" type="button">Use a different account</button></section>
+<p id="message" role="status" aria-live="polite" tabindex="-1"></p>
+<noscript><p>Enable JavaScript to manage your AI connections.</p></noscript></main></body></html>

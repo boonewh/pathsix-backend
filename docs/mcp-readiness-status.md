@@ -1,4 +1,4 @@
-# MCP readiness status — September 29, 2026
+# MCP readiness status — September 30, 2026
 
 This reconciles the historical September 6 frontend roadmap against the integrated
 backend. The goal remains a remote MCP adapter over the same tenant-bound services
@@ -7,9 +7,9 @@ as the CRM, with delegated user consent and read-only tools before writes.
 ## Baseline and release status
 
 Work resumed from staging `aa1d830`, which merges the September 22 handoff.
-The current verified live backend is **v39 / `2b31aed`** after the client, report, storage,
+The current verified live backend is **v40 / `bf6af89`** after the client, report, storage,
 import, user, preference, identity/platform, isolation-proof, AI consent, OAuth browser and read-only MCP increments. PostgreSQL/RLS CI
-passes **585 tests with zero skips**; both
+passes **594 tests with zero skips**; both
 staging machines pass health checks and runtime inspection confirms restricted
 credentials with RLS enabled. Frontend `93c9618` was not changed or redeployed.
 The earlier 33 browser regressions belong to the September 22 rollout. The new
@@ -59,7 +59,13 @@ an open operational issue. See [OAuth browser flow](oauth-browser-flow.md).
 The subsequent [read-only MCP pilot](mcp-readonly-pilot.md) adds client summaries,
 protected-resource metadata and durable invocation auditing. Staging v39 passed
 190 deployed checks with all 21 public application tables unchanged and both
-machines healthy. No real client is enrolled.
+machines healthy. ChatGPT was subsequently registered as `pathsix-chatgpt-staging`.
+Staging v40 accepts ChatGPT's optional language hint without weakening OAuth
+validation. The September 30 phone test completed sign-in, approval, code exchange
+and refresh rotation, then called both `list_clients` and `get_client` successfully.
+Backend audit records and actual ChatGPT tool history corroborate the two staging
+client summaries. The initial list request exceeded the maximum page size and was
+correctly rejected; ChatGPT retried with valid arguments. Production is not enabled.
 
 ## Reconciled gates
 
@@ -69,8 +75,8 @@ machines healthy. No real client is enrolled.
 | 1: immediate REST security | Completed documented milestone | Current server-side roles and active user/tenant checks, parent authorization, admin reports/import, protected calendars, disabled tenant backup API, JWT validation and reset protections. See reliability-security-2026-09-06.md. |
 | 2: structural isolation | Current web and delegated-identity foundations implemented | Trusted fixed-identity web sessions, tenant services, restricted DB role, tenant FKs/indexes, 30 earlier same-tenant relationship FKs plus grant/credential/audit owner FKs, parent rules and forced RLS on 17 tables. Model inventory classifies all 21 tables. The narrow MCP adapter validates raw credentials and scopes before invoking ClientService; model caveats below remain open. |
 | 3: adversarial isolation proof | Current web and limited client MCP proof implemented | Tests cover service, HTTP, file/object and platform boundaries plus session/cache reuse, all protected tables, aggregate secrecy and deliberate missing/weakened predicates/policies. Read-only policy attestation detects drift. The two client MCP tools add protocol, scope, revocation, ownership and audit-failure proofs. See isolation-proof.md and mcp-readonly-pilot.md; broader tools and operational durability remain separate gates. |
-| 4: delegated AI authorization | Pre-registered OAuth pilot implemented | Owner grants, browser S256 consent, discovery, hashed short resource-bound tokens, refresh rotation/replay revocation, current-state validation and mobile connection management are implemented. Real client enrollment and broader registration/callback support remain. Grant IDs and web JWTs cannot authenticate delegated access. |
-| 5: read-only MCP pilot | Limited client tools implemented | Official SDK stateless transport; list_clients/get_client with clients:read, existing record permissions, bounded summaries, append-only owner audits and durable call limits. Real AI client enrollment and its end-to-end connection trial remain. |
+| 4: delegated AI authorization | ChatGPT staging connection verified | Owner grants, browser S256 consent, discovery, hashed short resource-bound tokens, refresh rotation/replay revocation, current-state validation and mobile connection management are implemented. Real ChatGPT sign-in and exchange passed; automated client registration remains separate. Grant IDs and web JWTs cannot authenticate delegated access. |
+| 5: read-only MCP pilot | Real ChatGPT phone reads verified | Official SDK stateless transport; list_clients/get_client with clients:read, existing record permissions, bounded summaries, append-only owner audits and durable call limits. Both tools were called successfully from the user's phone. |
 | 6: write tools | Not implemented | Separate write grants, confirmation, idempotency, optimistic concurrency and replay/partial-failure tests remain. |
 | 7: production MCP rollout | Not started | Threat model, external review, distributed limits, monitoring/runbooks and gradual opt-in pilot remain. |
 
@@ -125,8 +131,20 @@ machines healthy. No real client is enrolled.
 8. Consent/grant storage and owner management are verified in PostgreSQL CI and staging.
    Negative scope, expiry, revocation, inactive-identity and concurrent-limit tests
    pass. The OAuth browser flow and backend connection-management screen are now
-   implemented for operator-registered HTTPS clients; no real client is enrolled.
+   implemented for operator-registered HTTPS clients. ChatGPT staging enrollment
+   and the real phone test are now complete.
 9. The read-only client MCP adapter and its adversarial proofs are implemented.
-   The next functional step is enrolling one explicitly chosen AI client for an
-   end-to-end staging consent, read and revocation trial. Keep enrollment scoped
-   to the two summary tools; dynamic registration and production stay separate.
+   The real ChatGPT staging consent and read trial is complete. Existing automated
+   revocation tests remain the evidence for revocation, not a claim that the user's
+   working ChatGPT grant was revoked.
+10. Onboarding recovery now distinguishes expired approval requests, failed sign-in
+    and unavailable service; both browser pages identify staging accounts and allow
+    account switching. See [OAuth browser flow](oauth-browser-flow.md). Deployment
+    and verification of this increment are recorded with its release.
+11. The intended customer release remains the two read-only summary tools. Next:
+    production operational readiness (including shared abuse limits and monitoring),
+    production OAuth client configuration, and public submission materials. OpenAI
+    review/publication is the documented distribution route for a simple installation
+    by independent customers; private testing can continue without publication.
+    Dynamic registration/CIMD is a separate interoperability improvement, not a
+    prerequisite for every customer to use a single preconfigured published client.

@@ -38,6 +38,9 @@ MAX_CONTENT_LENGTH = _int("MAX_CONTENT_LENGTH", 20 * 1024 * 1024)  # 20 MB defau
 # Frontend URL used for password reset links, etc.
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
+# Label the separate test account environment on both OAuth browser pages.
+OAUTH_STAGING = _bool("OAUTH_STAGING", False)
+
 # --- Mail (SMTP) ------------------------------------------------------------
 MAIL_SERVER = os.getenv("MAIL_SERVER", "mail.gandi.net")
 MAIL_PORT = _int("MAIL_PORT", 587)
