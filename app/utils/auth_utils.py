@@ -91,9 +91,15 @@ def requires_auth(roles: list = None):
 
                     request.principal = Principal(user.id, user.tenant_id, frozenset(role.name for role in user.roles))
                     request.user = user
+                    from app.utils.project_archive_access import protected_request
+                    denied = protected_request(user)
+                    if denied is not None:
+                        return denied
                     # Eagerly loaded identity remains usable after releasing the lookup connection.
                     session.close()
                     return await fn(*args, **kwargs)
+                except PermissionError:
+                    return jsonify({'error': 'This operation is not permitted'}), 403
                 except SQLAlchemyError as exc:
                     _rollback_quietly(session)
                     if (request.method == 'DELETE' or 'purge' in request.path) and getattr(getattr(exc, 'orig', None), 'pgcode', None) in {'23503', '23514'}:

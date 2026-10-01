@@ -89,3 +89,7 @@ def scope_authenticated_queries(state):
             state.statement = state.statement.options(with_loader_criteria(
                 model, model.tenant_id == tenant_id, include_aliases=True,
             ))
+
+
+from app.utils.project_archive_access import install_archive_guards
+install_archive_guards()
