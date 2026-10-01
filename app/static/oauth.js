@@ -15,6 +15,7 @@
   let generation = 0;
   const showLogin = (focus = true) => {
     generation += 1; token = null; login.password.value = '';
+    login.querySelector('button').disabled = false;
     document.querySelector('#identity').textContent = '';
     if (managing) {
       document.querySelector('#connections').replaceChildren();
@@ -110,6 +111,7 @@
   login.addEventListener('submit', async event => {
     event.preventDefault();
     if (checkExpiry()) return;
+    const started = generation;
     const button = login.querySelector('button'); button.disabled = true; message.textContent = '';
     try {
       const result = await send('/api/login', {email: login.email.value, password: login.password.value}, 'login');
@@ -121,8 +123,10 @@
       document.querySelector('#identity').textContent = `${result.user.email} · ${result.tenant.name}`;
       login.hidden = true; approval.hidden = false;
       if (!managing) document.querySelector('#approve').focus();
-    } catch (error) { token = null; handleError(error); }
-    finally { button.disabled = false; }
+    } catch (error) {
+      if (error.recovery !== 'stale') { token = null; handleError(error); }
+    }
+    finally { if (started === generation) button.disabled = false; }
   });
   const decide = async approved => {
     if (checkExpiry() || deciding) return;
