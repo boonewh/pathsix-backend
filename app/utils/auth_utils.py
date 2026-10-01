@@ -28,7 +28,13 @@ def create_token(user: User) -> str:
     return jwt.encode(header, payload, current_app.config["SECRET_KEY"]).decode("utf-8")
 
 def decode_token(token: str):
-    return jwt.decode(token, current_app.config["SECRET_KEY"])
+    from authlib.jose import JsonWebToken
+    claims = JsonWebToken(['HS256']).decode(token, current_app.config["SECRET_KEY"],
+        claims_options={'sub': {'essential': True}, 'exp': {'essential': True}})
+    claims.validate()
+    if not isinstance(claims['sub'], (int, str)) or not str(claims['sub']).isdigit():
+        raise JoseError('Invalid subject')
+    return claims
 
 def requires_auth(roles: list = None):
     def wrapper(fn):
@@ -43,7 +49,7 @@ def requires_auth(roles: list = None):
             token = auth_header.split(" ")[1]
             try:
                 payload = decode_token(token)
-            except JoseError:
+            except (JoseError, ValueError, TypeError):
                 return jsonify({"error": "Invalid token"}), 401
 
             # Retry only the read-only authentication lookup, never a route
@@ -98,11 +104,18 @@ def requires_auth(roles: list = None):
 
             if not user:
                 return jsonify({"error": "User not found"}), 401
-            if roles and not any(role in payload["roles"] for role in roles):
+            if roles and not any(role.name in roles for role in user.roles):
                 return jsonify({"error": "Forbidden"}), 403
 
             request.user = user
-            return await fn(*args, **kwargs)
+            from app.utils.project_archive_access import protected_request
+            denied = protected_request(user)
+            if denied is not None:
+                return denied
+            try:
+                return await fn(*args, **kwargs)
+            except PermissionError:
+                return jsonify({'error': 'This operation is not permitted'}), 403
         return decorated
     return wrapper
 

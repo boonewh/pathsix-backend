@@ -16,8 +16,10 @@ from app.routes.user_preferences import preferences_bp
 from app.routes.storage import storage_bp
 from app.routes.admin_backups import admin_backups_bp
 from app.routes.subscriptions import subscriptions_bp
+from app.routes.project_archive import project_archive_bp
 
 def register_blueprints(app):
+    app.register_blueprint(project_archive_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(accounts_bp)
     app.register_blueprint(clients_bp)

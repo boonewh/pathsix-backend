@@ -40,3 +40,8 @@ def receive_after_cursor_execute(conn, cursor, statement, parameters, context, e
 # let concurrent requests reuse (and close/rollback) each other's session.
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
+
+# The private archive is excluded from every ordinary ORM entry point, including
+# background services and admin reports. Only the dedicated owner service opts in.
+from app.utils.project_archive_access import install_archive_guards
+install_archive_guards()
