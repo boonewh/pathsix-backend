@@ -1,5 +1,6 @@
 """Rehearse the real additive migration, its grants and rollback boundaries."""
 import os
+import sys
 from pathlib import Path
 import pytest
 from alembic import command
@@ -8,6 +9,7 @@ from sqlalchemy import text, inspect
 from test_mcp_audit_migration import legacy as audit_legacy, upgrade as audit_upgrade
 from test_oauth_migration import consent_legacy, legacy as oauth_legacy
 from migrations.versions.mcp_lead_creation import revision, down_revision, reconcile
+from migrations.versions import mcp_lead_creation
 
 
 @pytest.fixture
@@ -20,14 +22,17 @@ def legacy(audit_legacy):
 def upgrade(engine,schema,role):
     with engine.begin() as c:
         c.execute(text(f'SET LOCAL search_path="{schema}"'))
-        root=Path(__file__).resolve().parents[1]
+        # Tests are uploaded to /tmp on staging; run migrations from deployed source.
+        root=Path(mcp_lead_creation.__file__).resolve().parents[2]
         cfg=Config(str(root/'alembic.ini'))
         cfg.set_main_option('script_location',str(root/'migrations'))
         cfg.attributes.update(connection=c,version_table_schema=schema,runtime_role=role)
         command.upgrade(cfg,revision)
 
 
-def test_rehearsal_rollback_then_migration(legacy):
+def test_rehearsal_rollback_then_migration(legacy, monkeypatch, tmp_path):
+    # Match the staging layout: tests outside the deployed application directory.
+    monkeypatch.setattr(sys.modules[__name__], '__file__', str(tmp_path/'test_mcp_lead_migration.py'))
     engine,schema=legacy;role=os.environ['SECURITY_TEST_ROLE']
     with engine.begin() as c:
         c.execute(text(f'SET LOCAL search_path="{schema}"'))

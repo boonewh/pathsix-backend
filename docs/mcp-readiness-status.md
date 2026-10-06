@@ -328,3 +328,4 @@ moving it into the build.
 | Global account-number uniqueness and polymorphic activity references | Known model-design questions in the isolation reports | Record specific defects if encountered; no general model redesign assigned |
 | Durable file reconciliation, import notification infrastructure and platform workers | Support workflows not exposed by this MVP | Deferred; current MVP assignment side effects must still behave correctly |
 | Broader scaling, generalized abstractions and UI redesign | Potential future improvements after real usage | Not part of this build |
+| CI action/runtime maintenance | [Lead-creation CI](https://github.com/boonewh/pathsix-backend/actions/runs/37543228687) warns that checkout/setup-python target deprecated Node 20 and that ubuntu-latest is scheduled to change | CI passed; record for later maintenance, not an expansion of this milestone |
