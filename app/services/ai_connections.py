@@ -16,6 +16,7 @@ READ_SCOPES = {
     'interactions:read': 'Read interactions you can access',
     'reports:read': 'Read your company reports (administrators only)',
 }
+SCOPES = {**READ_SCOPES, 'leads:create': 'Create leads after you review and confirm each proposal'}
 MAX_ACTIVE_CONNECTIONS = 20
 MAX_DAILY_CONSENTS = 100
 CONSENT_DAYS = 30
@@ -45,10 +46,10 @@ def resource_uri():
 
 
 def scope_set(value):
-    if (not isinstance(value, list) or not 1 <= len(value) <= len(READ_SCOPES)
-            or any(not isinstance(s, str) or s not in READ_SCOPES for s in value)
+    if (not isinstance(value, list) or not 1 <= len(value) <= len(SCOPES)
+            or any(not isinstance(s, str) or s not in SCOPES for s in value)
             or len(set(value)) != len(value)):
-        raise ValueError('Choose one or more supported read permissions')
+        raise ValueError('Choose one or more supported permissions')
     return frozenset(value)
 
 
@@ -67,7 +68,7 @@ class AIConnectionService(TenantService):
 
     @staticmethod
     def _permitted(user):
-        scopes = set(READ_SCOPES)
+        scopes = set(SCOPES)
         if not any(role.name == 'admin' for role in user.roles):
             scopes.remove('reports:read')
         return scopes
@@ -120,19 +121,19 @@ class AIConnectionService(TenantService):
             available = sorted(scope_set(client.allowed_scopes) & permitted)
             if available:
                 result.append({'id': client.id, 'name': client.name, 'scopes': available, 'oauth_enabled': client.oauth_enabled})
-        return {'clients': result, 'scopes': {s: READ_SCOPES[s] for s in sorted(permitted)},
+        return {'clients': result, 'scopes': {s: SCOPES[s] for s in sorted(permitted)},
                 'consent_days': CONSENT_DAYS, 'tokens_available': any(client['oauth_enabled'] for client in result)}
 
     def preview(self, data):
         if not isinstance(data, dict) or set(data) != {'client_id', 'scopes'}:
-            raise ValueError('Supply an AI client and requested read permissions')
+            raise ValueError('Supply an AI client and requested permissions')
         user = self._user()
         client = self._client(data['client_id'])
         scopes = scope_set(data['scopes'])
         if not scopes <= (scope_set(client.allowed_scopes) & self._permitted(user)):
             raise PermissionError('Requested permissions are not available')
         return {'client_id': client.id, 'client_name': client.name, 'resource': resource_uri(),
-                'scopes': sorted(scopes), 'permissions': [READ_SCOPES[s] for s in sorted(scopes)],
+                'scopes': sorted(scopes), 'permissions': [SCOPES[s] for s in sorted(scopes)],
                 'consent_days': CONSENT_DAYS}
 
     def consent(self, data):

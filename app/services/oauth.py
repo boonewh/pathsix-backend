@@ -17,7 +17,7 @@ from authlib.oauth2.rfc7636 import CodeChallenge
 from authlib.oauth2.rfc7636.challenge import create_s256_code_challenge
 from app.models import AIClient, AIConnection, OAuthCredential, User
 from app.services.principal import Principal
-from app.services.ai_connections import AIConnectionService, READ_SCOPES, resource_uri, scope_set
+from app.services.ai_connections import AIConnectionService, SCOPES, resource_uri, scope_set
 from app.services.database_context import auth_lookup, bind_principal
 from app.services.errors import RecordNotFound
 
@@ -122,7 +122,7 @@ class RefreshGrant(RefreshTokenGrant):
 
 class Server(AuthorizationServer):
     def __init__(self, db, principal=None, intent_hash=None):
-        super().__init__(scopes_supported=list(READ_SCOPES))
+        super().__init__(scopes_supported=list(SCOPES))
         self.db, self.principal, self.intent_hash = db, principal, intent_hash
         if principal is not None:
             bind_principal(db, principal)

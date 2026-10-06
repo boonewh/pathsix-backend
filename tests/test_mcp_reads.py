@@ -264,7 +264,7 @@ def test_metadata_and_configuration_fail_closed(oauth,monkeypatch):
         response=await oauth.app.test_client().get('/.well-known/oauth-protected-resource/mcp',scheme='https')
         return response.status_code,await response.get_json()
     status,value=oauth.runner.run(read())
-    assert status==200 and value['resource']==RESOURCE and value['scopes_supported']==['clients:read']
+    assert status==200 and value['resource']==RESOURCE and value['scopes_supported']==['clients:read','leads:read','leads:create']
     assert rpc(oauth,'bad')[0]==401
     monkeypatch.setenv('MCP_RESOURCE_URI',RESOURCE+'/wrong')
     assert oauth.runner.run(read())[0]==503 and rpc(oauth,'bad')[0]==503

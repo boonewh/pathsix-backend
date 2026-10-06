@@ -9,7 +9,7 @@ from authlib.oauth2.rfc6749.errors import OAuth2Error, InvalidRequestError
 from app.database import SessionLocal
 from app.models import OAuthCredential, AIConnection
 from app.services.oauth import Server, ProtocolRequest, lookup_principal, issuer, digest, valid_secret
-from app.services.ai_connections import READ_SCOPES, resource_uri, AIConfigurationError
+from app.services.ai_connections import SCOPES, resource_uri, AIConfigurationError
 from app.services.database_context import bind_principal
 from app.services.errors import RecordNotFound
 from app.utils.auth_utils import requires_auth
@@ -65,7 +65,7 @@ async def metadata():
         'token_endpoint':base+'/oauth/token', 'revocation_endpoint':base+'/oauth/revoke',
         'response_types_supported':['code'], 'grant_types_supported':['authorization_code','refresh_token'],
         'token_endpoint_auth_methods_supported':['none'], 'revocation_endpoint_auth_methods_supported':['none'],
-        'code_challenge_methods_supported':['S256'], 'scopes_supported':list(READ_SCOPES),
+        'code_challenge_methods_supported':['S256'], 'scopes_supported':list(SCOPES),
         'authorization_response_iss_parameter_supported':True})
 
 
@@ -92,7 +92,7 @@ async def authorize():
     intent = signer().dumps({'request':data,'binding':digest(binding),'nonce':secrets.token_urlsafe(16)})
     response = await make_response(await render_template('oauth.html', intent=intent,
         client_name=name, callback_host=urlsplit(data['redirect_uri']).netloc,
-        permissions=[READ_SCOPES[s] for s in data['scope'].split()], client_id=data['client_id'], scopes=data['scope'],
+        permissions=[SCOPES[s] for s in data['scope'].split()], client_id=data['client_id'], scopes=data['scope'],
         intent_seconds=INTENT_SECONDS, staging=current_app.config.get('OAUTH_STAGING', False)))
     response.set_cookie(COOKIE,binding,max_age=INTENT_SECONDS,secure=True,httponly=True,samesite='Lax',path='/')
     return response
