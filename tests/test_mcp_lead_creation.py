@@ -94,7 +94,8 @@ def test_new_permission_requires_new_consent_and_cannot_be_added_on_refresh(oaut
 @pytest.mark.parametrize('lead',[
     {'name':''},{'name':'x','tenant_id':2},{'name':'x','assigned_to':2},
     {'name':'x','approved':True},{'name':'x','email':'not-email'},
-    {'name':'x','notes':'x'*4001},{'name':True},{'name':'x','phone':42}])
+    {'name':'x','notes':'x'*4001},{'name':True},{'name':'x','phone':42},
+    {'name':'x','lead_status':'x'*21},{'name':'x','type':'x'*51}])
 def test_invalid_payload_never_creates_a_proposal(oauth,lead):
     token,_=writer(oauth)
     assert call(oauth,token,'prepare_lead_creation',{'request_key':str(uuid4()),'lead':lead})['isError']

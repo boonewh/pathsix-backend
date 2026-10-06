@@ -116,7 +116,7 @@ correctly rejected; ChatGPT retried with valid arguments. Production is not enab
 | 3: adversarial isolation proof | Current web and limited client MCP proof implemented | Tests cover service, HTTP, file/object and platform boundaries plus session/cache reuse, all protected tables, aggregate secrecy and deliberate missing/weakened predicates/policies. Read-only policy attestation detects drift. The two client MCP tools add protocol, scope, revocation, ownership and audit-failure proofs. See isolation-proof.md and mcp-readonly-pilot.md; broader tools and operational durability remain separate gates. |
 | 4: delegated AI authorization | ChatGPT staging connection verified | Owner grants, browser S256 consent, discovery, hashed short resource-bound tokens, refresh rotation/replay revocation, current-state validation and mobile connection management are implemented. Real ChatGPT sign-in and exchange passed; automated client registration remains separate. Grant IDs and web JWTs cannot authenticate delegated access. |
 | 5: read-only MCP pilot | Real ChatGPT phone reads verified | Official SDK stateless transport; list_clients/get_client with clients:read, existing record permissions, bounded summaries, append-only owner audits and durable call limits. Both tools were called successfully from the user's phone. |
-| 6: write tools | Approved first-release scope; not implemented | Lead/contact/project creation, record updates, assignment/status changes and notes/interactions are required before submission. Separate write grants, confirmation, idempotency, optimistic concurrency and replay/partial-failure tests remain. |
+| 6: write tools | Lead creation implemented in draft PR; staging validation pending | [Lead creation](mcp-lead-creation.md) adds separate consent, browser confirmation, atomic receipts and replay/partial-failure tests. Contact/project creation, updates, assignments/status changes, notes/interactions and optimistic concurrency remain required before submission. |
 | 7: production MCP rollout | Not started | Threat model, external review, distributed limits, monitoring/runbooks and gradual opt-in pilot remain. |
 
 ## Service boundary inventory
@@ -264,6 +264,11 @@ permissions; adding tools does not silently expand an existing grant.
 The immediate engineering milestone is the lead-creation workflow plus the shared
 write protections above. This document change itself enables no new runtime
 capabilities and is not evidence of a migration, deployment or submission.
+
+The [lead-creation increment](mcp-lead-creation.md) is implemented on
+`codex/mvp-lead-creation` with local backend, browser and PostgreSQL CI verification. Its report
+tracks PostgreSQL and staging validation separately. This is progress toward
+step 1, not completion of the MVP or permission to start a deferred feature.
 
 ## Definition of MVP build completion
 

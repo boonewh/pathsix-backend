@@ -5,7 +5,7 @@ import json
 import re
 from uuid import UUID, uuid4
 
-from app.models import AIClient, AIConnection, AIToolAudit, AIWriteAction
+from app.models import AIClient, AIConnection, AIToolAudit, AIWriteAction, Lead
 from app.schemas.leads import LeadCreateSchema
 from app.services.ai_connections import AIConnectionService, resource_uri
 from app.services.base import TenantService
@@ -33,7 +33,12 @@ def validate_lead(value):
         raise ValueError('Lead fields must be text')
     if any(isinstance(v, str) and len(v) > 4000 for v in value.values()):
         raise ValueError('Lead fields are too long')
-    return LeadCreateSchema.model_validate(value)
+    validated = LeadCreateSchema.model_validate(value)
+    for key, field in validated.model_dump(mode='json').items():
+        bound = getattr(Lead.__table__.c[key].type, 'length', None)
+        if bound and isinstance(field, str) and len(field) > bound:
+            raise ValueError('Lead field exceeds its storage limit')
+    return validated
 
 
 class AIActionService(TenantService):
@@ -86,6 +91,7 @@ class AIActionService(TenantService):
             raise ActionConflict('Daily proposal limit reached')
         # The shared service prepares exactly the values it will persist, including defaults.
         fields = LeadService(self.session, self.principal).creation_fields(validated)
+        validate_lead(fields)  # Also validate tenant-configured defaults before offering confirmation.
         row = AIWriteAction(id=str(uuid4()), tenant_id=self.principal.tenant_id,
             user_id=self.principal.user_id, connection_id=connection_id, request_key=key,
             input_hash=fingerprint, kind='create_lead', payload=fields, status='pending',
