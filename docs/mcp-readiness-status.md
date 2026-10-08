@@ -51,9 +51,10 @@ tests. Both machines passed deployment health checks. The lead implementation
 in v43 passed 149 isolated staging checks with unchanged public data/sequences
 and clean test schemas. The
 staging client permits fresh lead consent; existing grants remain unchanged.
-User reconnection and a live client read succeeded, but the new grants still
-contain only `clients:read`. Correct lead-scope consent/tool discovery and the
-real ChatGPT lead trial remain open, so step 1 is not complete. See
+After the user explicitly approved adjustment of the diagnostic OAuth request,
+fresh three-scope consent and a real client read using that grant succeeded.
+Lead tool discovery, ordinary reconnect scope behavior and the real ChatGPT lead
+trial remain open, so step 1 is not complete. See
 [lead-creation release evidence and limits](mcp-lead-creation.md).
 
 Work resumed from staging `aa1d830`, which merges the September 22 handoff.

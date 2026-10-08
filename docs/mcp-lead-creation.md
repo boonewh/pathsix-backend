@@ -176,6 +176,15 @@ An earlier unsuccessful sign-in attempt used the local template file rather than
 the deployed HTTPS page. Subsequent handoffs must identify the live browser page
 and keep its tab open; local HTML source is not a functioning sign-in destination.
 
+The user completed the corrected consent at 2026-10-08 02:32:39 UTC (October 7,
+America/Chicago). Staging recorded `clients:read`, `leads:read` and `leads:create`
+on the new grant. A real `list_clients` call from this chat succeeded at 02:34:01
+UTC, and its audit links to that new three-scope grant, confirming ChatGPT accepted
+and used the credential. No write action exists yet. The chat still exposed only
+the two original tools before the subsequent Refresh tools operation; lead tool
+discovery and the real creation/cancellation/recovery trial remain open. This
+manual diagnostic does not establish that normal reconnect requests new scopes.
+
 Local release evidence is in `temp/mvp-lead-creation` in the outer workspace:
 `migration-rehearsal-result.json`, `migration-apply-result.json`,
 `deployed-tests-v4.json`, `public-http.json`, `staging-browser-shell.json`,
