@@ -160,8 +160,21 @@ That preview exposed stale consent wording claiming every connection was read-on
 The template now explains separate review/confirmation for each new lead when
 `leads:create` is requested, while preserving read-only wording for read grants.
 The local OAuth suite passed 56 checks with two PostgreSQL-only skips after
-loading the existing supplemental MCP dependencies. This wording repair is not
-yet deployed; staging v43 still has the old explanatory sentence.
+loading the existing supplemental MCP dependencies. [PostgreSQL CI](https://github.com/boonewh/pathsix-backend/actions/runs/37717209470)
+passed all **671 tests with zero skips** at `59fb543`. Staging **v44** deployed
+`59fb5433d3ff326a16750988a5521a23ee9001a9`, image
+`sha256:cb735062e368f63f07925d8d86cc24f085121dd60a8918b6f7aa6db0ab323440`.
+Both machines passed deployment health checks. The live browser verified the
+read-only wording for a client-only request, then the corrected reviewed-creation
+wording for all three requested scopes. No schema or runtime-role change was needed.
+
+The user explicitly authorized adjustment of the diagnostic OAuth request after
+automatic approval review required that authorization. The corrected live request
+preserves ChatGPT's client, redirect, PKCE, resource and state. The user still
+performs final consent; neither the adjustment nor sign-in is proof of a grant.
+An earlier unsuccessful sign-in attempt used the local template file rather than
+the deployed HTTPS page. Subsequent handoffs must identify the live browser page
+and keep its tab open; local HTML source is not a functioning sign-in destination.
 
 Local release evidence is in `temp/mvp-lead-creation` in the outer workspace:
 `migration-rehearsal-result.json`, `migration-apply-result.json`,

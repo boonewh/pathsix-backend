@@ -45,10 +45,11 @@ and remaining external release steps; do not automatically begin deferred work.
 
 ## Baseline and release status
 
-The latest verified deployment is **staging v43 / `450c351`**, October 7, 2026
-(America/Chicago). Lead creation is deployed, with 149 isolated staging checks,
-unchanged public data/sequences, clean test schemas and healthy machines. The
-operational verifier repair passed 669 PostgreSQL CI tests at `5287e0e`. The
+The latest verified deployment is **staging v44 / `59fb543`**, October 7, 2026
+(America/Chicago), with corrected consent wording and 671 passing PostgreSQL CI
+tests. Both machines passed deployment health checks. The lead implementation
+in v43 passed 149 isolated staging checks with unchanged public data/sequences
+and clean test schemas. The
 staging client permits fresh lead consent; existing grants remain unchanged.
 User reconnection and a live client read succeeded, but the new grants still
 contain only `clients:read`. Correct lead-scope consent/tool discovery and the
