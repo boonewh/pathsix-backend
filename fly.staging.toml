@@ -9,6 +9,7 @@ primary_region = "iad"
 
 [env]
   OAUTH_STAGING = "true"
+  MCP_RESOURCE_URI = "https://pathsixsolutions-backend-staging.fly.dev/mcp"
 
 [processes]
   app = "hypercorn asgi:app --bind 0.0.0.0:8000 --keep-alive 600"
