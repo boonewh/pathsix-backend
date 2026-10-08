@@ -52,9 +52,10 @@ in v43 passed 149 isolated staging checks with unchanged public data/sequences
 and clean test schemas. The
 staging client permits fresh lead consent; existing grants remain unchanged.
 After the user explicitly approved adjustment of the diagnostic OAuth request,
-fresh three-scope consent and a real client read using that grant succeeded.
-Lead tool discovery, ordinary reconnect scope behavior and the real ChatGPT lead
-trial remain open, so step 1 is not complete. See
+fresh three-scope consent and real client/lead reads using that grant succeeded.
+A fresh ChatGPT conversation discovered `list_leads`; its successful call is
+corroborated by the staging audit. Ordinary reconnect scope behavior and the real
+ChatGPT write trial remain open, so step 1 is not complete. See
 [lead-creation release evidence and limits](mcp-lead-creation.md).
 
 Work resumed from staging `aa1d830`, which merges the September 22 handoff.

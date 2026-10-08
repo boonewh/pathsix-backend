@@ -185,6 +185,13 @@ the two original tools before the subsequent Refresh tools operation; lead tool
 discovery and the real creation/cancellation/recovery trial remain open. This
 manual diagnostic does not establish that normal reconnect requests new scopes.
 
+After refresh and a fresh ChatGPT conversation, the user provided a screenshot
+showing two staging leads. The server audit corroborates a successful `list_leads`
+call at 2026-10-08 02:37:43 UTC using the three-scope grant. No write actions existed
+at this check. Lead read discovery is now verified in that new conversation;
+this implementation chat still exposes the original client tools only. Next is
+the synthetic proposal/cancellation trial, followed by confirmation and recovery.
+
 Local release evidence is in `temp/mvp-lead-creation` in the outer workspace:
 `migration-rehearsal-result.json`, `migration-apply-result.json`,
 `deployed-tests-v4.json`, `public-http.json`, `staging-browser-shell.json`,
