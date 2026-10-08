@@ -192,6 +192,16 @@ at this check. Lead read discovery is now verified in that new conversation;
 this implementation chat still exposes the original client tools only. Next is
 the synthetic proposal/cancellation trial, followed by confirmation and recovery.
 
+The live cancellation trial passed on staging v44. ChatGPT called
+`get_lead_options`, searched existing leads, then prepared
+`MVP-LEAD-20261007-CANCEL`. The user supplied before/after review screenshots.
+Read-only operator verification found action
+`6186b51f-3b3b-46b1-9420-d9543e0b1815` terminally `cancelled`, `result_id` null,
+and no matching lead (including deleted rows). The cancellation audit succeeded
+at 2026-10-08 02:46:26 UTC. This verifies the signed-in browser cancellation;
+ChatGPT's receipt retrieval and the separate create/recovery trial remain pending.
+Evidence is in the outer workspace's `temp/mvp-lead-creation/live-lead-trials.json`.
+
 Local release evidence is in `temp/mvp-lead-creation` in the outer workspace:
 `migration-rehearsal-result.json`, `migration-apply-result.json`,
 `deployed-tests-v4.json`, `public-http.json`, `staging-browser-shell.json`,
