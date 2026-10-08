@@ -45,9 +45,12 @@ and remaining external release steps; do not automatically begin deferred work.
 
 ## Baseline and release status
 
-The latest verified deployment is **staging v44 / `59fb543`**, October 7, 2026
-(America/Chicago), with corrected consent wording and 671 passing PostgreSQL CI
-tests. Both machines passed deployment health checks. The lead implementation
+The latest verified deployment is **staging v45 / `5bf98b4`**, October 7, 2026
+(America/Chicago), with an OAuth challenge for missing tool scopes and 675 passing
+PostgreSQL CI tests. Ten focused deployed tests passed without skips, with unchanged
+public data/sequences, clean test schemas and unchanged database protections. The
+verification machine and public health/discovery passed; both machines have the
+same v45 image, but the second machine was asleep during verification. The lead implementation
 in v43 passed 149 isolated staging checks with unchanged public data/sequences
 and clean test schemas. The
 staging client permits fresh lead consent; existing grants remain unchanged.
@@ -55,7 +58,9 @@ After the user explicitly approved adjustment of the diagnostic OAuth request,
 fresh three-scope consent and real client/lead reads using that grant succeeded.
 A fresh ChatGPT conversation discovered `list_leads`; its successful call is
 corroborated by the staging audit. Ordinary reconnect scope behavior and the real
-ChatGPT write trial remain open, so step 1 is not complete. See
+ChatGPT confirmation/recovery trial remain open. Live lead reading and cancellation
+passed, but no live test lead has been created. The new challenge still needs real
+ChatGPT verification; step 1 is not complete. See
 [lead-creation release evidence and limits](mcp-lead-creation.md).
 
 Work resumed from staging `aa1d830`, which merges the September 22 handoff.
@@ -129,7 +134,7 @@ correctly rejected; ChatGPT retried with valid arguments. Production is not enab
 | 3: adversarial isolation proof | Current web and limited client MCP proof implemented | Tests cover service, HTTP, file/object and platform boundaries plus session/cache reuse, all protected tables, aggregate secrecy and deliberate missing/weakened predicates/policies. Read-only policy attestation detects drift. The two client MCP tools add protocol, scope, revocation, ownership and audit-failure proofs. See isolation-proof.md and mcp-readonly-pilot.md; broader tools and operational durability remain separate gates. |
 | 4: delegated AI authorization | ChatGPT staging connection verified | Owner grants, browser S256 consent, discovery, hashed short resource-bound tokens, refresh rotation/replay revocation, current-state validation and mobile connection management are implemented. Real ChatGPT sign-in and exchange passed; automated client registration remains separate. Grant IDs and web JWTs cannot authenticate delegated access. |
 | 5: read-only MCP pilot | Real ChatGPT phone reads verified | Official SDK stateless transport; list_clients/get_client with clients:read, existing record permissions, bounded summaries, append-only owner audits and durable call limits. Both tools were called successfully from the user's phone. |
-| 6: write tools | Lead creation deployed to staging; fresh consent and real ChatGPT trial pending | [Lead creation](mcp-lead-creation.md) adds separate consent, browser confirmation, atomic receipts and replay/partial-failure tests; 149 deployed checks passed. Contact/project creation, updates, assignments/status changes, notes/interactions and optimistic concurrency remain required before submission. |
+| 6: write tools | Lead creation deployed; live cancellation passed, confirmation/recovery and normal permission recovery pending | [Lead creation](mcp-lead-creation.md) adds separate consent, browser confirmation, atomic receipts and replay/partial-failure tests; 149 implementation and 10 subsequent scope-recovery deployed checks passed. Contact/project creation, updates, assignments/status changes, notes/interactions and optimistic concurrency remain required before submission. |
 | 7: production MCP rollout | Not started | Threat model, external review, distributed limits, monitoring/runbooks and gradual opt-in pilot remain. |
 
 ## Service boundary inventory

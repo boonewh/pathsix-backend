@@ -221,8 +221,30 @@ human consent is still required; no grant is widened. Client tools now also
 declare their OAuth scope in metadata. Local MCP/lead tests passed 83 checks with
 five PostgreSQL-only skips. New tests exercise both protocol versions, unchanged
 read grants/data, successful refresh after fresh consent, and validation failures
-without unnecessary reauthorization. Deployment and live host recovery remain
-unverified for this repair; the manual URL adjustment is not the permanent fix.
+without unnecessary reauthorization.
+
+[Scope-recovery PostgreSQL CI](https://github.com/boonewh/pathsix-backend/actions/runs/37722711649)
+passed **675 tests with zero skips**. Staging **v45** deployed
+`5bf98b4736a16736c0395b67cb60281b30fa9535`, image
+`sha256:3d87e5a22a0a9db11a81e378ccfc4b531e8cc9e24e240018e7376e37236c1b80`.
+Ten focused deployed checks passed without skips, including both protocol versions,
+fresh-consent/refresh recovery, preserved read grants and SDK identity separation.
+Source hashes matched; public rows/sequences, the 18-table/25-policy contract,
+restricted action privileges and immutable trigger were unchanged, with no test
+schemas left. The first SSH attempt failed before verification began because the
+selected machine was stopped; after starting it, the verification completed.
+The temporary auto-stop override was restored. Public health and both OAuth
+discovery endpoints returned 200; unauthenticated MCP returned its expected 401
+challenge. The verification machine passed its health check. Both machines have
+the v45 image, but the second remained asleep during this check.
+
+Real ChatGPT permission recovery remains unverified. Discovery still filters tools
+by the existing grant's scopes; these server tests do not prove that a fresh app
+connection discovers lead tools or that ChatGPT follows the challenge correctly.
+The manual URL adjustment is not the permanent fix. The user should not be asked
+to repeat URL editing or a long trial sequence as proof of normal onboarding.
+Keep the creation milestone and PR draft open until real confirmation/recovery
+and ordinary consent behavior are verified. Production is unchanged.
 
 Local release evidence is in `temp/mvp-lead-creation` in the outer workspace:
 `migration-rehearsal-result.json`, `migration-apply-result.json`,
