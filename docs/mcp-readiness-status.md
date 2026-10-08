@@ -250,6 +250,48 @@ permissions; adding tools does not silently expand an existing grant.
 
 ## Implementation order and acceptance criteria
 
+### Customer experience requirement — approved October 7, 2026
+
+The user explicitly confirmed that the finished experience must be easy: ask
+ChatGPT to retrieve CRM information and receive it; ask to add a record and have
+it saved, with only necessary clarification and approval. This is an acceptance
+requirement for the locked workflows, not a deferred UI enhancement. It authorizes
+the supporting connection and approval-flow changes, not additional CRM capabilities.
+
+- Connect the intended PathSix account through normal sign-in and consent once.
+  Routine use must retain that connection and its approved permissions across
+  token refresh and new conversations. Reauthorization remains appropriate after
+  revocation, expiry requiring sign-in, or a requested permission change.
+- Retrieve authorized records from natural-language requests without manual
+  scope editing, reinstalling duplicate apps, refreshing tool catalogs, or
+  operator assistance. Ambiguous records require a concise clarification.
+- Complete routine writes within the ChatGPT conversation, including a concise
+  review and approval when required, and return the saved result automatically.
+  Repeated CRM logins, separate review tabs and a further prompt just to check
+  whether the save worked are not the accepted normal workflow. Target one
+  explicit approval of the exact action; record any unavoidable host prompts.
+- Preserve scope and record authorization, exact-action confirmation, atomic
+  receipts/audits, replay protection and conflict handling. A model assertion
+  of approval or a tool annotation is not a substitute for the approval boundary.
+- Verify the normal path on desktop and phone, including a fresh connection,
+  returning use, cancellation, one successful save, and recovery after a lost
+  response. Record actual prompts/clicks and host limitations. Manual diagnostic
+  workarounds and eventual OpenAI review do not satisfy this requirement.
+
+The currently deployed external review page is an interim implementation. A
+minimal review inside ChatGPT is an implementation candidate supported by the
+[official UI documentation](https://developers.openai.com/plugins/build/chatgpt-ui)
+and [tool/UI metadata reference](https://developers.openai.com/plugins/reference).
+First verify the host's approval contract and how the server binds a genuine
+user decision to the existing proposal and authenticated owner. UI-only tool
+visibility and hidden result metadata are documented mechanisms, not by themselves
+proof that the current server can trust a click. Do not remove the working
+confirmation boundary before its replacement passes the security and live-flow
+checks. See the [server guidance](https://developers.openai.com/plugins/build/mcp-server)
+and [authentication guidance](https://developers.openai.com/plugins/build/auth).
+
+### Implementation sequence
+
 1. Build one complete lead-creation workflow in staging: find relevant records,
    collect required fields, review the proposed lead, obtain explicit approval,
    create it once and return the saved result. Reuse LeadService rather than
@@ -298,6 +340,12 @@ Mark a criterion complete only with linked test or release evidence. The earlier
   input, ambiguous selection and insufficient permissions. Confirm resulting
   records in the CRM. Verify connection, consent and confirmation on phone and
   desktop, with ordinary-user and administrator permission cases.
+- [ ] The approved customer experience above works through normal ChatGPT use:
+  persistent account connection, natural-language reads, writes and necessary
+  approval in the conversation, and automatic saved-result reporting. Fresh
+  connection and returning-use trials pass on phone and desktop without manual
+  scope fixes or routine external review/login steps. Document any host limitation
+  for the user's decision rather than silently accepting a different workflow.
 - [ ] Write consent, action confirmation, revocation, audit, idempotency and stale
   update protection meet the implementation criteria. Repeated/concurrent calls
   and lost responses cannot silently duplicate actions or overwrite newer work.

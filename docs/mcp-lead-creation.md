@@ -6,6 +6,15 @@ The connected user opens the returned review link, signs in to the same PathSix
 account, and confirms or cancels the exact saved proposal. Only confirmation
 creates the CRM record. ChatGPT checks the action receipt afterward.
 
+This describes the deployed interim workflow. On October 7 the user confirmed
+that routine use must stay in ChatGPT, with persistent connection, necessary
+approval in the conversation and automatic saved-result reporting. The
+[MVP customer experience requirement](mcp-readiness-status.md#customer-experience-requirement--approved-october-7-2026)
+now makes that a completion gate. The external review page and its existing test
+evidence do not establish that gate as complete. Verify a supported in-chat
+approval mechanism against the existing owner/action security boundary before
+replacing this implementation; do not simply expose an unrestricted confirm tool.
+
 ## Permissions and tools
 
 `list_leads`, `get_lead` and `get_lead_options` require `leads:read`.
