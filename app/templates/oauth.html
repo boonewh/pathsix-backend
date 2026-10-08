@@ -8,10 +8,10 @@
 <a class="wordmark" href="https://pathsixsolutions.com" rel="noreferrer">PathSix</a>
 {% include 'oauth_environment.html' %}
 <p class="eyebrow">AI CONNECTION</p><h1>Connect {{ client_name }}</h1>
-<p class="intro">Choose whether this AI client can read your PathSix information.</p>
+<p class="intro">Review the PathSix access requested by this AI client.</p>
 <section aria-labelledby="permission-title"><h2 id="permission-title">Requested access</h2>
 <ul>{% for permission in permissions %}<li>{{ permission }}</li>{% endfor %}</ul>
-<p class="note">Access lasts up to 30 days. You can revoke it from <a href="/oauth/connections" target="_blank" rel="noopener noreferrer">your AI connections</a>. This connection cannot change or delete records.</p></section>
+<p class="note">Access lasts up to 30 days. You can revoke it from <a href="/oauth/connections" target="_blank" rel="noopener noreferrer">your AI connections</a>. {% if 'leads:create' in scopes.split() %}Each new lead requires your separate review and confirmation. This connection cannot update or delete existing records.{% else %}This connection cannot change or delete records.{% endif %}</p></section>
 <form id="login"><h2>Sign in to review</h2>
 <p class="note">Sign in with your PathSix{% if staging %} staging test{% endif %} account.</p>
 <label for="email">Email</label><input id="email" name="email" type="email" autocomplete="username" required>

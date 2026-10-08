@@ -45,8 +45,18 @@ and remaining external release steps; do not automatically begin deferred work.
 
 ## Baseline and release status
 
+The latest verified deployment is **staging v43 / `450c351`**, October 7, 2026
+(America/Chicago). Lead creation is deployed, with 149 isolated staging checks,
+unchanged public data/sequences, clean test schemas and healthy machines. The
+operational verifier repair passed 669 PostgreSQL CI tests at `5287e0e`. The
+staging client permits fresh lead consent; existing grants remain unchanged.
+User reconnection and a live client read succeeded, but the new grants still
+contain only `clients:read`. Correct lead-scope consent/tool discovery and the
+real ChatGPT lead trial remain open, so step 1 is not complete. See
+[lead-creation release evidence and limits](mcp-lead-creation.md).
+
 Work resumed from staging `aa1d830`, which merges the September 22 handoff.
-The last deployment verified in this record is **v40 / `bf6af89`** after the client, report, storage,
+The earlier historical deployment was **v40 / `bf6af89`** after the client, report, storage,
 import, user, preference, identity/platform, isolation-proof, AI consent, OAuth browser and read-only MCP increments. PostgreSQL/RLS CI
 passed **594 tests with zero skips**; both
 staging machines passed health checks and runtime inspection confirmed restricted
@@ -116,7 +126,7 @@ correctly rejected; ChatGPT retried with valid arguments. Production is not enab
 | 3: adversarial isolation proof | Current web and limited client MCP proof implemented | Tests cover service, HTTP, file/object and platform boundaries plus session/cache reuse, all protected tables, aggregate secrecy and deliberate missing/weakened predicates/policies. Read-only policy attestation detects drift. The two client MCP tools add protocol, scope, revocation, ownership and audit-failure proofs. See isolation-proof.md and mcp-readonly-pilot.md; broader tools and operational durability remain separate gates. |
 | 4: delegated AI authorization | ChatGPT staging connection verified | Owner grants, browser S256 consent, discovery, hashed short resource-bound tokens, refresh rotation/replay revocation, current-state validation and mobile connection management are implemented. Real ChatGPT sign-in and exchange passed; automated client registration remains separate. Grant IDs and web JWTs cannot authenticate delegated access. |
 | 5: read-only MCP pilot | Real ChatGPT phone reads verified | Official SDK stateless transport; list_clients/get_client with clients:read, existing record permissions, bounded summaries, append-only owner audits and durable call limits. Both tools were called successfully from the user's phone. |
-| 6: write tools | Lead creation implemented in draft PR; staging validation pending | [Lead creation](mcp-lead-creation.md) adds separate consent, browser confirmation, atomic receipts and replay/partial-failure tests. Contact/project creation, updates, assignments/status changes, notes/interactions and optimistic concurrency remain required before submission. |
+| 6: write tools | Lead creation deployed to staging; fresh consent and real ChatGPT trial pending | [Lead creation](mcp-lead-creation.md) adds separate consent, browser confirmation, atomic receipts and replay/partial-failure tests; 149 deployed checks passed. Contact/project creation, updates, assignments/status changes, notes/interactions and optimistic concurrency remain required before submission. |
 | 7: production MCP rollout | Not started | Threat model, external review, distributed limits, monitoring/runbooks and gradual opt-in pilot remain. |
 
 ## Service boundary inventory

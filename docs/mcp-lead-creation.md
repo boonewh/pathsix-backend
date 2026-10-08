@@ -94,13 +94,84 @@ and database storage limits; 33 focused checks passed locally with two
 PostgreSQL-only skips after that repair. The [final implementation run](https://github.com/boonewh/pathsix-backend/actions/runs/37543228687)
 passed **649 tests with zero skips** at `54bc5f6`.
 
-Staging migration rehearsal/application, deployment and real ChatGPT creation
-remain pending. Fly currently needs a fresh local sign-in. No production
-deployment or live grant change has been made by this increment.
+On October 7 (America/Chicago), staging migration rehearsal and application
+succeeded, preserving all 21 pre-existing application tables. Release **43**
+deploys application `450c35183aa6c95e51de1a29f644bce697a759fb`, image
+`sha256:887291d3f79ad5e9baf8198ab2797884dd682f0f96c80c361c1cf6852c6596df`.
+Both machines passed health checks. Public health/discovery, unauthorized MCP
+and review API rejection, and eight anonymous phone/desktop browser checks passed.
+Real ChatGPT creation remains pending. Production is unchanged.
+
+The preceding release had lost `MCP_RESOURCE_URI` and returned 503 for protected
+resource discovery. It is now persisted in `fly.staging.toml`; the existing
+project-archive source was verified before deployment and preserved. The new
+release records `APP_REVISION` explicitly. Rollback must retain the resource URL
+and the prior project-archive image, not reproduce the missing configuration.
+
+The [verifier repair CI](https://github.com/boonewh/pathsix-backend/actions/runs/37714032799)
+passed **669 tests with zero skips** at `5287e0e`. The separate operational verifier
+at that revision accepts the existing `sslmode` setting while still rejecting
+arbitrary connection options, and reads migration history through the operator
+connection. The app role correctly cannot read `alembic_version`; its permissions
+were not widened. Application behavior is unchanged from the deployed revision.
+
+Two preliminary deployed runs are incomplete: staging auto-stop interrupted the
+first, and the next encountered an operational database error after six passing
+checks. Their single leftover disposable schemas were inspected and removed,
+with all 23 public tables (including migration history) unchanged. The failed
+case passed alone. A subsequent run uses the same private database endpoint,
+the prior successful 0.25-second DDL pacing and explicit connection timeouts.
+Keep the earlier database stability issue open until supported by further evidence;
+passing a subsequent run does not explain or erase the transient failure.
+
+The paced rerun passed **149 deployed PostgreSQL tests with zero skips**, exit 0.
+All public rows and sequences were unchanged, no disposable schemas remained,
+and the 18-table/25-policy restricted-role contract, action column privileges and
+immutable trigger matched before and after. The verifier was run separately from
+tracked revision `5287e0e` against the hash-checked application source in release 43.
+The temporary auto-stop override was restored to `stop` after verification.
+
+Only `pathsix-chatgpt-staging` now permits `clients:read`, `leads:read` and
+`leads:create`. The catalog change preserved all existing grants and credentials;
+no user consent was manufactured. A first catalog preflight used an incorrect
+credential ordering column and rolled back before changing the catalog. The
+corrected bounded operation and a fresh read verified the intended scopes.
+The user reconnected, and `list_clients` succeeded from this chat at
+2026-10-08 02:09 UTC. Read-only inspection of the corresponding staging audit
+and the two fresh grants showed only `clients:read`; neither new grant contains
+lead permissions. No write actions exist. The available chat tools are still
+`list_clients` and `get_client`. Thus reconnection is verified, but fresh lead
+consent and the real creation/cancellation/recovery trial remain open. The
+installed private PathSix Staging package references the existing PathSix CRM
+app; its package does not configure OAuth scopes. Inspect/refresh that app's
+connection metadata before asking the user to repeat consent. PR 27 remains in
+draft. Credential-free evidence is recorded in `consent-check.json`.
+
+The existing app's Refresh tools operation returned to idle without a visible
+metadata change. A subsequent reconnect URL still explicitly requested only
+`clients:read`. For a diagnostic consent trial, the agent changed only that
+request's scope parameter to `clients:read leads:read leads:create`, preserving
+its original client, redirect, PKCE, resource and state, then handed the displayed
+three-permission page to the user. No decision was submitted by the agent.
+Acceptance by ChatGPT and persistence across later reconnects are not yet proven;
+this manual diagnostic is not a completed customer onboarding fix.
+
+That preview exposed stale consent wording claiming every connection was read-only.
+The template now explains separate review/confirmation for each new lead when
+`leads:create` is requested, while preserving read-only wording for read grants.
+The local OAuth suite passed 56 checks with two PostgreSQL-only skips after
+loading the existing supplemental MCP dependencies. This wording repair is not
+yet deployed; staging v43 still has the old explanatory sentence.
+
+Local release evidence is in `temp/mvp-lead-creation` in the outer workspace:
+`migration-rehearsal-result.json`, `migration-apply-result.json`,
+`deployed-tests-v4.json`, `public-http.json`, `staging-browser-shell.json`,
+`lead-scopes-enabled.json` and the interrupted-run cleanup reports. These files
+contain summaries/digests, not credential values or customer record contents.
 
 ## Staging operator procedure
 
-This procedure is prepared, not executed. Keep PR 27 in draft until staging and
+The release evidence above records executed steps. Keep PR 27 in draft until staging and
 ChatGPT evidence is recorded. Work from the integrated checkout. Do not use the
 older `temp/mcp-rollout` scripts unchanged: they pin old revisions and assume an
 empty OAuth catalog. The current staging connection must be preserved.
@@ -134,7 +205,12 @@ empty OAuth catalog. The current staging connection must be preserved.
    fresh temporary directory. Tests are excluded from the image. Install the
    pinned `requirements-test.txt` dependencies into the disposable verification
    environment, as for earlier staging checks. Preserve the deployed application
-   and its dependency versions. Run the command below inside the staging app,
+   and its dependency versions. During the serial test run, temporarily set the
+   selected machine's auto-stop to `off`; SSH work does not keep it awake through
+   public traffic routed to the other machine. Restore its original `stop`
+   setting afterward. Pace disposable DDL by 0.25 seconds between tests, retain
+   credential-safe phase diagnostics, and set a finite PostgreSQL connection
+   timeout. Run the command below inside the staging app,
    supplying the operator URL via stdin. Record its JSON result and exit status.
    It runs lead creation/migration, original client MCP, isolation and project
    archive checks against disposable schemas. It requires no skipped checks,
