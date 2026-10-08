@@ -202,6 +202,28 @@ at 2026-10-08 02:46:26 UTC. This verifies the signed-in browser cancellation;
 ChatGPT's receipt retrieval and the separate create/recovery trial remain pending.
 Evidence is in the outer workspace's `temp/mvp-lead-creation/live-lead-trials.json`.
 
+The subsequent creation attempt prepared action
+`a402e92a-a71d-4018-9aaf-cb115c8582a1` for `MVP-LEAD-20261007-CREATE` at
+02:55:19 UTC, but it was never confirmed and expired after ten minutes. No matching
+lead exists. The persisted row remains pending; the public receipt computes its
+expired status. ChatGPT retrieved receipts successfully at 02:55:03 and 03:18:21.
+Two later browser reconnects at 03:20:14 and 03:21:26 created client-only grants;
+the subsequent receipt and lead reads were denied under those new grants. The
+lead-enabled grant remained valid and had served successful calls through 03:18.
+This is a reconnect scope regression, not evidence of lost scopes on normal refresh.
+
+The server returned a plain tool error for missing scope, omitting the
+`_meta["mcp/www_authenticate"]` challenge required by
+[OpenAI's authentication guidance](https://developers.openai.com/plugins/build/auth).
+The bounded repair returns an explicit insufficient-scope challenge containing
+required and already-approved scopes after the denied call is audited. Fresh
+human consent is still required; no grant is widened. Client tools now also
+declare their OAuth scope in metadata. Local MCP/lead tests passed 83 checks with
+five PostgreSQL-only skips. New tests exercise both protocol versions, unchanged
+read grants/data, successful refresh after fresh consent, and validation failures
+without unnecessary reauthorization. Deployment and live host recovery remain
+unverified for this repair; the manual URL adjustment is not the permanent fix.
+
 Local release evidence is in `temp/mvp-lead-creation` in the outer workspace:
 `migration-rehearsal-result.json`, `migration-apply-result.json`,
 `deployed-tests-v4.json`, `public-http.json`, `staging-browser-shell.json`,

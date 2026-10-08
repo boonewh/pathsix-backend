@@ -91,6 +91,52 @@ def test_new_permission_requires_new_consent_and_cannot_be_added_on_refresh(oaut
     assert call(oauth,original['access_token'],'prepare_lead_creation',{'request_key':str(uuid4()),'lead':{'name':'No'}})['isError']
 
 
+@pytest.mark.parametrize('version', ['2025-11-25', '2026-07-28'])
+def test_missing_lead_scope_returns_consent_challenge_without_widening_grant(oauth, version):
+    writer(oauth)
+    token, grant_id = token_for(oauth, scopes=['clients:read'])
+    params = {'name':'prepare_lead_creation',
+        'arguments':{'request_key':str(uuid4()),'lead':{'name':'Not approved'}}}
+    if version == '2026-07-28':
+        params['_meta'] = {'io.modelcontextprotocol/protocolVersion':version,
+                           'io.modelcontextprotocol/clientCapabilities':{}}
+    status, body, _ = rpc(oauth, token, 'tools/call', params,
+        headers={'MCP-Protocol-Version':version})
+    assert status == 200
+    result = body['result']
+    assert result['isError']
+    challenge = result['_meta']['mcp/www_authenticate'][0]
+    assert 'error="insufficient_scope"' in challenge
+    assert 'error_description=' in challenge
+    assert 'resource_metadata="https://example.test/.well-known/oauth-protected-resource/mcp"' in challenge
+    assert 'scope="clients:read leads:create leads:read"' in challenge
+    with oauth.admin() as db:
+        assert db.get(AIConnection, grant_id).scopes == ['clients:read']
+        assert db.query(AIWriteAction).count() == 0
+        assert db.query(Lead).count() == 2
+        assert db.query(AIToolAudit).filter_by(connection_id=grant_id, outcome='forbidden').count() == 1
+    assert call(oauth, token, 'list_clients')['structuredContent']['clients']
+
+
+def test_scope_recovery_challenge_disappears_after_fresh_consent(oauth):
+    writer(oauth)
+    oauth.params['scope'] = 'clients:read leads:read leads:create'
+    original = oauth.tokens()
+    status, refreshed = oauth.refresh(original['refresh_token'])
+    assert status == 200 and set(refreshed['scope'].split()) == {'clients:read', *SCOPES}
+    action = prepare(oauth, refreshed['access_token'])
+    result = call(oauth, refreshed['access_token'], 'get_lead_creation', {'action_id':action['action_id']})
+    assert result['structuredContent']['status'] == 'pending'
+    assert 'mcp/www_authenticate' not in (result.get('_meta') or {})
+
+
+def test_invalid_proposal_is_not_reported_as_missing_consent(oauth):
+    token, _ = writer(oauth)
+    result = call(oauth, token, 'prepare_lead_creation', {'request_key':str(uuid4()),'lead':{'name':''}})
+    assert result['isError']
+    assert 'mcp/www_authenticate' not in (result.get('_meta') or {})
+
+
 @pytest.mark.parametrize('lead',[
     {'name':''},{'name':'x','tenant_id':2},{'name':'x','assigned_to':2},
     {'name':'x','approved':True},{'name':'x','email':'not-email'},
