@@ -37,7 +37,9 @@ def require_environment(revision, operator_url, env):
     runtime = make_url(env.get('DATABASE_URL', '').replace('postgres://', 'postgresql://', 1))
     for url, user in ((operator, DATABASE), (runtime, ROLE)):
         if (url.get_backend_name() != 'postgresql' or url.host not in HOSTS
-                or url.database != DATABASE or url.username != user or url.query
+                or url.database != DATABASE or url.username != user
+                or set(url.query) - {'sslmode'}
+                or url.query.get('sslmode', 'require') not in ('disable', 'allow', 'prefer', 'require', 'verify-ca', 'verify-full')
                 or url.port not in (None, 5432)):
             raise RuntimeError('Refusing unexpected staging database connection')
     return operator.set(host='pathsixsolutions-db-staging.internal'), runtime
@@ -64,6 +66,9 @@ def snapshot(engine, tables, schema='public'):
         result['test_schemas'] = list(c.execute(text(
             "SELECT nspname FROM pg_namespace WHERE nspname ~ '^security_test_[0-9a-f]{32}$' ORDER BY nspname"
         )).scalars())
+        if 'alembic_version' in tables:
+            result['migration_heads'] = list(c.execute(text(
+                f'SELECT version_num FROM {q(schema)}.alembic_version ORDER BY version_num')).scalars())
         return result
 
 
@@ -75,8 +80,6 @@ def attest(engine):
         c.execute(text("SET LOCAL statement_timeout='15s'"))
         if c.execute(text('SELECT current_user')).scalar_one() != ROLE:
             raise RuntimeError('Unexpected runtime role')
-        if c.execute(text('SELECT version_num FROM alembic_version')).scalars().all() != ['mcp_lead_creation']:
-            raise RuntimeError('Lead migration has not been applied')
         result = verify_isolation_contract(c, 'public', ROLE)
         for privilege in ('SELECT', 'INSERT', 'DELETE', 'TRUNCATE', 'UPDATE'):
             allowed = c.execute(text("SELECT has_table_privilege(:role,'public.ai_write_actions',:privilege)"),
@@ -132,6 +135,8 @@ def main():
         contract = attest(restricted)
         tables = (*TABLES, 'roles', 'backups', 'backup_restores', 'ai_clients', 'alembic_version')
         before = snapshot(admin, tables)
+        if before['migration_heads'] != ['mcp_lead_creation']:
+            raise RuntimeError('Lead migration has not been applied')
         if before['test_schemas']:
             raise RuntimeError('Existing disposable test schemas require review')
         os.environ.update(SECURITY_TEST_DATABASE_URL=operator.render_as_string(hide_password=False),

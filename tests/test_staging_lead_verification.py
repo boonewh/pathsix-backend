@@ -35,6 +35,7 @@ def test_wrong_environment_is_rejected(key, value):
     OPERATOR.replace('/pathsixsolutions_backend_staging', '/production'),
     OPERATOR.replace('pathsixsolutions_backend_staging:synthetic', 'postgres:synthetic'),
     OPERATOR + '?options=-csearch_path%3Dpublic',
+    OPERATOR + '?sslmode=unknown',
     OPERATOR.replace('.internal/', '.internal:5433/'),
     'sqlite:///staging.db',
 ])
@@ -50,6 +51,14 @@ def test_valid_environment_and_private_test_endpoint():
     assert runtime.username == verifier.ROLE
     with pytest.raises(RuntimeError):
         verifier.require_environment('short', OPERATOR, environment())
+
+
+@pytest.mark.parametrize('mode', ['disable', 'require', 'verify-full'])
+def test_existing_tls_settings_are_preserved(mode):
+    env = environment()
+    env['DATABASE_URL'] += '?sslmode=' + mode
+    operator, runtime = verifier.require_environment(REVISION, OPERATOR + '?sslmode=' + mode, env)
+    assert operator.query == runtime.query == {'sslmode': mode}
 
 
 def test_main_rejects_wrong_revision_before_database_access(monkeypatch, tmp_path):
@@ -71,6 +80,10 @@ def test_snapshot_detects_data_changes_without_returning_record_content(crm):
         if engine.dialect.name != 'postgresql':
             pytest.skip('Requires PostgreSQL snapshot semantics')
         schema = db.execute(text('SELECT current_schema()')).scalar_one()
+        db.execute(text("INSERT INTO alembic_version VALUES ('mcp_lead_creation')"))
+        db.commit()
+    migration = verifier.snapshot(engine, ('alembic_version',), schema)
+    assert migration['migration_heads'] == ['mcp_lead_creation']
     before = verifier.snapshot(engine, ('leads', 'users'), schema)
     assert before == verifier.snapshot(engine, ('leads', 'users'), schema)
     assert 'Private lead' not in json.dumps(before)
