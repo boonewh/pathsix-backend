@@ -1,4 +1,4 @@
-"""Verified delegated tool boundary; human confirmation stays outside MCP."""
+"""Verified delegated tool boundary; capability-bound UI confirmation."""
 from datetime import datetime, timedelta
 from uuid import uuid4
 from authlib.oauth2.rfc6749.errors import InvalidScopeError
@@ -16,6 +16,7 @@ TOOL_SCOPES = {
     'list_clients': ['clients:read'], 'get_client': ['clients:read'],
     'list_leads': ['leads:read'], 'get_lead': ['leads:read'], 'get_lead_options': ['leads:read'],
     'prepare_lead_creation': REQUIRED_SCOPES, 'get_lead_creation': REQUIRED_SCOPES,
+    'decide_lead_creation': REQUIRED_SCOPES,
 }
 TOOLS = tuple(TOOL_SCOPES)
 MAX_CALLS_PER_MINUTE = 60
@@ -28,7 +29,7 @@ def authenticate(factory, raw):
     return principal,identity
 
 
-def execute(factory, raw, name, arguments):
+def execute(factory, raw, name, arguments, *, review=None):
     # No request-supplied owner, tenant, role, scope or Principal is accepted.
     principal,identity = authenticate(factory,raw)
     with factory() as db:
@@ -49,7 +50,7 @@ def execute(factory, raw, name, arguments):
             else:
                 validate_access(db,principal,raw,resource_uri(),TOOL_SCOPES[name])
                 if not isinstance(arguments,dict): raise ValueError()
-                result = dispatch(db, principal, identity.connection_id, name, arguments)
+                result = dispatch(db, principal, identity.connection_id, name, arguments, review=review)
         except (InvalidScopeError,PermissionError):
             outcome,error = 'forbidden','Required permission is not available'
         except ActionConflict as conflict:
@@ -73,7 +74,7 @@ def execute(factory, raw, name, arguments):
         return result,error
 
 
-def dispatch(db, principal, connection_id, name, args):
+def dispatch(db, principal, connection_id, name, args, *, review=None):
     if name == 'list_clients':
         if set(args)-{'after_id','limit'}: raise ValueError()
         return ClientService(db,principal).summaries(**args)
@@ -97,8 +98,14 @@ def dispatch(db, principal, connection_id, name, args):
     service = AIActionService(db,principal)
     if name == 'prepare_lead_creation':
         if set(args) != {'request_key','lead'}: raise ValueError()
-        return service.prepare(connection_id,args['request_key'],args['lead'])
+        receipt = service.prepare(connection_id,args['request_key'],args['lead'])
+        return review.present(service, connection_id, receipt) if review else receipt
     if name == 'get_lead_creation':
         if set(args) != {'action_id'}: raise ValueError()
-        return service.result(service.action(args['action_id'],connection_id=connection_id))
+        receipt = service.result(service.action(args['action_id'],connection_id=connection_id))
+        return review.present(service, connection_id, receipt) if review else receipt
+    if name == 'decide_lead_creation':
+        if review is None:
+            raise PermissionError('Component review is unavailable')
+        return review.decide(service, connection_id, args)
     raise ValueError()

@@ -278,6 +278,10 @@ the supporting connection and approval-flow changes, not additional CRM capabili
   response. Record actual prompts/clicks and host limitations. Manual diagnostic
   workarounds and eventual OpenAI review do not satisfy this requirement.
 
+The October 9 source increment implements a guarded in-chat review candidate;
+[its evidence and host trust limits](mcp-lead-creation.md#in-chat-review-increment--october-9-2026)
+are tracked separately from deployed behavior and live acceptance.
+
 The currently deployed external review page is an interim implementation. A
 minimal review inside ChatGPT is an implementation candidate supported by the
 [official UI documentation](https://developers.openai.com/plugins/build/chatgpt-ui)

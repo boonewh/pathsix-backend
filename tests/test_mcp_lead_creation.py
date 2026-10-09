@@ -228,7 +228,7 @@ def test_proposal_audit_failure_does_not_persist_action(oauth):
 def test_tool_metadata_matches_actual_permissions_and_behaviour(oauth):
     token,_=writer(oauth)
     tools={tool['name']:tool for tool in rpc(oauth,token)[1]['result']['tools']}
-    assert set(tools)=={'list_leads','get_lead','get_lead_options','prepare_lead_creation','get_lead_creation'}
+    assert set(tools)=={'list_leads','get_lead','get_lead_options','prepare_lead_creation','get_lead_creation','decide_lead_creation'}
     assert not tools['prepare_lead_creation']['annotations']['readOnlyHint']
     assert tools['get_lead_creation']['annotations']['readOnlyHint']
     assert all(tool['outputSchema'] for tool in tools.values())

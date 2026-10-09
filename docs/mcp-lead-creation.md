@@ -15,6 +15,44 @@ evidence do not establish that gate as complete. Verify a supported in-chat
 approval mechanism against the existing owner/action security boundary before
 replacing this implementation; do not simply expose an unrestricted confirm tool.
 
+## In-chat review increment — October 9, 2026
+
+The new source adds a small MCP Apps review card to preparation and receipt
+retrieval. It shows the normalized fields and authenticated account, accepts a
+Create lead or Cancel click, and displays the durable result immediately. A
+read-only status check runs on mount and after an interrupted decision response;
+no write is retried automatically. The external review route remains available.
+`MCP_INLINE_REVIEW` defaults to false; `fly.staging.toml` opts in for controlled
+host verification. This source change is not yet a staging deployment or live
+ChatGPT acceptance result.
+
+The component uses the standard MCP Apps bridge and a self-contained HTML resource
+with no network or external asset allowlists. Proposal text is rendered with
+`textContent`. `decide_lead_creation` is app-only and requires a five-minute signed
+capability bound to the action, normalized payload hash, user, tenant and grant.
+The server returns that capability only in component `_meta`, never model-visible
+content or structured results. It rechecks current OAuth access, locks the original
+grant/action, and reuses AIActionService for the atomic lead/receipt/audit commit.
+A bare OAuth credential plus an approval boolean is insufficient.
+
+The trust boundary includes the MCP host: it must keep component metadata out of
+model context and honor app-only visibility. These mechanisms are documented in
+[OpenAI's reference](https://developers.openai.com/plugins/reference); the bridge
+follows the [official quickstart](https://developers.openai.com/plugins/build/app-quickstart).
+This is not a cryptographic attestation of human presence from arbitrary clients.
+Do not enable it for an unverified general-purpose client or claim that a local
+host simulator proves ChatGPT's isolation, rendering, or confirmation behavior.
+Host-level permission prompts may add a step and must be counted in live testing.
+
+Local verification: 102 focused backend tests passed with five PostgreSQL-only
+skips before the final account-label/rollout adjustments; the 19 inline checks
+then passed again. Sixteen browser checks passed against a synthetic local CRM
+at 390px and 1000px, including no write before a click, safe text rendering, one
+saved lead, cancellation, reload recovery, lost-response recovery, and denied
+confirmation without the private capability. Final PostgreSQL CI, deployment,
+and real ChatGPT/phone acceptance remain pending. These checks do not resolve the
+ordinary reconnect/discovery issue recorded below.
+
 ## Permissions and tools
 
 `list_leads`, `get_lead` and `get_lead_options` require `leads:read`.

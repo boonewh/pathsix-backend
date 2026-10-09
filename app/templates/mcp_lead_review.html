@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review lead · PathSix</title>
+<style>
+:root{color-scheme:light dark;font-family:var(--font-sans,system-ui,sans-serif);color:var(--color-text-primary,CanvasText);background:var(--color-background-primary,Canvas)}
+*{box-sizing:border-box}body{margin:0;padding:20px}main{max-width:640px;margin:auto}h1{font-size:22px;margin:6px 0 12px}.brand{font-size:12px;font-weight:650;letter-spacing:.08em}p{line-height:1.5}#summary{color:var(--color-text-secondary,GrayText)}dl{display:grid;grid-template-columns:minmax(95px,1fr) minmax(0,3fr);gap:12px 20px;padding:18px 0;border-block:1px solid var(--color-border-primary,#8885)}dt{color:var(--color-text-secondary,GrayText);font-size:13px}dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}button{font:inherit;border-radius:8px;padding:12px 18px;border:1px solid var(--color-border-primary,#8888);background:var(--color-background-primary,Canvas);color:inherit;cursor:pointer;min-height:44px}button.primary{background:#174e5e;color:white;border-color:#174e5e}button:disabled{opacity:.5;cursor:default}button:focus-visible{outline:3px solid #5ca7c0;outline-offset:3px}#notice{font-size:14px;overflow-wrap:anywhere}#refresh{margin-top:14px}small{display:block;margin-top:14px;color:var(--color-text-secondary,GrayText)}[hidden]{display:none!important}@media(max-width:400px){body{padding:16px}dl{grid-template-columns:1fr;gap:4px}dd{margin-bottom:12px}.actions button{flex:1}}
+</style>
+</head>
+<body><main>
+<div class="brand">PATHSIX CRM</div><h1 id="heading">Review lead</h1>
+<p id="account"></p><p id="summary">Loading the current proposal…</p><dl id="fields" hidden></dl>
+<div class="actions" id="decisions" hidden><button class="primary" id="create" disabled>Create lead</button><button id="cancel" disabled>Cancel</button></div>
+<p id="notice" role="status" aria-live="polite"></p>
+<button id="refresh" hidden>Refresh status</button><small id="expiry"></small>
+</main>
+<script>
+'use strict';
+const el=id=>document.getElementById(id), pending=new Map();
+let sequence=0, receipt=null, review=null, busy=false, uncertain=false, ready=false, actionId=null;
+const labels={name:'Company',contact_person:'Contact',email:'Email',phone:'Phone',phone_label:'Phone label',address:'Address',city:'City',state:'State',zip:'ZIP',type:'Business type',lead_status:'Status',notes:'Notes'};
+function notify(method,params){parent.postMessage({jsonrpc:'2.0',method,params},'*');}
+function request(method,params){return new Promise((resolve,reject)=>{const id=++sequence;const timer=setTimeout(()=>{pending.delete(id);reject(new Error('No response'));},30000);pending.set(id,{resolve,reject,timer});parent.postMessage({jsonrpc:'2.0',id,method,params},'*');});}
+function render(){
+ el('fields').replaceChildren();el('fields').hidden=true;
+ el('account').textContent=review?.account?[review.account,review.company].filter(Boolean).join(' · '):'';
+ const state=receipt?.status;
+ el('heading').textContent=state==='committed'?'Lead created':state==='cancelled'?'Proposal cancelled':state==='expired'?'Proposal expired':'Create this lead?';
+ el('summary').textContent=state==='committed'?`${receipt.lead?.name ?? 'Lead'} was saved (ID ${receipt.lead?.id ?? 'unavailable'}).`:state==='cancelled'?'No lead was created by this proposal.':state==='expired'?'Nothing was saved. Ask ChatGPT for a new proposal.':'Check the details below. Nothing is saved until you choose Create lead.';
+ if(state==='pending'&&review?.fields){for(const [key,value] of Object.entries(review.fields)){if(value===null||value==='')continue;const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=labels[key]||key.replaceAll('_',' ');dd.textContent=String(value);el('fields').append(dt,dd);}el('fields').hidden=false;}
+ el('decisions').hidden=state!=='pending'||!review?.intent;
+ el('create').disabled=el('cancel').disabled=busy||uncertain||!ready;
+ el('refresh').hidden=!actionId;el('refresh').disabled=busy;
+ el('expiry').textContent=state==='pending'&&receipt.expires_at?'Proposal expires '+new Date(receipt.expires_at).toLocaleTimeString()+'.':'';
+}
+function accept(result){
+ if(result?.isError||!result?.structuredContent)throw new Error('Unavailable');
+ const next=result.structuredContent;
+ if(!next.action_id||!['pending','committed','cancelled','expired'].includes(next.status))throw new Error('Invalid result');
+ if(actionId&&next.action_id!==actionId)throw new Error('Different action');
+ actionId=next.action_id;receipt=next;review=result._meta?.['pathsix/review']??null;render();
+}
+async function refresh(){
+ if(!ready||busy||!actionId)return;
+ busy=true;render();el('notice').textContent='Checking current status…';
+ try{accept(await request('tools/call',{name:'get_lead_creation',arguments:{action_id:actionId}}));uncertain=false;el('notice').textContent=receipt.status==='pending'?'Review refreshed.':'';}
+ catch{uncertain=true;el('notice').textContent='Status is unavailable. Refresh to check this proposal before trying again.';}
+ finally{busy=false;render();}
+}
+async function decide(approved){
+ if(!ready||busy||uncertain||!review?.intent||receipt?.status!=='pending')return;
+ const args={action_id:actionId,intent:review.intent,approved};
+ busy=true;uncertain=true;render();el('notice').textContent=approved?'Saving…':'Cancelling…';
+ try{
+  accept(await request('tools/call',{name:'decide_lead_creation',arguments:args}));
+  uncertain=false;review=null;el('notice').textContent='';
+  // Share only the durable receipt, never the private capability or proposal fields.
+  void request('ui/update-model-context',{structuredContent:receipt}).catch(()=>{});
+ }catch{
+  el('notice').textContent='The response was interrupted. Checking whether your decision was saved…';
+  busy=false;await refresh();return;
+ }finally{busy=false;render();}
+}
+el('create').onclick=()=>decide(true);el('cancel').onclick=()=>decide(false);el('refresh').onclick=refresh;
+window.addEventListener('message',event=>{
+ if(event.source!==parent||!event.data||event.data.jsonrpc!=='2.0')return;
+ const message=event.data;
+ if(message.id!==undefined&&pending.has(message.id)){const p=pending.get(message.id);pending.delete(message.id);clearTimeout(p.timer);message.error?p.reject(new Error('Host request failed')):p.resolve(message.result);return;}
+ if(message.method==='ui/notifications/tool-result'&&!busy){try{accept(message.params);uncertain=true;render();void refresh();}catch{el('notice').textContent='This review is unavailable. Ask ChatGPT to check the proposal.';}}
+ if(message.method==='ui/notifications/host-context-changed')applyTheme(message.params);
+});
+function applyTheme(context){if(context?.theme==='dark'||context?.theme==='light')document.documentElement.style.colorScheme=context.theme;}
+(async()=>{try{const host=await request('ui/initialize',{appInfo:{name:'PathSix lead review',version:'1.0.0'},appCapabilities:{},protocolVersion:'2026-01-26'});applyTheme(host?.hostContext);ready=true;notify('ui/notifications/initialized',{});if(actionId)void refresh();}catch{el('notice').textContent='The review could not connect. Ask ChatGPT to check the proposal or offer its secure review link.';}})();
+new ResizeObserver(()=>notify('ui/notifications/size-changed',{height:document.documentElement.scrollHeight})).observe(document.body);
+</script></body></html>
