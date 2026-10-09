@@ -6,7 +6,7 @@ The connected user opens the returned review link, signs in to the same PathSix
 account, and confirms or cancels the exact saved proposal. Only confirmation
 creates the CRM record. ChatGPT checks the action receipt afterward.
 
-This describes the deployed interim workflow. On October 7 the user confirmed
+This describes the original external review workflow, retained as a fallback. On October 7 the user confirmed
 that routine use must stay in ChatGPT, with persistent connection, necessary
 approval in the conversation and automatic saved-result reporting. The
 [MVP customer experience requirement](mcp-readiness-status.md#customer-experience-requirement--approved-october-7-2026)
@@ -23,8 +23,7 @@ Create lead or Cancel click, and displays the durable result immediately. A
 read-only status check runs on mount and after an interrupted decision response;
 no write is retried automatically. The external review route remains available.
 `MCP_INLINE_REVIEW` defaults to false; `fly.staging.toml` opts in for controlled
-host verification. This source change is not yet a staging deployment or live
-ChatGPT acceptance result.
+host verification. Staging deployment and live ChatGPT acceptance are tracked separately below.
 
 The component uses the standard MCP Apps bridge and a self-contained HTML resource
 with no network or external asset allowlists. Proposal text is rendered with
@@ -49,9 +48,37 @@ skips before the final account-label/rollout adjustments; the 19 inline checks
 then passed again. Sixteen browser checks passed against a synthetic local CRM
 at 390px and 1000px, including no write before a click, safe text rendering, one
 saved lead, cancellation, reload recovery, lost-response recovery, and denied
-confirmation without the private capability. Final PostgreSQL CI, deployment,
-and real ChatGPT/phone acceptance remain pending. These checks do not resolve the
-ordinary reconnect/discovery issue recorded below.
+confirmation without the private capability. The final browser rerun passed the same 16 checks with account labels and dark
+desktop rendering. These checks do not resolve ordinary reconnect/discovery.
+
+[PostgreSQL CI](https://github.com/boonewh/pathsix-backend/actions/runs/37947632210)
+passed **695 tests with zero skips**, including concurrent component decisions.
+Staging **v46** deployed `ee4cbb2bd978f9d6de1dae587a5c64f8eed15213`, image
+`sha256:8a4c9760803fb242f59d57abb37b97d27d46052181ccf0d2612583895f00c159`.
+Both machines passed active health checks. Public health and OAuth discovery
+returned 200; unauthenticated MCP returned its expected 401 challenge. The
+staging configuration enables `MCP_INLINE_REVIEW`; production was not changed.
+
+All **20 inline-review tests passed on the deployed revision with zero skips**.
+The separate verifier selected `test_mcp_inline_review.py` from the exact commit,
+hash-checked seven relevant source files and reused the existing preservation
+and database attestation checks. Public rows/sequences, the restricted role,
+18-table/25-policy contract and immutable action trigger were unchanged; no
+disposable schemas remained. No migration or grant widening was required.
+Normal auto-stop was restored on both machines. Evidence is in the outer
+`temp/mvp-lead-creation/deployed-inline-tests.json`, `inline-machine-health.json`,
+`inline-public-http.json` and `inline-browser-results.json`.
+
+Real ChatGPT rendering, private metadata isolation, app-only visibility,
+confirmation/recovery, returning use and ordinary consent still need live
+verification. Browser control could not start in the October 9 Codex session:
+the runtime reported `helper_unknown_error: setup refresh had errors` twice.
+This is an agent tooling limitation, not a result from the CRM. A user-driven
+proposal-only trial for `MVP-LEAD-20261009-INLINE` is requested. Do not count it as
+passed without the actual host result. Keep PR 27 in draft and the MVP incomplete.
+To disable the candidate, set `MCP_INLINE_REVIEW=false` and redeploy; existing
+external review and all receipts remain. Full code rollback uses the recorded
+v45 image and its resource configuration; no schema downgrade is involved.
 
 ## Permissions and tools
 
