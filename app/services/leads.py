@@ -24,6 +24,31 @@ class LeadService:
         from app.services.database_context import bind_principal
         bind_principal(session, principal)
 
+    def summaries(self, *, query='', after_id=0, limit=20, lead_id=None):
+        """Bounded delegated reads with the same current record permissions."""
+        from sqlalchemy import func
+        if (not isinstance(query, str) or len(query) > 100 or type(after_id) is not int
+                or not 0 <= after_id <= 2147483647 or type(limit) is not int or not 1 <= limit <= 50
+                or (lead_id is not None and (type(lead_id) is not int or not 1 <= lead_id <= 2147483647))):
+            raise ValueError('Invalid lead selection')
+        rows = self.session.query(Lead).filter(owned_record_filter(Lead, self.principal))
+        if lead_id is not None:
+            rows = rows.filter(Lead.id == lead_id)
+        else:
+            rows = rows.filter(Lead.id > after_id)
+        if query.strip():
+            literal = query.strip().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+            rows = rows.filter(Lead.name.ilike('%'+literal+'%', escape='\\'))
+        fields = {'name':100, 'lead_status':100, 'type':100, 'city':100, 'state':100}
+        if lead_id is not None:
+            fields.update(contact_person=100, email=254, phone=20, notes=4000)
+        result = rows.with_entities(Lead.id, *[func.substr(getattr(Lead, key), 1, bound).label(key)
+            for key, bound in fields.items()]).order_by(Lead.id).limit(limit+1).all()
+        if lead_id is not None and not result:
+            raise RecordNotFound('Lead not found')
+        return {'leads':[dict(row._mapping) for row in result[:limit]],
+                'next_after_id':result[limit-1].id if len(result)>limit else None}
+
     def _get(self, lead_id, *, include_deleted=False):
         lead = self.session.query(Lead).filter(
             Lead.id == lead_id,
@@ -33,13 +58,17 @@ class LeadService:
             raise RecordNotFound("Lead not found")
         return lead
 
-    def create(self, data: LeadCreateSchema, *, assigned_to=None):
+    def creation_fields(self, data: LeadCreateSchema):
         if not isinstance(data, LeadCreateSchema):
             raise TypeError("Validated lead data required")
         fields = normalize_lead_options(data.model_dump(), tenant_lead_config(self.session, self.principal.tenant_id), creating=True)
         for field in ('phone', 'secondary_phone'):
             fields[field] = clean_phone_number(fields[field]) if fields[field] else None
         fields['email'] = str(data.email) if data.email else None
+        return fields
+
+    def create(self, data: LeadCreateSchema, *, assigned_to=None):
+        fields = self.creation_fields(data)
         if assigned_to is not None:
             self._require_admin()
             if self.session.query(User).filter(

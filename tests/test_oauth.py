@@ -90,6 +90,25 @@ class Flow:
             return validate_access(db,principal,raw,resource,scopes or ['clients:read'])
 
 
+@pytest.mark.parametrize('scope', ['clients:read', 'leads:read leads:create'])
+def test_consent_explains_requested_write_capability(oauth, scope):
+    with oauth.admin() as db:
+        db.get(AIClient, 'pilot').allowed_scopes = ['clients:read', 'leads:read', 'leads:create']
+        db.commit()
+    oauth.params['scope'] = scope
+    status, body, _ = oauth.request('GET', '/oauth/authorize?' + urlencode(oauth.params))
+    assert status == 200
+    if 'leads:create' in scope.split():
+        assert 'Each new lead requires your separate review and confirmation.' in body
+        assert 'cannot update or delete existing records' in body
+        assert 'cannot change or delete records' not in body
+    else:
+        assert 'cannot change or delete records' in body
+        assert 'Each new lead' not in body
+    with oauth.admin() as db:
+        assert db.query(AIConnection).count() == 0
+
+
 def test_browser_code_exchange_rotation_and_replay_revokes_family(oauth,caplog):
     import logging
     caplog.set_level(logging.DEBUG)

@@ -49,7 +49,7 @@ def crm(tmp_path, monkeypatch, request):
         engine = create_engine(f"sqlite:///{tmp_path / 'security.db'}")
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine)
-    for name in ('accounts', 'activity', 'subscriptions', 'contacts', 'projects', 'interactions', 'clients', 'leads', 'auth', 'reports', 'imports', 'users', 'search', 'storage', 'user_preferences', 'ai_connections', 'oauth'):
+    for name in ('accounts', 'activity', 'subscriptions', 'contacts', 'projects', 'interactions', 'clients', 'leads', 'auth', 'reports', 'imports', 'users', 'search', 'storage', 'user_preferences', 'ai_connections', 'oauth', 'ai_actions'):
         monkeypatch.setattr(importlib.import_module(f'app.routes.{name}'), 'SessionLocal', factory)
     monkeypatch.setattr(auth_utils, 'SessionLocal', factory)
     monkeypatch.setattr(importlib.import_module('app.mcp_server'),'SessionLocal',factory)
@@ -97,12 +97,14 @@ def crm(tmp_path, monkeypatch, request):
                 secure_oauth(connection, schema, runtime_role)
                 from migrations.versions.mcp_read_audit import secure as secure_mcp
                 secure_mcp(connection,schema,runtime_role)
+                from migrations.versions.mcp_lead_creation import secure as secure_actions
+                secure_actions(connection,schema,runtime_role)
         runtime_factory = sessionmaker(bind=engine)
         @event.listens_for(runtime_factory, 'after_begin')
         def set_runtime_role(session, transaction, connection):
             role_sql = connection.dialect.identifier_preparer.quote(runtime_role)
             connection.execute(text(f'SET LOCAL ROLE {role_sql}'))
-        for name in ('accounts', 'activity', 'subscriptions', 'contacts', 'projects', 'interactions', 'clients', 'leads', 'auth', 'reports', 'imports', 'users', 'search', 'storage', 'user_preferences', 'ai_connections', 'oauth'):
+        for name in ('accounts', 'activity', 'subscriptions', 'contacts', 'projects', 'interactions', 'clients', 'leads', 'auth', 'reports', 'imports', 'users', 'search', 'storage', 'user_preferences', 'ai_connections', 'oauth', 'ai_actions'):
             monkeypatch.setattr(importlib.import_module(f'app.routes.{name}'), 'SessionLocal', runtime_factory)
         monkeypatch.setattr(auth_utils, 'SessionLocal', runtime_factory)
         monkeypatch.setattr(importlib.import_module('app.mcp_server'),'SessionLocal',runtime_factory)
@@ -260,7 +262,8 @@ def test_every_data_route_requires_authentication(crm):
     call, _, app = crm
     public = {'auth.login', 'auth.forgot_password', 'auth.reset_password', 'static',
                   'oauth.static', 'oauth.metadata', 'oauth.authorize', 'oauth.connections',
-                  'oauth.token', 'oauth.revoke', 'mcp_metadata.metadata'}  # Dedicated credential/CSRF proofs in test_oauth.py.
+                  'oauth.token', 'oauth.revoke', 'mcp_metadata.metadata',
+                  'ai_actions.page'}  # Public shells; credential/CSRF/data proofs cover OAuth and action endpoints.
     for rule in app.url_map.iter_rules():
         if rule.endpoint in public:
             continue

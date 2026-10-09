@@ -159,6 +159,38 @@ class AIToolAudit(Base):
     created_at = Column(DateTime,nullable=False,default=datetime.utcnow)
 
 
+class AIWriteAction(Base):
+    """Immutable proposal and durable receipt; an ID alone never authorizes a write."""
+    __tablename__ = 'ai_write_actions'
+    __table_args__ = (
+        ForeignKeyConstraint(['tenant_id', 'user_id', 'connection_id'],
+            ['ai_connections.tenant_id', 'ai_connections.user_id', 'ai_connections.id'],
+            name='fk_ai_write_actions_owner_grant'),
+        UniqueConstraint('connection_id', 'request_key', name='uq_ai_write_actions_request'),
+        CheckConstraint("kind = 'create_lead'", name='ck_ai_write_actions_kind'),
+        CheckConstraint("status IN ('pending','cancelled','committed')", name='ck_ai_write_actions_status'),
+        CheckConstraint("(status = 'committed' AND result_id IS NOT NULL AND decided_at IS NOT NULL) OR "
+                        "(status = 'cancelled' AND result_id IS NULL AND decided_at IS NOT NULL) OR "
+                        "(status = 'pending' AND result_id IS NULL AND decided_at IS NULL)",
+                        name='ck_ai_write_actions_result'),
+        CheckConstraint('expires_at > created_at', name='ck_ai_write_actions_expiry'),
+        Index('ix_ai_write_actions_owner_created', 'tenant_id', 'user_id', 'created_at'),
+    )
+    id = Column(String(36), primary_key=True)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
+    user_id = Column(Integer, nullable=False)
+    connection_id = Column(String(36), nullable=False)
+    request_key = Column(String(64), nullable=False)
+    input_hash = Column(String(64), nullable=False)
+    kind = Column(String(30), nullable=False)
+    payload = Column(JSON, nullable=False)
+    status = Column(String(12), nullable=False, default='pending')
+    result_id = Column(Integer)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    decided_at = Column(DateTime)
+
+
 class Client(Base):
     __tablename__ = 'clients'
     id = Column(Integer, primary_key=True, index=True)

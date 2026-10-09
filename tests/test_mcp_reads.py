@@ -17,6 +17,7 @@ from test_oauth import oauth as oauth_fixture,Flow,RESOURCE
 @pytest.fixture
 def oauth(crm,monkeypatch):
     flow=oauth_fixture.__wrapped__(crm,monkeypatch)
+    flow.app.config['MCP_INLINE_REVIEW'] = True
     with asyncio.Runner() as runner:
         flow.runner=runner
         context=flow.app.test_app()
@@ -45,7 +46,7 @@ def rpc(oauth,token,method='tools/list',params=None,**kwargs):
         headers.update(kwargs.pop('headers',{}))
         if headers['MCP-Protocol-Version']=='2026-07-28':
             headers['MCP-Method']=method
-            if method=='tools/call': headers['MCP-Name']=params['name']
+            if method in ('tools/call','resources/read'): headers['MCP-Name']=params['name' if method=='tools/call' else 'uri']
         body={'jsonrpc':'2.0','id':1,'method':method,'params':params or {}}
         response=await oauth.app.test_client().open('/mcp',method=kwargs.pop('http_method','POST'),
             headers=headers,json=body,scheme='https',**kwargs)
@@ -264,7 +265,7 @@ def test_metadata_and_configuration_fail_closed(oauth,monkeypatch):
         response=await oauth.app.test_client().get('/.well-known/oauth-protected-resource/mcp',scheme='https')
         return response.status_code,await response.get_json()
     status,value=oauth.runner.run(read())
-    assert status==200 and value['resource']==RESOURCE and value['scopes_supported']==['clients:read']
+    assert status==200 and value['resource']==RESOURCE and value['scopes_supported']==['clients:read','leads:read','leads:create']
     assert rpc(oauth,'bad')[0]==401
     monkeypatch.setenv('MCP_RESOURCE_URI',RESOURCE+'/wrong')
     assert oauth.runner.run(read())[0]==503 and rpc(oauth,'bad')[0]==503

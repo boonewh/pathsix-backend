@@ -1,0 +1,21 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review lead creation · PathSix</title>
+<link rel="stylesheet" href="{{ url_for('oauth.static', filename='oauth.css') }}">
+<link rel="stylesheet" href="{{ url_for('oauth.static', filename='ai_action.css') }}">
+<script src="{{ url_for('oauth.static', filename='ai_action.js') }}" defer></script></head>
+<body><main data-action="{{ action_id }}" data-staging="{{ 'true' if staging else 'false' }}">
+<span class="wordmark">PathSix</span>{% include 'oauth_environment.html' %}
+<p class="eyebrow">REVIEW BEFORE SAVING</p><h1>Create this lead?</h1>
+<p class="intro">Review the details proposed in ChatGPT. Nothing is saved to your CRM until you choose Create lead.</p>
+<form id="login"><h2>Sign in to review</h2>
+<label for="email">Email</label><input id="email" name="email" type="email" autocomplete="username" required>
+<label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required>
+<button type="submit">Continue</button></form>
+<section id="review" hidden><p id="identity"></p><dl id="fields"></dl>
+<p id="expiry" class="note"></p><p id="guidance" class="note">To change these details, cancel and ask ChatGPT to prepare a revised lead.</p>
+<div id="decisions" hidden><button type="button" id="cancel" class="secondary">Cancel proposal</button>
+<button type="button" id="confirm">Create lead</button></div>
+<button type="button" id="refresh" class="secondary">Refresh status</button>
+<button type="button" id="switch" class="secondary">Use a different account</button></section>
+<p id="message" role="status" aria-live="polite" tabindex="-1"></p>
+<noscript><p>Enable JavaScript to review this proposal.</p></noscript></main></body></html>
