@@ -84,7 +84,9 @@ v45 image and its resource configuration; no schema downgrade is involved.
 
 `list_leads`, `get_lead` and `get_lead_options` require `leads:read`.
 `prepare_lead_creation` and `get_lead_creation` require both `leads:read` and
-`leads:create`. Existing `clients:read` connections still expose only their two
+`leads:create`. The optional app-only `decide_lead_creation` requires the same
+scopes plus the private review capability described above. Existing
+`clients:read` connections still expose only their two
 client tools. The operator client catalog must explicitly allow new permissions;
 existing grants and credentials are never widened. A new consent is required.
 
@@ -96,7 +98,9 @@ Read results and proposal text are untrusted data, rendered as text in the revie
 
 ## Confirmation and recovery
 
-MCP can prepare and check an action but has no confirmation tool. The review API
+The model can prepare and check an action but cannot use the app-only decision
+tool. With inline review disabled, confirmation is available only through the
+external review API. That API
 requires a normal CRM login, the grant's exact owner, current membership and
 permissions, an enabled OAuth client, same-origin requests, a secure browser
 cookie and a short signed review bound to the owner, action and payload hash.
