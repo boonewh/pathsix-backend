@@ -85,9 +85,9 @@ v45 image and its resource configuration; no schema downgrade is involved.
 `list_leads`, `get_lead` and `get_lead_options` require `leads:read`.
 `prepare_lead_creation` and `get_lead_creation` require both `leads:read` and
 `leads:create`. The optional app-only `decide_lead_creation` requires the same
-scopes plus the private review capability described above. Existing
-`clients:read` connections still expose only their two
-client tools. The operator client catalog must explicitly allow new permissions;
+scopes plus the private review capability described above. Authenticated discovery now advertises tools allowed by the registered AI client,
+including scopes that require new consent. Existing `clients:read` tokens can
+still execute only their original client tools; discovery does not grant access. The operator client catalog must explicitly allow new permissions;
 existing grants and credentials are never widened. A new consent is required.
 
 Creation reuses LeadService and its field/default normalization. The new lead is
@@ -400,8 +400,8 @@ empty OAuth catalog. The current staging connection must be preserved.
    Do not update `ai_connections` or `oauth_credentials` to widen existing grants.
 8. Obtain fresh user consent for the new scopes using the existing connection
    flow. Confirm the approval screen names lead reading and reviewed lead creation.
-   An older read-only connection must continue exposing only its original client
-   tools. If ChatGPT retains old tool metadata or requests only the old scope,
+   An older read-only connection must remain unable to execute tools beyond its
+   original consent, while discovery advertises the permissions available to request. If ChatGPT retains old tool metadata or requests only the old scope,
    inspect that connection flow before revoking the user's working grant.
 
 The verifier preparation also repaired the migration test's assumption that tests

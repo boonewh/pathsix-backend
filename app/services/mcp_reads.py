@@ -2,10 +2,10 @@
 from datetime import datetime, timedelta
 from uuid import uuid4
 from authlib.oauth2.rfc6749.errors import InvalidScopeError
-from app.models import AIConnection, AIToolAudit
+from app.models import AIClient, AIConnection, AIToolAudit
 from app.services.oauth import lookup_principal, validate_access
 from app.services.database_context import bind_principal
-from app.services.ai_connections import resource_uri
+from app.services.ai_connections import resource_uri, scope_set
 from app.services.clients import ClientService
 from app.services.errors import RecordNotFound
 from app.services.leads import LeadService
@@ -27,6 +27,22 @@ def authenticate(factory, raw):
     with factory() as db:
         identity = validate_access(db,principal,raw,resource_uri())
     return principal,identity
+
+
+def discoverable_tools(factory, raw):
+    """Advertise client capabilities so a host can request missing user consent.
+
+    Discovery returns static definitions, not records or permission to execute.
+    Filtering by the token's scopes prevents a read-only connection from ever
+    discovering the write scopes it needs to request during reconnection.
+    """
+    principal = lookup_principal(factory, raw)
+    with factory() as db:
+        identity = validate_access(db, principal, raw, resource_uri())
+        client = db.query(AIClient).filter_by(id=identity.client_id,
+            is_active=True, oauth_enabled=True).one()
+        allowed = scope_set(client.allowed_scopes)
+        return {name for name, required in TOOL_SCOPES.items() if set(required) <= allowed}
 
 
 def execute(factory, raw, name, arguments, *, review=None):

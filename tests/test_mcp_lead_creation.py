@@ -76,10 +76,12 @@ def test_full_oauth_lead_creation_and_retry_receipt(oauth):
         assert db.query(AIToolAudit).filter_by(tool='confirm_lead_creation').count()==1
 
 
-def test_read_grants_never_gain_writes_or_discover_them(oauth):
+def test_read_grants_discover_required_consent_but_never_gain_writes(oauth):
     writer(oauth)
     token,_=token_for(oauth,scopes=['clients:read'])
-    assert {t['name'] for t in rpc(oauth,token)[1]['result']['tools']}=={'list_clients','get_client'}
+    tools = {t['name']:t for t in rpc(oauth,token)[1]['result']['tools']}
+    assert tools['prepare_lead_creation']['_meta']['securitySchemes'] == [
+        {'type':'oauth2', 'scopes':['leads:read','leads:create']}]
     assert call(oauth,token,'prepare_lead_creation',{'request_key':str(uuid4()),'lead':{'name':'Forbidden'}})['isError']
     with oauth.admin() as db: assert db.query(AIWriteAction).count()==0
 
@@ -228,7 +230,7 @@ def test_proposal_audit_failure_does_not_persist_action(oauth):
 def test_tool_metadata_matches_actual_permissions_and_behaviour(oauth):
     token,_=writer(oauth)
     tools={tool['name']:tool for tool in rpc(oauth,token)[1]['result']['tools']}
-    assert set(tools)=={'list_leads','get_lead','get_lead_options','prepare_lead_creation','get_lead_creation','decide_lead_creation'}
+    assert set(tools)=={'list_clients','get_client','list_leads','get_lead','get_lead_options','prepare_lead_creation','get_lead_creation','decide_lead_creation'}
     assert not tools['prepare_lead_creation']['annotations']['readOnlyHint']
     assert tools['get_lead_creation']['annotations']['readOnlyHint']
     assert all(tool['outputSchema'] for tool in tools.values())

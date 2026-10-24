@@ -94,11 +94,11 @@ def install_mcp(app):
 
     async def list_tools(ctx,params):
         try:
-            _,identity=mcp_reads.authenticate(SessionLocal,bearer(ctx.request.headers))
+            discoverable=mcp_reads.discoverable_tools(SessionLocal,bearer(ctx.request.headers))
             from app.mcp_lead_tools import tools as lead_tools
             available = tools() + lead_tools(inline_review=app.config.get('MCP_INLINE_REVIEW', False))
             return types.ListToolsResult(tools=[tool for tool in available
-                if set(mcp_reads.TOOL_SCOPES[tool.name]) <= identity.scopes])
+                if tool.name in discoverable])
         except (InvalidGrantError,SQLAlchemyError):
             return types.ListToolsResult(tools=[])
 

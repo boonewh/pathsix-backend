@@ -146,7 +146,7 @@ def test_pagination_excludes_deleted_and_inaccessible_rows(oauth):
 
 def test_scope_denial_unknown_tool_and_no_writes(oauth):
     token,_=token_for(oauth,scopes=['reports:read'])
-    assert rpc(oauth,token)[1]['result']['tools']==[]
+    assert {t['name'] for t in rpc(oauth,token)[1]['result']['tools']}=={'list_clients','get_client'}
     assert call(oauth,token,'list_clients')['isError']
     assert call(oauth,token,'delete_client',{'client_id':1})['isError']
     with oauth.admin() as db:

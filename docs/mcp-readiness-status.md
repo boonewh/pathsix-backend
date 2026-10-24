@@ -63,6 +63,47 @@ a single user-driven card-rendering trial is requested, not yet verified. No
 manual OAuth URL edits are part of that trial. Production is unchanged. See
 [lead-creation release evidence and limits](mcp-lead-creation.md).
 
+### Live reconnect diagnosis - October 24, 2026
+
+Staging remains on `ee4cbb2` with inline review enabled. Read-only database
+diagnostics verified code exchange and refresh rotation for today's ordinary
+reconnect. At 19:10:50 UTC the user granted `clients:read leads:read`;
+`list_leads` and `get_lead_options` succeeded at 19:10:58 and 19:10:59. At
+19:11:04 `prepare_lead_creation` was denied because `leads:create` was absent.
+The action count remained two (the earlier October 7 trials): this attempt did
+not prepare a new proposal or create a lead. Evidence in the outer checkout:
+`temp/mvp-lead-creation/consent-20261024.json` (scope/timestamp/audit metadata only).
+
+Browser inspection reproduced a separate failure: the conversation's Reconnect
+button displayed "This app does not provide a browser setup URL right now" before
+opening PathSix. Reloading the chat did not produce a working authorization
+destination. Settings -> PathSix CRM -> existing account -> Reconnect did open
+the staging consent screen, but requested the same two read scopes. Repeating
+that consent cannot provide lead-creation access. The agent did not submit it,
+edit its URL, or widen a grant. Refresh tools was attempted in Settings without
+visible confirmation of updated definitions; no successful metadata refresh is
+claimed. This agent session still exposed the earlier external-review instructions,
+which does not establish what a new ChatGPT conversation would receive.
+
+The backend is reachable and authentication succeeded. The immediate blockers are
+the in-chat reconnect launch and acquisition of the required write permission.
+Whether the launch failure originates in saved app metadata or ChatGPT's UI is
+not established. Do not count this as a passed card trial or assume OpenAI review
+will resolve it. Keep step 1 incomplete and PR 27 in draft. Application source,
+deployment, and production configuration were unchanged during this diagnosis.
+
+Connection repair candidate: authenticated tool discovery now filters by the
+registered AI client's allowed capabilities, rather than the current token's
+already-approved scopes. This lets a returning read-only account discover the
+write permission it needs to request. Per-tool OAuth metadata, record access,
+execution-time scope checks, explicit consent and refresh scope restrictions
+remain enforced. Seven new tests cover discovery-driven consent in both supported
+protocols, preservation of read-only tokens, client catalog restrictions and
+expired/revoked credentials. Deployment and real ChatGPT recovery still require
+verification; this source change alone does not resolve the host button failure.
+
+### Earlier deployment history
+
 Work resumed from staging `aa1d830`, which merges the September 22 handoff.
 The earlier historical deployment was **v40 / `bf6af89`** after the client, report, storage,
 import, user, preference, identity/platform, isolation-proof, AI consent, OAuth browser and read-only MCP increments. PostgreSQL/RLS CI
