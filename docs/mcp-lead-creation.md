@@ -150,14 +150,22 @@ scope or consent changes are required by this repair.
 
 The existing ChatGPT connector was refreshed and its app details visibly show the
 new preparation instructions. Reloading the original chat recovered saved lead 11
-without another login or decision. The original assistant summary remains history;
-this is not proof of the new follow-up. A fresh proposal prompt for
-`MVP-LEAD-20261024-CONFIRM` is drafted but unsent in the user's existing test chat.
-The user must send it and make the review decision to test the actual follow-up.
+without another login or decision. The original assistant summary remains history.
+
+The user completed the fresh `MVP-LEAD-20261024-CONFIRM` trial. Its card shows Lead
+created, ID 12, and the conversation now confirms the saved lead and committed
+status beneath the short card pointer. The user screenshot verifies the missing
+conversation confirmation is present. Read-only staging verification confirms
+action `1b13fe0e-9b6e-45eb-b0b2-eab7394b6ddb` committed at 20:13:08 UTC (3:13 PM
+America/Chicago), result ID 12, exactly one matching lead and successful
+decision/confirmation audit records. This passes the desktop happy-path save and
+automatic-reporting trial; it does not establish the remaining failure cases.
+Evidence: outer `temp/mvp-lead-creation/conversation-live-confirmed-20261024.json`
+and `conversation-live-confirmed-20261024.png` (the user's supplied screenshot).
 Outer-checkout evidence: `conversation-deployed-tests.json`,
 `conversation-preflight-before.json`, `conversation-machines-after.json`,
 `conversation-catalog-after.jpg` and `conversation-trial-draft.jpg`, all under
-`temp/mvp-lead-creation`. Automatic ChatGPT reporting is not yet accepted.
+`temp/mvp-lead-creation`. The live desktop saved-result reporting defect is verified fixed.
 Inline cancellation/recovery, returning use, phone acceptance, metadata isolation
 and production CSP remain live acceptance gates. Keep step 1 incomplete and PR 27
 in draft; production is unchanged.
