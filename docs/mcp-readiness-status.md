@@ -116,10 +116,23 @@ at 19:45:20 UTC (2:45 PM America/Chicago), authorization-code exchange, and two
 refresh rotations retaining all three scopes. The earlier read-only grants remain
 unchanged. No grant was manufactured or widened by the agent. Evidence is in
 `temp/mvp-lead-creation/consent-20261024-after-repair.json` in the outer checkout.
-No tool invocation or new proposal on this grant was recorded yet. The earlier
-pending chat request ended with a connection-error response; a fresh prompt is
-still needed to prove the in-chat path and review card. Do not mark step 1 complete
-from catalog, consent, and token-refresh evidence alone.
+The fresh ChatGPT prompt succeeded: lead lookup and options at 19:46:55/56 UTC,
+proposal preparation at 19:47:03, and receipt retrieval at 19:47:09. User screenshots
+show the inline review card with the correct staging account, exact company name,
+normalized fields and enabled Create lead/Cancel controls. Read-only database
+verification confirms action `1c16a6ef-fbeb-417b-854d-c1cedbd63ad4` is pending,
+with no result, no decision and no matching saved lead. It expires at 19:57:03 UTC
+(2:57 PM America/Chicago). Evidence: outer-checkout
+`temp/mvp-lead-creation/inline-live-pending-20261024.json` and the user's two
+October 24 screenshots. This verifies real host rendering and preparation, not
+creation, cancellation or interrupted-response recovery.
+
+The host displays a `CSP off` badge during this developer-mode trial; production
+CSP enforcement is not established by the rendering evidence. The model also
+shows a separate summary and external review link below the usable card. Record
+these observed host/UI limits without claiming complete host security or final
+customer-flow acceptance. Step 1 remains incomplete pending the user's decision
+and saved-result/recovery verification.
 
 Release image: `registry.fly.io/pathsixsolutions-backend-staging:connection-bd87fbc`,
 digest `sha256:e294af143b92c609e6fb4ec95975467777ade1511a5f6be4423652a311dd7981`.

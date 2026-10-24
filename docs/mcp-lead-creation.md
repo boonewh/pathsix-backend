@@ -97,8 +97,11 @@ tools after refresh. Ordinary Settings reconnection then requested all three
 scopes and displayed reviewed lead creation on the consent screen without URL
 editing. The user completed consent at 19:45:20 UTC on October 24; read-only
 diagnostics verified the three-scope grant, code exchange and two refresh rotations
-retaining those permissions. Tool use on this grant, the in-chat card and a real
-lead creation remain unverified. See the
+retaining those permissions. A fresh prompt then successfully read leads/options,
+prepared MVP-LEAD-20261024-INLINE and displayed the review card inside ChatGPT.
+Read-only verification confirmed a pending proposal and no saved lead. Creation,
+cancellation and recovery remain unverified in this host. The visible CSP-off
+badge is recorded as a limit of this developer-mode evidence. See the
 [current release evidence and handoff](mcp-readiness-status.md#live-reconnect-diagnosis---october-24-2026).
 
 ## Permissions and tools
