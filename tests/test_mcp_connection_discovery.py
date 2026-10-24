@@ -56,16 +56,19 @@ def test_catalog_restrictions_still_limit_discovery(oauth):
 
 
 @pytest.mark.parametrize('invalid', ['expired', 'revoked'])
-def test_unusable_connections_cannot_discover_tools(oauth, invalid):
+def test_unusable_connections_cannot_discover_tools(oauth, invalid, monkeypatch):
     from datetime import datetime, timedelta
-    from app.models import OAuthCredential
+    from app.services import oauth as oauth_service
     writer(oauth)
     original = oauth.tokens()
-    with oauth.admin() as db:
-        if invalid == 'expired':
-            for row in db.query(OAuthCredential).filter_by(kind='access'):
-                row.expires_at = datetime.utcnow() - timedelta(seconds=1)
-        else:
+    if invalid == 'expired':
+        future = datetime.utcnow() + timedelta(minutes=6)
+        class AfterExpiry(datetime):
+            @classmethod
+            def utcnow(cls): return future
+        monkeypatch.setattr(oauth_service, 'datetime', AfterExpiry)
+    else:
+        with oauth.admin() as db:
             for row in db.query(AIConnection): row.revoked_at = datetime.utcnow()
-        db.commit()
+            db.commit()
     assert rpc(oauth, original['access_token'])[0] == 401
