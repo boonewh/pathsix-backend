@@ -45,14 +45,15 @@ and remaining external release steps; do not automatically begin deferred work.
 
 ## Baseline and release status
 
-The latest verified deployment is **staging v46 / `ee4cbb2`**, October 9, 2026
-(America/Chicago), with the guarded in-chat lead review candidate enabled only
-in staging. [PostgreSQL CI](https://github.com/boonewh/pathsix-backend/actions/runs/37947632210)
-passed 695 tests with zero skips. All 20 new deployed approval tests passed,
-including concurrent decisions, with public rows/sequences and the database
-protection contract unchanged and no disposable schemas left. Both staging
-machines passed health checks; normal auto-stop is restored. Sixteen local browser
-checks passed at phone/desktop widths, including dark desktop and account labels.
+The latest verified deployment is **staging v47 / `bd87fbc`**, October 24, 2026
+(America/Chicago), with the authenticated tool-discovery repair and the guarded
+in-chat lead review candidate enabled only in staging.
+[PostgreSQL CI](https://github.com/boonewh/pathsix-backend/actions/runs/40125796696)
+passed 702 tests with zero skips. All 27 deployed connection/approval checks
+passed, including concurrent decisions, with public rows/sequences and the
+18-table/25-policy protection contract unchanged and no disposable schemas left.
+Both machines passed health checks; normal auto-stop is restored. The earlier
+16 local browser checks cover the unchanged review card at phone/desktop widths.
 
 Earlier live ChatGPT evidence includes diagnostic three-scope consent, lead
 reading and cancellation. No live creation has been confirmed. Actual ChatGPT card
@@ -92,15 +93,41 @@ not established. Do not count this as a passed card trial or assume OpenAI revie
 will resolve it. Keep step 1 incomplete and PR 27 in draft. Application source,
 deployment, and production configuration were unchanged during this diagnosis.
 
-Connection repair candidate: authenticated tool discovery now filters by the
+Deployed connection repair: authenticated tool discovery now filters by the
 registered AI client's allowed capabilities, rather than the current token's
 already-approved scopes. This lets a returning read-only account discover the
 write permission it needs to request. Per-tool OAuth metadata, record access,
 execution-time scope checks, explicit consent and refresh scope restrictions
 remain enforced. Seven new tests cover discovery-driven consent in both supported
 protocols, preservation of read-only tokens, client catalog restrictions and
-expired/revoked credentials. Deployment and real ChatGPT recovery still require
-verification; this source change alone does not resolve the host button failure.
+expired/revoked credentials. Local focused verification passed 109 tests with six
+PostgreSQL-only skips. The first full CI run passed 701 tests but rejected the new
+expiry test's attempt to mutate an immutable credential; the test now advances
+the clock, and the corrected full run passed all 702 tests without skips.
+
+Actual ChatGPT verification after deployment: before refresh, the app details
+listed five read tools and no write tools. Refreshing the existing app against
+the repaired server listed six read and two write tools with the new in-chat
+review description. Settings -> existing account -> Reconnect then generated an
+unmodified authorization request containing `clients:read leads:read leads:create`.
+The visible PathSix consent page explicitly included reviewed lead creation.
+The page is handed to the user for sign-in/consent. No grant was manufactured or
+widened by the agent, and successful token exchange/use of this new request is
+not yet confirmed. The earlier pending chat request ended with a connection-error
+response; a fresh prompt after consent is still needed to prove the in-chat path
+and review card. Do not mark step 1 complete from catalog/consent-page evidence.
+
+Release image: `registry.fly.io/pathsixsolutions-backend-staging:connection-bd87fbc`,
+digest `sha256:e294af143b92c609e6fb4ec95975467777ade1511a5f6be4423652a311dd7981`.
+Runtime revision: `bd87fbcf2a18b8faf8cc41ad420fa31921d25b93`. No migration or catalog
+permission change was required. Rollback is the v46 image
+`registry.fly.io/pathsixsolutions-backend-staging:deployment-01M4GJS79QNCNXJZ9F7ZVT24RJ`
+with its `ee4cbb2` revision and existing staging resource configuration. Source,
+test archive and seven runtime file hashes were checked by the deployed verifier.
+Outer-checkout evidence: `temp/mvp-lead-creation/discovery-deployed-tests.json`,
+`discovery-preflight-before.json`, `discovery-machines-after.json`,
+`discovery-catalog-before.jpg`, `discovery-catalog-after.jpg`, and
+`discovery-consent-after.jpg`. Production remains unchanged; PR 27 stays in draft.
 
 ### Earlier deployment history
 

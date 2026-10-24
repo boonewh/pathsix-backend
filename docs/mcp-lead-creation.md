@@ -80,6 +80,25 @@ To disable the candidate, set `MCP_INLINE_REVIEW=false` and redeploy; existing
 external review and all receipts remain. Full code rollback uses the recorded
 v45 image and its resource configuration; no schema downgrade is involved.
 
+## Connection discovery repair - October 24, 2026
+
+Staging v47 (`bd87fbc`) fixes discovery filtering that hid write tools from
+read-only connections. The catalog now advertises static tools permitted by the
+registered client; actual calls still require the user's approved scopes.
+Existing grants and refresh tokens remain read-only until fresh human consent.
+
+[PostgreSQL CI](https://github.com/boonewh/pathsix-backend/actions/runs/40125796696)
+passed 702 tests with zero skips. All 27 deployed discovery/inline-review checks
+passed with public data, sequences and the database protection contract unchanged.
+Both machines passed health checks and normal auto-stop was restored.
+
+The actual ChatGPT catalog changed from five read tools to six read and two write
+tools after refresh. Ordinary Settings reconnection then requested all three
+scopes and displayed reviewed lead creation on the consent screen without URL
+editing. The user's sign-in and consent remain pending; no successful new grant,
+in-chat card, or real lead creation is claimed. See the
+[current release evidence and handoff](mcp-readiness-status.md#live-reconnect-diagnosis---october-24-2026).
+
 ## Permissions and tools
 
 `list_leads`, `get_lead` and `get_lead_options` require `leads:read`.
