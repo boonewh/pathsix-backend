@@ -166,7 +166,7 @@ Outer-checkout evidence: `conversation-deployed-tests.json`,
 `conversation-preflight-before.json`, `conversation-machines-after.json`,
 `conversation-catalog-after.jpg` and `conversation-trial-draft.jpg`, all under
 `temp/mvp-lead-creation`. The live desktop saved-result reporting defect is verified fixed.
-Inline cancellation/recovery, returning use, phone acceptance, metadata isolation
+Actual-host interrupted-response recovery, returning use, phone acceptance, metadata isolation
 and production CSP remain live acceptance gates. Keep step 1 incomplete and PR 27
 in draft; production is unchanged.
 
@@ -203,13 +203,21 @@ helpers are in the outer `temp/mvp-lead-creation/`: `recovery-preview.py`,
 `prepare-recovery-harness.py`, `recovery-browser.cjs`,
 `recovery-browser-results-20261024.json` and `recovery-*.png` screenshots.
 
-The separate live ChatGPT cancellation prompt for
-`MVP-LEAD-20261024-CANCEL-INLINE` is drafted in the existing test conversation but
-has not been sent. User submission and a Cancel click remain required to verify
-the real card, conversation result and zero matching staging leads. A controlled
-actual-ChatGPT transport interruption also remains unverified. Do not mark those
-live acceptance gates complete based on the isolated tests. The existing live
-save/confirmation and reload-recovery evidence remains valid; step 1 is incomplete.
+The separate live ChatGPT cancellation trial passed. The user submitted
+`MVP-LEAD-20261024-CANCEL-INLINE` and clicked Cancel. Their screenshot shows both
+the card and conversation confirming cancellation and no saved lead. Read-only
+staging verification confirms action `2f6dbc86-8994-4ba4-ada9-3d836ecabaad` is
+terminally cancelled, result_id null, and there are zero matching leads (including
+deleted rows). The successful decision/cancellation audits are at 22:24:10/11 UTC
+on October 24 (5:24 PM America/Chicago). Evidence in the outer
+`temp/mvp-lead-creation/`: `cancellation-live-20261024.json` and the user's
+`cancellation-live-20261024.png` screenshot. No application deployment was needed.
+
+A controlled actual-ChatGPT transport interruption remains unverified. Do not
+mark that live acceptance gate complete based on the isolated tests. Desktop
+save/confirmation, inline cancellation/confirmation and saved-receipt reload
+recovery now have live evidence; step 1 remains incomplete pending the other
+customer-flow and host-security acceptance checks.
 
 ## Permissions and tools
 
