@@ -137,7 +137,27 @@ run in CI alongside the backend suite. They cover save/cancel, recovery, unknown
 outcomes, expiry, unsupported/rejected/timed-out messages, context failure, remount,
 duplicate suppression, private-field exclusion and foreign receipts. The browser
 checks also verify actual rendering and recovery against a synthetic local CRM.
-Deployment and real ChatGPT follow-up behavior are still pending for this repair.
+Staging **v48 / aa3ca14e214905aadc75cbae49712bc050cadb32** now deploys this repair.
+[Full CI](https://github.com/boonewh/pathsix-backend/actions/runs/40127746409) passed
+702 backend tests with zero skips and all 12 bridge regressions. All 27 deployed
+connection/inline tests passed with public rows/sequences, the 18-table/25-policy
+contract, restricted role and immutable action trigger unchanged. Disposable
+schemas were cleaned. Both machines passed health and normal auto-stop is restored.
+Image: `registry.fly.io/pathsixsolutions-backend-staging:conversation-aa3ca14`,
+digest `sha256:d1feffabd5a15e29159eb8612fa8828fbf0bc89023ca9206f28b701e6e999cde`.
+Rollback uses v47's `connection-bd87fbc` image and `bd87fbc` revision; no schema,
+scope or consent changes are required by this repair.
+
+The existing ChatGPT connector was refreshed and its app details visibly show the
+new preparation instructions. Reloading the original chat recovered saved lead 11
+without another login or decision. The original assistant summary remains history;
+this is not proof of the new follow-up. A fresh proposal prompt for
+`MVP-LEAD-20261024-CONFIRM` is drafted but unsent in the user's existing test chat.
+The user must send it and make the review decision to test the actual follow-up.
+Outer-checkout evidence: `conversation-deployed-tests.json`,
+`conversation-preflight-before.json`, `conversation-machines-after.json`,
+`conversation-catalog-after.jpg` and `conversation-trial-draft.jpg`, all under
+`temp/mvp-lead-creation`. Automatic ChatGPT reporting is not yet accepted.
 Inline cancellation/recovery, returning use, phone acceptance, metadata isolation
 and production CSP remain live acceptance gates. Keep step 1 incomplete and PR 27
 in draft; production is unchanged.

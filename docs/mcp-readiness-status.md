@@ -45,27 +45,26 @@ and remaining external release steps; do not automatically begin deferred work.
 
 ## Baseline and release status
 
-The latest verified deployment is **staging v47 / `bd87fbc`**, October 24, 2026
-(America/Chicago), with the authenticated tool-discovery repair and the guarded
-in-chat lead review candidate enabled only in staging.
-[PostgreSQL CI](https://github.com/boonewh/pathsix-backend/actions/runs/40125796696)
-passed 702 tests with zero skips. All 27 deployed connection/approval checks
-passed, including concurrent decisions, with public rows/sequences and the
-18-table/25-policy protection contract unchanged and no disposable schemas left.
-Both machines passed health checks; normal auto-stop is restored. The earlier
-16 local browser checks cover the unchanged review card at phone/desktop widths.
+The latest verified deployment is **staging v48 / `aa3ca14`**, October 24, 2026
+(America/Chicago), with conversation-result reporting and the guarded in-chat
+lead review enabled only in staging. [Full CI](https://github.com/boonewh/pathsix-backend/actions/runs/40127746409)
+passed 702 backend tests with zero skips and 12 component bridge regressions.
+All 27 deployed connection/approval checks passed with public rows/sequences,
+the restricted role and 18-table/25-policy protection contract unchanged.
+Both machines passed health checks; normal auto-stop is restored. Twenty-two
+local browser checks passed at phone/desktop widths.
 
-Live ChatGPT now verifies ordinary three-scope consent, refresh rotation, lead
-reading, inline rendering and user-confirmed creation of lead 11. Automatic
-conversation reporting is still defective: the card shows the saved result but
-the surrounding assistant text remains pending. The repair and remaining host
-acceptance gates are recorded below. No manual OAuth URL edits were part of the
-successful trial. Production is unchanged; step 1 remains incomplete. See
-[lead-creation release evidence and limits](mcp-lead-creation.md).
+Live ChatGPT verifies ordinary three-scope consent, refresh rotation, lead reading,
+inline rendering and user-confirmed creation of lead 11. The v47 trial exposed
+stale assistant text below the saved card; v48 fixes the missing follow-up request.
+Actual automatic conversation confirmation remains pending a fresh user-driven
+trial. Existing lead 11 still recovers after reload without sign-in. No manual
+OAuth URL edits were part of the successful trial. Production is unchanged;
+step 1 remains incomplete. See [lead-creation evidence and limits](mcp-lead-creation.md).
 
 ### Live reconnect diagnosis - October 24, 2026
 
-Staging remains on `ee4cbb2` with inline review enabled. Read-only database
+Before the October 24 repair, staging was on `ee4cbb2` with inline review enabled. Read-only database
 diagnostics verified code exchange and refresh rotation for today's ordinary
 reconnect. At 19:10:50 UTC the user granted `clients:read leads:read`;
 `list_leads` and `get_lead_options` succeeded at 19:10:58 and 19:10:59. At
@@ -178,7 +177,27 @@ run in CI alongside the backend suite. They cover save/cancel, recovery, unknown
 outcomes, expiry, unsupported/rejected/timed-out messages, context failure, remount,
 duplicate suppression, private-field exclusion and foreign receipts. The browser
 checks also verify actual rendering and recovery against a synthetic local CRM.
-Deployment and real ChatGPT follow-up behavior are still pending for this repair.
+Staging **v48 / aa3ca14e214905aadc75cbae49712bc050cadb32** now deploys this repair.
+[Full CI](https://github.com/boonewh/pathsix-backend/actions/runs/40127746409) passed
+702 backend tests with zero skips and all 12 bridge regressions. All 27 deployed
+connection/inline tests passed with public rows/sequences, the 18-table/25-policy
+contract, restricted role and immutable action trigger unchanged. Disposable
+schemas were cleaned. Both machines passed health and normal auto-stop is restored.
+Image: `registry.fly.io/pathsixsolutions-backend-staging:conversation-aa3ca14`,
+digest `sha256:d1feffabd5a15e29159eb8612fa8828fbf0bc89023ca9206f28b701e6e999cde`.
+Rollback uses v47's `connection-bd87fbc` image and `bd87fbc` revision; no schema,
+scope or consent changes are required by this repair.
+
+The existing ChatGPT connector was refreshed and its app details visibly show the
+new preparation instructions. Reloading the original chat recovered saved lead 11
+without another login or decision. The original assistant summary remains history;
+this is not proof of the new follow-up. A fresh proposal prompt for
+`MVP-LEAD-20261024-CONFIRM` is drafted but unsent in the user's existing test chat.
+The user must send it and make the review decision to test the actual follow-up.
+Outer-checkout evidence: `conversation-deployed-tests.json`,
+`conversation-preflight-before.json`, `conversation-machines-after.json`,
+`conversation-catalog-after.jpg` and `conversation-trial-draft.jpg`, all under
+`temp/mvp-lead-creation`. Automatic ChatGPT reporting is not yet accepted.
 Inline cancellation/recovery, returning use, phone acceptance, metadata isolation
 and production CSP remain live acceptance gates. Keep step 1 incomplete and PR 27
 in draft; production is unchanged.
