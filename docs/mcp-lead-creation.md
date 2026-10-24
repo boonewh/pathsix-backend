@@ -170,6 +170,47 @@ Inline cancellation/recovery, returning use, phone acceptance, metadata isolatio
 and production CSP remain live acceptance gates. Keep step 1 incomplete and PR 27
 in draft; production is unchanged.
 
+## Cancellation and interrupted-response checks - October 24, 2026
+
+Six additional controlled browser scenarios passed at 390px and 1000px using the
+unchanged v48 component. The test host discards the entire decision response after
+the synthetic CRM has committed, sends no JSON-RPC reply or error, and waits for
+the component's real 30-second request timeout. Each scenario recovered after
+approximately 31 seconds:
+
+- Cancelled decision: terminal cancelled receipt, zero new leads and no creation
+  confirmation audit, exactly one decision request and one conversation message.
+- Saved decision: the original committed receipt and lead ID, exactly one new lead
+  and confirmation audit, one decision request and one conversation message.
+- Saved decision plus failed receipt reads: Create stays disabled and no success
+  message is sent while the outcome is unknown. Restoring reads and pressing
+  Refresh status recovers the original saved lead and sends one confirmation.
+
+Refresh and remount preserve all terminal results without additional writes or
+messages. No browser script errors occurred. The tested HTML SHA-256 is
+`84aecf1ab92430440f1a02408fc488a1aa2df84ac033a1e5652d492e08a73038`, matching the
+source hash verified on deployed v48. No application source, deployed configuration,
+production data or customer credentials were changed for these tests.
+
+Local Hypercorn logged TLS shutdown errors (`APPLICATION_DATA_AFTER_CLOSE_NOTIFY`)
+while browser contexts were being closed. All six receipt/data assertions and
+browser script-error checks passed; the local transport teardown messages remain
+a harness limitation, not evidence of a production transport failure.
+
+This is controlled fault injection in a loopback MCP host and synthetic CRM, not
+an induced interruption in the actual ChatGPT host. Evidence and reproducible
+helpers are in the outer `temp/mvp-lead-creation/`: `recovery-preview.py`,
+`prepare-recovery-harness.py`, `recovery-browser.cjs`,
+`recovery-browser-results-20261024.json` and `recovery-*.png` screenshots.
+
+The separate live ChatGPT cancellation prompt for
+`MVP-LEAD-20261024-CANCEL-INLINE` is drafted in the existing test conversation but
+has not been sent. User submission and a Cancel click remain required to verify
+the real card, conversation result and zero matching staging leads. A controlled
+actual-ChatGPT transport interruption also remains unverified. Do not mark those
+live acceptance gates complete based on the isolated tests. The existing live
+save/confirmation and reload-recovery evidence remains valid; step 1 is incomplete.
+
 ## Permissions and tools
 
 `list_leads`, `get_lead` and `get_lead_options` require `leads:read`.
