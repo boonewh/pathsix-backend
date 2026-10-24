@@ -55,13 +55,12 @@ passed, including concurrent decisions, with public rows/sequences and the
 Both machines passed health checks; normal auto-stop is restored. The earlier
 16 local browser checks cover the unchanged review card at phone/desktop widths.
 
-Earlier live ChatGPT evidence includes diagnostic three-scope consent, lead
-reading and cancellation. No live creation has been confirmed. Actual ChatGPT card
-rendering, metadata isolation, user confirmation/recovery, and ordinary connection
-and permission recovery remain open, so step 1 is not complete. Browser control
-could not start in the October 9 Codex session (sandbox setup refresh failure);
-a single user-driven card-rendering trial is requested, not yet verified. No
-manual OAuth URL edits are part of that trial. Production is unchanged. See
+Live ChatGPT now verifies ordinary three-scope consent, refresh rotation, lead
+reading, inline rendering and user-confirmed creation of lead 11. Automatic
+conversation reporting is still defective: the card shows the saved result but
+the surrounding assistant text remains pending. The repair and remaining host
+acceptance gates are recorded below. No manual OAuth URL edits were part of the
+successful trial. Production is unchanged; step 1 remains incomplete. See
 [lead-creation release evidence and limits](mcp-lead-creation.md).
 
 ### Live reconnect diagnosis - October 24, 2026
@@ -145,6 +144,44 @@ Outer-checkout evidence: `temp/mvp-lead-creation/discovery-deployed-tests.json`,
 `discovery-preflight-before.json`, `discovery-machines-after.json`,
 `discovery-catalog-before.jpg`, `discovery-catalog-after.jpg`, and
 `discovery-consent-after.jpg`. Production remains unchanged; PR 27 stays in draft.
+
+
+## Conversation result repair - October 24, 2026
+
+The real ChatGPT trial created `MVP-LEAD-20261024-INLINE`, lead **11**, after the
+user clicked Create lead. Read-only verification confirmed action
+`1c16a6ef-fbeb-417b-854d-c1cedbd63ad4` committed at 19:50:45 UTC, exactly one matching
+lead and successful decision/confirmation audits. Evidence is in the outer
+`temp/mvp-lead-creation/inline-live-committed-20261024.json` and the user's screenshot.
+This supersedes the earlier pending-proposal evidence. The card displayed the
+saved lead, but the entire assistant summary below it stayed pending.
+
+The card previously sent only `ui/update-model-context`, which supplies context
+for future turns. The repair requests a `ui/message` follow-up after a definite
+result from a user decision or its read-only recovery. It shares only the action
+ID, terminal status and saved lead ID; private metadata, account details, review
+URLs and CRM text are excluded. The [official UI guidance](https://developers.openai.com/plugins/build/chatgpt-ui)
+identifies this bridge method for follow-ups. The host owns the conversation:
+earlier assistant text and preparation badges cannot be directly rewritten.
+Tool guidance asks for a short card pointer instead of a duplicate pending table.
+
+Notification attempts are consumed once within the mounted card. Refresh and
+remount never generate duplicate messages. A messaging failure is shown separately
+from the successful record operation; no notification failure retries a write.
+Uncertain writes remain locked until receipt recovery. Hosts without advertised
+text-message support keep the confirmed card and show the notification limitation.
+The advertised resource is v2, with v1 reads retained for existing conversations.
+
+Local verification: 12 Node bridge regressions, 26 backend tests (one PostgreSQL
+concurrency skip) and 22 browser checks at 390px/1000px passed. Bridge regressions
+run in CI alongside the backend suite. They cover save/cancel, recovery, unknown
+outcomes, expiry, unsupported/rejected/timed-out messages, context failure, remount,
+duplicate suppression, private-field exclusion and foreign receipts. The browser
+checks also verify actual rendering and recovery against a synthetic local CRM.
+Deployment and real ChatGPT follow-up behavior are still pending for this repair.
+Inline cancellation/recovery, returning use, phone acceptance, metadata isolation
+and production CSP remain live acceptance gates. Keep step 1 incomplete and PR 27
+in draft; production is unchanged.
 
 ### Earlier deployment history
 

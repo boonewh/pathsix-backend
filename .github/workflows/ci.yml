@@ -33,6 +33,8 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt -r requirements-test.txt
       - run: python -m compileall -q app
+      - name: Review component bridge regressions
+        run: node --test tests/ui/mcp_lead_review.test.cjs
       - name: Create restricted test role
         run: |
           python - <<'PY'

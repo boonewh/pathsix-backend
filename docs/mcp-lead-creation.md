@@ -104,6 +104,44 @@ cancellation and recovery remain unverified in this host. The visible CSP-off
 badge is recorded as a limit of this developer-mode evidence. See the
 [current release evidence and handoff](mcp-readiness-status.md#live-reconnect-diagnosis---october-24-2026).
 
+
+## Conversation result repair - October 24, 2026
+
+The real ChatGPT trial created `MVP-LEAD-20261024-INLINE`, lead **11**, after the
+user clicked Create lead. Read-only verification confirmed action
+`1c16a6ef-fbeb-417b-854d-c1cedbd63ad4` committed at 19:50:45 UTC, exactly one matching
+lead and successful decision/confirmation audits. Evidence is in the outer
+`temp/mvp-lead-creation/inline-live-committed-20261024.json` and the user's screenshot.
+This supersedes the earlier pending-proposal evidence. The card displayed the
+saved lead, but the entire assistant summary below it stayed pending.
+
+The card previously sent only `ui/update-model-context`, which supplies context
+for future turns. The repair requests a `ui/message` follow-up after a definite
+result from a user decision or its read-only recovery. It shares only the action
+ID, terminal status and saved lead ID; private metadata, account details, review
+URLs and CRM text are excluded. The [official UI guidance](https://developers.openai.com/plugins/build/chatgpt-ui)
+identifies this bridge method for follow-ups. The host owns the conversation:
+earlier assistant text and preparation badges cannot be directly rewritten.
+Tool guidance asks for a short card pointer instead of a duplicate pending table.
+
+Notification attempts are consumed once within the mounted card. Refresh and
+remount never generate duplicate messages. A messaging failure is shown separately
+from the successful record operation; no notification failure retries a write.
+Uncertain writes remain locked until receipt recovery. Hosts without advertised
+text-message support keep the confirmed card and show the notification limitation.
+The advertised resource is v2, with v1 reads retained for existing conversations.
+
+Local verification: 12 Node bridge regressions, 26 backend tests (one PostgreSQL
+concurrency skip) and 22 browser checks at 390px/1000px passed. Bridge regressions
+run in CI alongside the backend suite. They cover save/cancel, recovery, unknown
+outcomes, expiry, unsupported/rejected/timed-out messages, context failure, remount,
+duplicate suppression, private-field exclusion and foreign receipts. The browser
+checks also verify actual rendering and recovery against a synthetic local CRM.
+Deployment and real ChatGPT follow-up behavior are still pending for this repair.
+Inline cancellation/recovery, returning use, phone acceptance, metadata isolation
+and production CSP remain live acceptance gates. Keep step 1 incomplete and PR 27
+in draft; production is unchanged.
+
 ## Permissions and tools
 
 `list_leads`, `get_lead` and `get_lead_options` require `leads:read`.
