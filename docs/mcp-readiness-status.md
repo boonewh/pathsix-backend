@@ -111,11 +111,15 @@ the repaired server listed six read and two write tools with the new in-chat
 review description. Settings -> existing account -> Reconnect then generated an
 unmodified authorization request containing `clients:read leads:read leads:create`.
 The visible PathSix consent page explicitly included reviewed lead creation.
-The page is handed to the user for sign-in/consent. No grant was manufactured or
-widened by the agent, and successful token exchange/use of this new request is
-not yet confirmed. The earlier pending chat request ended with a connection-error
-response; a fresh prompt after consent is still needed to prove the in-chat path
-and review card. Do not mark step 1 complete from catalog/consent-page evidence.
+The user completed sign-in/consent. Read-only diagnostics confirmed the new grant
+at 19:45:20 UTC (2:45 PM America/Chicago), authorization-code exchange, and two
+refresh rotations retaining all three scopes. The earlier read-only grants remain
+unchanged. No grant was manufactured or widened by the agent. Evidence is in
+`temp/mvp-lead-creation/consent-20261024-after-repair.json` in the outer checkout.
+No tool invocation or new proposal on this grant was recorded yet. The earlier
+pending chat request ended with a connection-error response; a fresh prompt is
+still needed to prove the in-chat path and review card. Do not mark step 1 complete
+from catalog, consent, and token-refresh evidence alone.
 
 Release image: `registry.fly.io/pathsixsolutions-backend-staging:connection-bd87fbc`,
 digest `sha256:e294af143b92c609e6fb4ec95975467777ade1511a5f6be4423652a311dd7981`.

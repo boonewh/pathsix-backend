@@ -95,8 +95,10 @@ Both machines passed health checks and normal auto-stop was restored.
 The actual ChatGPT catalog changed from five read tools to six read and two write
 tools after refresh. Ordinary Settings reconnection then requested all three
 scopes and displayed reviewed lead creation on the consent screen without URL
-editing. The user's sign-in and consent remain pending; no successful new grant,
-in-chat card, or real lead creation is claimed. See the
+editing. The user completed consent at 19:45:20 UTC on October 24; read-only
+diagnostics verified the three-scope grant, code exchange and two refresh rotations
+retaining those permissions. Tool use on this grant, the in-chat card and a real
+lead creation remain unverified. See the
 [current release evidence and handoff](mcp-readiness-status.md#live-reconnect-diagnosis---october-24-2026).
 
 ## Permissions and tools
