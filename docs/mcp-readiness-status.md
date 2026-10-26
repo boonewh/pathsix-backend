@@ -79,7 +79,7 @@ action trigger. Changes after this runtime revision are documentation and compon
 | Input validation and untrusted CRM text | Lead tests reject extra authority fields, invalid types/email/lengths and changed inputs under an existing request key. UI tests render text safely and keep hostile field text, private account data, review URLs and capabilities out of follow-up messages/context. | Run a bounded real ChatGPT trial with synthetic instruction-like CRM text and invalid input; inspect actual tool activity and database outcome. Escaping text and synthetic tests do not establish model resistance to prompt injection. |
 | Single save, terminal decisions and audit | Backend/PostgreSQL tests cover repeated and concurrent decisions, immutable receipts, cancel-then-create denial, atomic audit failure rollback and recovery. Deployed inline checks passed. Real phone save/cancel outcomes and exact matching lead counts were checked, including lead 15 once. | No repeat of the passing happy-path or concurrency suite is required for this documentation change. Apply these protections to each later MVP write increment. |
 | Expiry and response recovery | Automated expiry, lost-response, unknown-outcome and notification-failure cases pass. RECOVERY1 expired without approval or a lead. RECOVERY2 returned after network interruption with one saved lead (15), matching card and conversation result. | Exact post-commit response loss inside ChatGPT was not measured; controlled loopback fault injection covers that case, not the actual host. Keep this evidence limit explicit; do not ask the user to repeat an unobservable airplane-mode race. |
-| Component host security | Server resource metadata declares empty network/resource allowlists, app-only tool visibility is tested, and private metadata is separated from model-visible content. | The user enabled custom-app CSP enforcement in Chrome; the card still renders and CSP off disappeared. Status refresh and user cancellation with automatic chat confirmation also passed; staging confirms cancellation and zero leads. Effective policy/blocked-network behavior is not directly verified. The resource also lacks a dedicated ui.domain, a UI submission requirement. Establish supported host enforcement evidence and configure/verify the submission origin before public release. |
+| Component host security | Server resource metadata declares empty network/resource allowlists, app-only tool visibility is tested, and private metadata is separated from model-visible content. | The user enabled custom-app CSP enforcement in Chrome; the card still renders and CSP off disappeared. Status refresh and user cancellation with automatic chat confirmation also passed; staging confirms cancellation and zero leads. Direct Chrome connect-src denial subsequently passed; see the direct enforcement evidence below. Host baseline domains remain allowed, so this is not proof of zero network access. The resource also lacks a dedicated ui.domain, a UI submission requirement. Establish supported host enforcement evidence and configure/verify the submission origin before public release. |
 | Deployment isolation and operational safeguards | Restricted-role/RLS checks, append-only audit protections, durable read/proposal limits and privacy-conscious diagnostics have test evidence. Staging health and deployed inline checks passed on v50. | This does not close the existing release checklist for shared OAuth/MCP abuse limits, monitoring/alerts, retention, operational runbooks, production configuration and rollback/backup rehearsal. Those remain later MVP release work. |
 
 The host contract is documented: result `_meta` is component-only, while
@@ -131,9 +131,9 @@ supporting isolation evidence. The user enabled ChatGPT custom-app CSP enforceme
 in Chrome, reloaded the SECURITY conversation and confirmed the card still
 renders and the CSP-off badge disappeared. Rendering compatibility under the
 enabled setting passes. The user also verified status retrieval and cancellation,
-including automatic conversation confirmation, with enforcement enabled. This
-does not directly establish the effective policy, blocked network behavior or
-desktop ChatGPT model-context isolation. Keep the overall host-security gate open.
+including automatic conversation confirmation, with enforcement enabled. The
+subsequent direct Chrome probe below verifies connect-src denial. Desktop ChatGPT
+model-context isolation remains an evidence limit; keep that gate open.
 
 - Rechecked the actual response serializer: the signed decision capability is
   placed only in result `_meta`, not `content` or `structuredContent`. The decision
@@ -206,6 +206,60 @@ settings screenshot is `codex-clipboard-a327fbab-8050-4bef-a575-191e212367be.png
 CI for the added security regressions is [run 40389245398](https://github.com/boonewh/pathsix-backend/actions/runs/40389245398),
 completed successfully: 705 backend tests and 15 component tests, zero skips.
 Terminal staging evidence: `temp/mvp-lead-creation/host-security-cancel-db.json`.
+
+### Direct Chrome CSP enforcement - October 26, 2026
+
+**PASS: an out-of-policy connection was blocked in the actual PathSix card.**
+This closes the previously pending direct network-denial check for this desktop
+Chrome configuration, with Enforce CSP for custom apps enabled. It is distinct
+from the remaining ChatGPT server-side model-context isolation evidence limit.
+
+Read-only inspection of the existing SECURITY conversation found the host
+sandbox document's CSP meta element. Relevant directives included
+`default-src 'self'`, `object-src 'none'`, `frame-src 'none'`, and a `connect-src`
+allowlist containing self and host-provided CDN/package/OpenAI storage domains.
+The outer PathSix iframe had `sandbox="allow-scripts allow-same-origin allow-forms"`.
+The nested card was about:blank with no separate CSP meta element; its sandbox
+allowed scripts, same origin, forms and popups. The outer restrictions still
+apply. These are observed configuration facts, not tests of every restriction.
+
+The user selected the nested `root (mcp-app-...)` console context and confirmed
+`document.title` returned `Review lead` with the PathSix suffix. They executed:
+
+```js
+fetch("https://pathsix-csp-probe.invalid/", {
+  credentials: "omit",
+  referrerPolicy: "no-referrer"
+}).catch(e => console.log(e.message))
+```
+
+The screenshot explicitly reports a `connect-src` Content Security Policy
+violation, "The action has been blocked", and a refusal to connect because of
+the document's CSP. The additional "Failed to fetch" is not the pass criterion:
+DNS failure for the deliberately invalid address alone would be inconclusive.
+The probe contained no CRM data, credentials or referrer and made no CRM write.
+The earlier `runner.html` inline-script error belonged to a different execution
+context and was not used as PathSix enforcement evidence.
+
+The observed policy includes host baseline domains despite our resource declaring
+empty connect/resource allowlists. Therefore this proves denial outside the
+observed allowlist, not zero network access or removal of host-provided defaults.
+It does not verify arbitrary nesting/asset restrictions, other hosts, the future
+dedicated submission origin, or the hidden input of the ChatGPT model.
+
+For model isolation, the server envelope tests, current Codex connected-result
+inspection and official component-only metadata/app-only tool contracts remain
+the available evidence. No supported diagnostic inspected in this session exposed
+the exact server-side ChatGPT model input or model-facing tool catalogue. Browser
+transport/UI data and a model's own denial would not prove those exclusions.
+This is an explicit trusted-host dependency, not a direct ChatGPT isolation pass;
+no acceptance exception or scope change has been granted.
+
+Evidence: outer `temp/mvp-lead-creation/chrome-csp-blocked-20261026.png`, copied from
+the user's `codex-clipboard-ac838e32-cf25-45fc-b46a-894e5eabc70d.png`.
+No runtime changes, deployment, new permission grant or test-suite rerun was
+needed. Runtime remains staging v50; the latest relevant CI remains 705 backend
+and 15 component tests passing. Leave CSP enforcement enabled.
 
 ### Previous v49 baseline
 

@@ -9,7 +9,7 @@ repeat/concurrent save and cancellation protections have automated evidence on
 the v50 runtime. Real administrator phone save/cancel and network-return outcomes
 passed, with one saved RECOVERY2 lead (15).
 
-Still open: actual-host approval-data/tool isolation and CSP enforcement,
+Still open: actual-host approval-data/tool isolation,
 ordinary-user and negative-access ChatGPT trials, a live untrusted-text/invalid-input
 trial, and the remaining reliability assessment. Exact post-commit response-loss
 timing was not established by the phone trial. The dedicated UI submission origin
@@ -24,8 +24,11 @@ Chrome showed CSP off. The user enabled Enforce CSP for custom apps and reloaded
 rendering still works and the badge disappeared. Refresh status returned
 "Review refreshed"; the user then cancelled and both the card and chat confirmed.
 Staging verifies cancellation and zero matching leads, including deleted rows.
-CSP-enabled card functionality passes; direct effective-policy/blocked-network
-evidence and desktop ChatGPT model-context isolation remain unverified. CI for
+CSP-enabled card functionality and a subsequent direct Chrome connect-src
+blocked-request probe pass. The host policy still allows baseline domains; this
+is not zero network access. Desktop ChatGPT model-context isolation remains a
+documented-host dependency without direct model-input inspection. See the
+[direct enforcement evidence](mcp-readiness-status.md#direct-chrome-csp-enforcement---october-26-2026). CI for
 `4afe205` passed 705 backend and 15 component tests, zero skips. Runtime remains v50.
 
 This is the first write increment in the locked MVP. ChatGPT can find leads,
