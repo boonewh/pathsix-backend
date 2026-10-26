@@ -16,6 +16,12 @@ timing was not established by the phone trial. The dedicated UI submission origi
 and the broader operational/production/submission checklist remain release work.
 This documentation-only reconciliation neither reruns tests nor closes step 1.
 
+The [subsequent host-boundary checks](mcp-readiness-status.md#approval-boundary-and-card-security-checks---october-26-2026)
+add a successful live Codex metadata-isolation observation and three component
+bridge security regressions (15 component tests now pass locally). The desktop
+SECURITY proposal remained unapproved with no saved lead. Its screenshot has no
+CSP badge; actual browser policy inspection is pending. Runtime remains v50.
+
 This is the first write increment in the locked MVP. ChatGPT can find leads,
 read a selected lead and current option labels, and prepare a proposed lead.
 The connected user opens the returned review link, signs in to the same PathSix

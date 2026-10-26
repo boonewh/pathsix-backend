@@ -69,7 +69,7 @@ inline-review checks (zero skips). The 705-test suite ran against isolated
 PostgreSQL with a restricted runtime role and RLS; it was not all rerun against
 the deployed service. Deployed verification preserved public data and sequences,
 left no test schemas, and checked the 18-table/25-policy RLS contract and immutable
-action trigger. Changes after this runtime revision have been documentation only.
+action trigger. Changes after this runtime revision are documentation and component tests only; application code is unchanged.
 
 | Boundary | Verified evidence | Remaining acceptance work |
 | --- | --- | --- |
@@ -123,6 +123,64 @@ Evidence sources: [lead-creation chronology](mcp-lead-creation.md),
 No new security defect was demonstrated by this source/evidence reconciliation;
 the open items above must not be reported as either proven vulnerabilities or
 completed acceptance checks.
+
+### Approval-boundary and card-security checks - October 26, 2026
+
+Status: server and component checks pass; the current Codex connector provides
+supporting isolation evidence. Desktop ChatGPT CSP and model-context isolation
+are not yet established by direct inspection. The live desktop check is pending
+browser policy evidence. Do not mark the host-security gate complete.
+
+- Rechecked the actual response serializer: the signed decision capability is
+  placed only in result `_meta`, not `content` or `structuredContent`. The decision
+  descriptor uses `ui.visibility: ["app"]`. The server still validates the signed
+  action/payload/user/tenant/connection binding and current permission state.
+  This relies on a trusted host; it is not independent human-click attestation
+  for arbitrary MCP clients.
+- The model-facing tool inventory in this Codex session contained seven PathSix
+  tools and no `decide_lead_creation`. A read of the live synthetic SECURITY
+  proposal through the connected `get_lead_creation` tool succeeded. Inspection
+  of the returned object and JSON text blocks found no `pathsix/review`, `intent`
+  or `component_metadata` keys. No capability values were printed or saved.
+  This is evidence about the current Codex connection, not proof about the
+  desktop/phone ChatGPT model context or every possible host.
+- Read-only permission inspection reports default "Allow low-risk actions" and
+  PathSix "Use my default". No setting was changed. This host preference is
+  separate from PathSix's signed, exact-action review requirement.
+- Added three component bridge regressions: foreign-frame notifications cannot
+  replace a proposal; foreign-frame or wrong-protocol replies cannot resolve a
+  pending read or consume its request ID; the real parent can still resolve it.
+  These checks also assert no write or conversation message is generated.
+  All **15 Node component tests passed locally**, with zero skips. No application
+  code changed, so the prior 705 backend/20 deployed checks remain the v50
+  evidence rather than being reported as newly run. No deployment was needed.
+- The user manually prepared `MVP-LEAD-20261026-SECURITY` in a fresh desktop chat
+  without clicking Create. Read-only staging inspection found action
+  `f841d2c6-9049-4c3f-b69e-ae87079e5c69` pending, null result/decision, and zero
+  matching leads including deleted rows. Created 19:40:51 UTC, expiry 19:50:51 UTC.
+  The screenshot shows the pending review card and no CSP badge. Absence of a
+  badge proves neither CSP enforcement nor CSP failure. The user was asked to
+  inspect only the card document's Content-Security-Policy response header.
+
+The current resource declares no allowed network or external asset domains and
+no nested-frame exceptions. The component uses textContent for CRM values and
+accepts bridge messages only from its parent with JSON-RPC 2.0. The card has no
+external asset, fetch or nested-frame dependency. Host-generated CSP/sandbox
+enforcement still needs evidence; a local simulation or server response metadata
+cannot substitute for the actual browser policy. The dedicated UI submission
+origin remains a later release configuration requirement.
+
+Official contract checked against the [UI reference](https://developers.openai.com/plugins/reference)
+and [security guidance](https://developers.openai.com/plugins/guides/security-privacy):
+tool-result private metadata is component-only, app-only visibility is supported,
+and widget network restrictions are enforced by the host sandbox/CSP. We did not
+find documentation establishing what the disappearance of the developer CSP
+badge means. Do not infer a platform security change from that screenshot.
+
+Evidence in the outer checkout: `temp/mvp-lead-creation/host-security-trial-db.json`
+and `host-boundary-connected-result.json`; new tests in
+`tests/ui/mcp_lead_review.test.cjs`. The user screenshot is
+`codex-clipboard-d7e05a4b-39bc-4610-abd9-e28228a403bf.png`.
 
 ### Previous v49 baseline
 
