@@ -367,6 +367,60 @@ fresh-chat-final-logs-20261026.jsonl, and screenshots fresh-chat-blank-20261026.
 fresh-chat-after-reload-20261026.png and fresh-chat-retry-failed-20261026.png.
 The visible result tab is retained for inspection. Raw bounded logs remain local.
 
+## Missing-answer isolation - October 26, 2026
+
+**Diagnosis: this observed response-loading failure also occurs without PathSix
+or any tool use. It is broader than the CRM integration; the exact ChatGPT-side
+or browser/account cause remains unverified.** Do not patch CRM response handling
+or consent based on the missing-answer symptom alone.
+
+The same list_leads request through the connected tool returned lead 12 with
+status new. Its actual structuredContent validates against the declared output
+schema, and its JSON text content equals the structured data. The read tool has
+no UI resource metadata, and the result has no component metadata. This matches
+the [documented result contract](https://developers.openai.com/plugins/reference#tool-results).
+The validation used the serialized SDK field aliases; two preliminary local
+inspection attempts failed on test-harness setup (SQLite pool options, then a
+Python field-name alias), not on a server response. The corrected check passed.
+No application source was changed.
+
+Two controlled prompts then asked only for the fixed text PATHSIX-DISPLAY-OK:
+
+- In the original CRM conversation, a no-tools/no-CRM prompt also completed with
+  "This response couldn't load".
+- In an independent [Display check conversation](https://chatgpt.com/c/6adee56b-40ac-83e9-a0da-4763a8100060),
+  with no plugin selected, the prompt "Display check only: reply with exactly
+  PATHSIX-DISPLAY-OK. Do not use tools, plugins, apps, or search." produced the
+  same load error. Copy reported Copied but supplied empty text. The thread reader
+  reported a completed turn and a content reference, not accessible answer text;
+  that does not establish whether generation or content retrieval failed internally.
+
+Final read-only audit inspection found no CRM calls from either plain-text
+control. The latest audit remains the diagnostic list_leads call at 05:28:47.950554
+UTC. The original three-scope grant remains active and the action count is five.
+Browser console inspection exposed only a Statsig cache warning, not a diagnostic
+stack trace establishing causation. Opening the independent control conversation
+in the in-app browser reached a signed-out login page, so cross-browser/account
+isolation was not completed. No credentials, cookies, extensions or account
+settings were changed, and the signed-out comparison tab was closed.
+
+The [public OpenAI status page](https://status.openai.com/) reported operational
+when checked; it explicitly reports aggregate availability. This does not rule
+out an account/browser-specific issue and is not proof of a service-wide incident.
+The next discriminating check is the independent plain-text control in another
+signed-in browser/device. If it also fails, the non-CRM reproduction and affected
+conversation are ready for OpenAI support. No support message was sent. Re-run the
+fresh CRM chat only after ordinary answers render; keep the acceptance gate open.
+The earlier isolated warm-server read error remains a separate unresolved item.
+
+Evidence in outer temp/mvp-lead-creation: answer-diagnosis-result-20261026.json,
+answer-schema-validation-20261026.json, answer-diagnosis-consent-20261026.json,
+answer-diagnosis-logs-20261026.jsonl, answer-no-tool-control-failed-20261026.png,
+and answer-independent-control-failed-20261026.png. Both relevant Chrome chats
+are retained. Runtime stays v49 / 6b8d898; no deployment, CRM record change or
+production change was made. PR 27 remains draft. No new regression suite was
+required for this read-only diagnosis and evidence-only documentation change.
+
 ## Permissions and tools
 
 `list_leads`, `get_lead` and `get_lead_options` require `leads:read`.
