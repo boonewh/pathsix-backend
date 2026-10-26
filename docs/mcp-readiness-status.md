@@ -53,7 +53,10 @@ deployed checks passed with public data, the restricted role and 18-table/25-pol
 contract unchanged. Both machines passed health. The last 12 direct connector
 reads passed, including a five-minute idle return and a batch on each host.
 One earlier post-restart error is still unexplained, so returning-use reliability
-remains open. The v48 browser/UI evidence below remains applicable; no UI changed.
+remains open. The October 26 fresh-chat trial retained consent and completed two
+successful CRM reads, but ChatGPT showed "This response couldn't load" on both
+attempts, including after reload. End-to-end answer delivery remains blocked; see
+the fresh-chat evidence below. The v48 UI evidence remains historical; no UI changed.
 
 Live ChatGPT verifies ordinary three-scope consent, refresh rotation, lead reading,
 inline rendering and user-confirmed creation of lead 11. The v47 trial exposed
@@ -371,6 +374,47 @@ including cold-start logs, before/after machine configuration, call results and
 read-only consent verification. Roll back the hosting change by returning the
 service minimum to zero in both live machines and fly.staging.toml; doing so
 reintroduces the reproduced sleep/wake failure risk.
+
+## Fresh-chat returning-use check - October 26, 2026
+
+**Result: connection retention and CRM reads pass; end-to-end answer delivery fails.**
+A new Chrome ChatGPT chat selected the existing PathSix CRM app through the normal
+mention picker, then sent: "Find the lead MVP-LEAD-20261024-CONFIRM and show its ID
+and status. Do not create or change anything." No sign-in, reconnect, new consent,
+metadata refresh or manual scope change was needed. No connector call was made
+from Codex to warm the service first. Before the trial, one staging machine was
+running and one stopped, both configured for the one-machine minimum on v49.
+
+The [test conversation](https://chatgpt.com/c/6adee3c1-2af0-83e9-a877-3e4475cbf989)
+completed its first attempt ("Worked for 9s") without a visible answer. Expanding
+the work showed "Found matching CRM leads" and "This response couldn't load".
+Reloading showed the same load error, not a restored answer. One normal
+"Try again" attempt completed ("Worked for 8s") with the same blank answer and
+load error. This is a failed customer-flow check; eventual backend success does
+not satisfy the acceptance requirement to return the answer in the conversation.
+
+Read-only audit evidence confirms successful list_leads calls at October 26
+05:23:21.705070 UTC and 05:24:47.596209 UTC. Both use the original October 24
+19:45:20.466591 UTC grant with clients:read, leads:read and leads:create unchanged.
+Refresh responses were HTTP 200. MCP requests completed HTTP 200 in 277.24ms and
+426.44ms, with no unexpected-handler marker in the captured intervals. The write
+action count remains five. This establishes retained authorization and successful
+CRM reads, not the exact cause of ChatGPT's missing answer. No raw response payload
+was logged. The earlier isolated warm-read error is not explained by this trial.
+
+Next bounded investigation: distinguish ChatGPT response loading/rendering from
+an integration response-contract issue, using the recorded conversation and the
+existing valid tool-result tests. Do not change OAuth consent, weaken security,
+reconnect as a workaround, or mark returning-use reliability complete based on
+these successful audits. Phone acceptance and the other existing gates remain open.
+No application code, runtime configuration, CRM record or production change was
+made during this check. PR 27 remains draft.
+
+Evidence in outer temp/mvp-lead-creation: fresh-chat-summary-20261026.json,
+fresh-chat-machines-before-20261026.json, fresh-chat-final-consent-20261026.json,
+fresh-chat-final-logs-20261026.jsonl, and screenshots fresh-chat-blank-20261026.png,
+fresh-chat-after-reload-20261026.png and fresh-chat-retry-failed-20261026.png.
+The visible result tab is retained for inspection. Raw bounded logs remain local.
 
 ### Earlier deployment history
 
