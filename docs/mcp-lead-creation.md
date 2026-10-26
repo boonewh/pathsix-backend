@@ -219,6 +219,37 @@ save/confirmation, inline cancellation/confirmation and saved-receipt reload
 recovery now have live evidence; step 1 remains incomplete pending the other
 customer-flow and host-security acceptance checks.
 
+## Returning connection check - October 25, 2026
+
+The existing PathSix CRM connector in this desktop conversation successfully read
+lead 12, its committed receipt (`1b13fe0e-9b6e-45eb-b0b2-eab7394b6ddb`) and the
+cancelled receipt (`2f6dbc86-8994-4ba4-ada9-3d836ecabaad`) without sign-in, reconnection,
+new consent, catalog refresh or a CRM write. This is direct connected-tool evidence,
+not a new browser/phone conversation or a new human-approved write trial.
+
+Read-only staging diagnostics confirm the same October 24 19:45:20 UTC grant remains
+active, with clients:read, leads:read and leads:create unchanged. Refresh rotations
+on October 26 at 02:47-02:48 UTC (October 25, 9:47-9:48 PM America/Chicago) retain
+all three scopes, and successful tool audits reference that original grant.
+The grant was not recreated or widened. No application/configuration change was made.
+
+Connection retention passes, but this is not a clean reliability pass. Two of the
+first three simultaneous reads returned generic MCP -32603 Internal error; the
+committed receipt succeeded. Both failed reads succeeded when retried individually,
+and a later parallel pair also succeeded. Fly logs show a normal machine wake-up
+at 02:47:42 UTC and passing health by 02:47:49, plus successful refresh responses.
+No corresponding application exception was found in the bounded log sample.
+Cold-start timing is a possible contributor, not a proven root cause. The second
+diagnostic machine was explicitly started only after the original connector checks
+to read audit metadata; that does not explain away the initial failures.
+
+Open bounded reliability issue: reproduce and diagnose the returning-read failures
+before marking seamless returning use complete. Do not require the user to reconnect
+as a workaround or treat successful retries as evidence that the defect is fixed.
+Fresh browser/phone use and actual-host interrupted-response acceptance remain open.
+Evidence in outer `temp/mvp-lead-creation/`: `returning-connector-results-20261025.json`,
+`returning-consent-20261025.json`, and the local bounded `returning-logs-20261025.jsonl`.
+
 ## Permissions and tools
 
 `list_leads`, `get_lead` and `get_lead_options` require `leads:read`.
