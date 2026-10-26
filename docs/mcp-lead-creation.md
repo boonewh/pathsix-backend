@@ -526,6 +526,41 @@ https://developers.openai.com/plugins/reference (component-authored follow-up an
 structured model context). This repair does not change permissions, writes or
 production configuration.
 
+## Fresh-phone stale-card investigation - October 26, 2026
+
+The user confirmed CLEAN-CANCEL was prepared in a brand-new ChatGPT phone
+conversation after v50 deployment. Screenshot `1000023344.jpg` still shows the
+old raw JSON/instructions; therefore the presentation retest failed, not passed.
+Connected-tool verification confirms action
+`be1cdf01-4a97-4cc5-b80c-873275b22174` is cancelled and a search for
+`MVP-LEAD-20261026-CLEAN-CANCEL` returns no accessible matching lead.
+
+A subsequent read-only check on the running staging machine confirms revision
+`d64fe5c`, the expected component SHA-256
+`db065815bfce847d023215f89ec868df2944ba096b72e4b4adcacbe32a68192e`, no old message
+literal, and the readable cancellation text. Both preparation and receipt tool
+metadata advertise `ui://pathsix/lead-review-v3.html`. Machine configuration
+inspection after the failed trial shows both machines on the v50 image/revision.
+Evidence: outer temp/mvp-lead-creation/phone-card-cache-live.json and
+phone-retest-machines.json. The server resource tests already verify v1/v2 aliases
+serve the repaired HTML. No additional deployment or grant changes were made.
+
+Official custom-MCP testing guidance requires refreshing connection metadata after
+UI-resource changes, then starting a new conversation. That refresh was omitted
+between v50 deployment and this trial. Retained app metadata/resource content is
+the leading explanation, but ChatGPT's actual cached URI/content has not been
+inspected, so the exact cache layer is unproven. Published-plugin guidance also
+allows up to one hour of same-URI caching; this private custom connection should
+use its documented Refresh flow, not infer published-plugin review timing.
+
+Next: the user refreshes the existing PathSix CRM connection metadata in ChatGPT,
+then runs a fresh manual cancellation trial. Do not uninstall, recreate grants,
+or widen permissions. If Refresh is unavailable, inspect the visible connection
+screen rather than guessing another control. The defect remains open until a
+fresh phone trial displays readable text and the automatic confirmation.
+Sources: https://developers.openai.com/plugins/deploy/connect-chatgpt#refresh-metadata
+and https://developers.openai.com/plugins/deploy/app-review#other-changes .
+
 ## Permissions and tools
 
 `list_leads`, `get_lead` and `get_lead_options` require `leads:read`.
