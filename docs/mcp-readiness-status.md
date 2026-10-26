@@ -55,6 +55,75 @@ committed receipt and one matching lead; the cancelled trial has zero leads.
 The phone raw-message defect is closed for these paths; other MVP gates remain
 open. See the refreshed phone evidence below.
 
+### Current security reconciliation - October 26, 2026
+
+This is the current acceptance summary for lead creation and its shared write
+boundary. It supersedes older pending-status descriptions below without erasing
+their historical evidence. This reconciliation changes documentation only: no new
+runtime, deployment, permission grant or security trial is claimed. Step 1 remains
+incomplete, PR 27 remains draft, and production is unchanged.
+
+Evidence baseline: staging v50 (`d64fe5c`), [exact-revision CI](https://github.com/boonewh/pathsix-backend/actions/runs/40371492217)
+with 705 backend tests (zero skips) and 12 component tests, plus 20 deployed
+inline-review checks (zero skips). The 705-test suite ran against isolated
+PostgreSQL with a restricted runtime role and RLS; it was not all rerun against
+the deployed service. Deployed verification preserved public data and sequences,
+left no test schemas, and checked the 18-table/25-policy RLS contract and immutable
+action trigger. Changes after this runtime revision have been documentation only.
+
+| Boundary | Verified evidence | Remaining acceptance work |
+| --- | --- | --- |
+| Consent and current authority | OAuth/connection tests cover explicit narrow consent, PKCE/client/redirect/resource binding, refresh rotation and replay, no scope expansion, revocation and current user/tenant/client state. Inline tests reject read-only, revoked and removed-scope grants. Real administrator consent and returning reads passed. | Capture real ChatGPT insufficient-access/revoked-connection behavior with a dedicated synthetic connection; do not revoke the working administrator connection casually. Automated server denial is already verified. |
+| Tenant, owner and record access | MCP read tests deny foreign-tenant and same-tenant inaccessible clients; granting assignment permits the ordinary user. Lead tests deny foreign records and other owners/connections accessing action receipts; receipt access is rechecked after deletion. Ordinary-user lead creation is covered through the external-review backend test. | Real ChatGPT evidence is administrator-only. Verify an ordinary user's allowed reads/create and inaccessible record/action denials. Do not describe the ordinary-user backend test as a live inline pass. |
+| Exact-action approval | Inline tests reject missing/forged/expired capabilities, changed action/payload, wrong user/tenant/grant and alternate signatures. Signed data binds the action, payload, owner, tenant and connection. Model-visible result fields omit the capability. Actual user clicks saved leads 11-15; cancellation created no lead. | Host isolation remains open: confirm the supported ChatGPT host keeps private approval metadata out of model context and excludes the app-only decision tool from model invocation. The signature is not independent proof of human presence in an arbitrary MCP client. |
+| Input validation and untrusted CRM text | Lead tests reject extra authority fields, invalid types/email/lengths and changed inputs under an existing request key. UI tests render text safely and keep hostile field text, private account data, review URLs and capabilities out of follow-up messages/context. | Run a bounded real ChatGPT trial with synthetic instruction-like CRM text and invalid input; inspect actual tool activity and database outcome. Escaping text and synthetic tests do not establish model resistance to prompt injection. |
+| Single save, terminal decisions and audit | Backend/PostgreSQL tests cover repeated and concurrent decisions, immutable receipts, cancel-then-create denial, atomic audit failure rollback and recovery. Deployed inline checks passed. Real phone save/cancel outcomes and exact matching lead counts were checked, including lead 15 once. | No repeat of the passing happy-path or concurrency suite is required for this documentation change. Apply these protections to each later MVP write increment. |
+| Expiry and response recovery | Automated expiry, lost-response, unknown-outcome and notification-failure cases pass. RECOVERY1 expired without approval or a lead. RECOVERY2 returned after network interruption with one saved lead (15), matching card and conversation result. | Exact post-commit response loss inside ChatGPT was not measured; controlled loopback fault injection covers that case, not the actual host. Keep this evidence limit explicit; do not ask the user to repeat an unobservable airplane-mode race. |
+| Component host security | Server resource metadata declares empty network/resource allowlists, app-only tool visibility is tested, and private metadata is separated from model-visible content. | Developer screenshots show CSP off, so effective host CSP enforcement is unverified. The resource also lacks a dedicated ui.domain, a UI submission requirement. Establish supported host enforcement evidence and configure/verify the submission origin before public release. |
+| Deployment isolation and operational safeguards | Restricted-role/RLS checks, append-only audit protections, durable read/proposal limits and privacy-conscious diagnostics have test evidence. Staging health and deployed inline checks passed on v50. | This does not close the existing release checklist for shared OAuth/MCP abuse limits, monitoring/alerts, retention, operational runbooks, production configuration and rollback/backup rehearsal. Those remain later MVP release work. |
+
+The host contract is documented: result `_meta` is component-only, while
+`content` and `structuredContent` reach the model; `ui.visibility` controls model
+and app access. A dedicated `ui.domain` is required for submitting a UI plugin.
+See the [official metadata and resource reference](https://developers.openai.com/plugins/reference).
+These documented contracts and our descriptor tests establish intended behavior,
+not direct observation of every current ChatGPT host. Use supported diagnostics
+or harmless synthetic canaries for remaining host checks, never real capability
+disclosure. A model saying it cannot see a value is not proof of isolation.
+
+#### Remaining work before expanding the first write workflow
+
+1. Verify the host approval boundary and effective card security configuration.
+   Record what is directly observable, what relies on the documented host
+   contract, and any supported-host limitation. If the required boundary cannot
+   be verified, report it for the user's decision; do not weaken approval or
+   silently accept an arbitrary-client trust assumption.
+2. Run a manual ChatGPT security session using an ordinary synthetic user:
+   allowed access/create, inaccessible record or receipt, insufficient/revoked
+   access, invalid input and instruction-like CRM text. Reuse existing automated
+   negative-case evidence rather than repeating every backend case by hand.
+   Success requires the expected denial or approved single save, checked against
+   server outcomes; a model refusal alone does not establish enforcement.
+3. Close the remaining reliability assessment: retain the passing manual fresh-chat
+   reads and phone save/cancel/reconnect results, investigate any recurrence of the
+   earlier unexplained warm-read failure, and report the desktop display issue
+   and exact host response-loss timing as unresolved evidence limits. Any
+   acceptance exception needs an explicit user decision; none is granted here.
+4. Reconcile the first-workflow acceptance result before proceeding to the already
+   approved contacts/projects/interactions and update/assignment/status/notes
+   increments. Operational readiness, production rollout and submission remain
+   required later; they are not complete because this lead trial passed.
+
+Evidence sources: [lead-creation chronology](mcp-lead-creation.md),
+`tests/test_mcp_inline_review.py`, `tests/test_mcp_lead_creation.py`,
+`tests/test_mcp_reads.py`, the OAuth/connection suites and
+`tests/ui/mcp_lead_review.test.cjs`; implementation in
+`app/services/ai_action_review.py`, `app/services/ai_actions.py`,
+`app/mcp_server.py` and `app/templates/mcp_lead_review.html`.
+No new security defect was demonstrated by this source/evidence reconciliation;
+the open items above must not be reported as either proven vulnerabilities or
+completed acceptance checks.
+
 ### Previous v49 baseline
 
 The previous verified deployment is **staging v49 / `6b8d898`**, October 25, 2026
@@ -942,8 +1011,9 @@ The October 9 source increment implements a guarded in-chat review candidate;
 [its evidence and host trust limits](mcp-lead-creation.md#in-chat-review-increment--october-9-2026)
 are tracked separately from deployed behavior and live acceptance.
 
-The currently deployed external review page is an interim implementation. A
-minimal review inside ChatGPT is an implementation candidate supported by the
+The external review page remains a fallback. Staging now uses an inline review
+card; its remaining acceptance gates are summarized in the current security
+reconciliation above. This approach is supported by the
 [official UI documentation](https://developers.openai.com/plugins/build/chatgpt-ui)
 and [tool/UI metadata reference](https://developers.openai.com/plugins/reference).
 First verify the host's approval contract and how the server binds a genuine

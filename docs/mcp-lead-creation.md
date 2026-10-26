@@ -1,5 +1,21 @@
 # Reviewed lead creation through ChatGPT
 
+## Current acceptance status - October 26, 2026
+
+The [current security reconciliation](mcp-readiness-status.md#current-security-reconciliation---october-26-2026)
+is the canonical status matrix; older pending statements below describe their
+dated trials. Server authorization, exact-action binding, atomic audit/receipt,
+repeat/concurrent save and cancellation protections have automated evidence on
+the v50 runtime. Real administrator phone save/cancel and network-return outcomes
+passed, with one saved RECOVERY2 lead (15).
+
+Still open: actual-host approval-data/tool isolation and CSP enforcement,
+ordinary-user and negative-access ChatGPT trials, a live untrusted-text/invalid-input
+trial, and the remaining reliability assessment. Exact post-commit response-loss
+timing was not established by the phone trial. The dedicated UI submission origin
+and the broader operational/production/submission checklist remain release work.
+This documentation-only reconciliation neither reruns tests nor closes step 1.
+
 This is the first write increment in the locked MVP. ChatGPT can find leads,
 read a selected lead and current option labels, and prepare a proposed lead.
 The connected user opens the returned review link, signs in to the same PathSix
