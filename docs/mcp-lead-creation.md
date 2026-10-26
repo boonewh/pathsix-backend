@@ -250,6 +250,44 @@ Fresh browser/phone use and actual-host interrupted-response acceptance remain o
 Evidence in outer `temp/mvp-lead-creation/`: `returning-connector-results-20261025.json`,
 `returning-consent-20261025.json`, and the local bounded `returning-logs-20261025.jsonl`.
 
+## Returning-read diagnosis - October 25, 2026
+
+A controlled cold-start reproduction returned two generic MCP -32603 errors
+before the application began listening; the third concurrent read succeeded.
+At 02:57:36 UTC on October 26 (October 25 locally), the three calls began.
+The two failures returned at 02:57:42; Hypercorn began listening at 02:57:45.859.
+Fly logged PM03 (machine wake-up timeout) at 02:57:44.621. All three reads had
+passed warm at 02:54:28, and both failed reads succeeded after startup without
+reconnection. This establishes a scale-to-zero startup failure path, not a loss
+of consent. No lead or proposal was created by these diagnostic reads.
+
+The staging service minimum is now one existing machine in iad, preserving
+auto-stop for extra capacity and automatic start. The source fly.staging.toml
+matches both live machine service settings. This increases idle staging compute
+usage; machine count, size, image, command, environment and database are unchanged.
+Fly configuration validation passed. The original October 24 grant still has
+all three scopes and is not revoked; write-action count remains five.
+
+This does not yet close the reliability issue: the first batch after the
+configuration update returned one error at 03:00:15 while both machines were
+healthy; two reads passed. Slow database queries appeared in the same interval,
+but that is correlation, not a proven cause. Its individual retry passed.
+Do not claim one warm machine fixes every initial read error.
+
+A bounded diagnostic patch adds generated request IDs, start/end times, HTTP
+status, authentication duration and a fixed processing phase. Unexpected tool
+handler failures emit a fixed marker. It logs no headers, arguments, CRM fields,
+account IDs, response contents or exception details. SDK debug logs stay disabled.
+The patch is awaiting CI and staging deployment; source changes are not runtime
+verification. Returning-use reliability and actual browser/phone acceptance remain
+open until the subsequent checks are recorded below.
+
+Local evidence is in outer temp/mvp-lead-creation/read-diagnosis-*.json/jsonl,
+including cold-start logs, before/after machine configuration, call results and
+read-only consent verification. Roll back the hosting change by returning the
+service minimum to zero in both live machines and fly.staging.toml; doing so
+reintroduces the reproduced sleep/wake failure risk.
+
 ## Permissions and tools
 
 `list_leads`, `get_lead` and `get_lead_options` require `leads:read`.

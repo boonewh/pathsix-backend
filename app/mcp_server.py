@@ -2,6 +2,8 @@
 import asyncio
 import json
 import logging
+from time import perf_counter
+from uuid import uuid4
 from pathlib import Path
 from urllib.parse import urlsplit
 from quart import Blueprint, jsonify
@@ -18,6 +20,7 @@ from app.services import mcp_reads
 
 # Protocol errors are returned to the client. Never emit request payloads via SDK debug logs.
 logging.getLogger('mcp').setLevel(logging.CRITICAL)
+diagnostics = logging.getLogger('pathsix.mcp_transport')
 MAX_BODY = 8192
 COMMON_HEADERS = {'Cache-Control':'no-store','Pragma':'no-cache','X-Content-Type-Options':'nosniff'}
 metadata_bp = Blueprint('mcp_metadata',__name__)
@@ -110,6 +113,11 @@ def install_mcp(app):
             value,error=None,'Connection permission is no longer available'
         except SQLAlchemyError:
             value,error=None,'Tool temporarily unavailable'
+        except Exception:
+            # SDK errors deliberately omit details. Record the boundary only;
+            # exception text/tracebacks can contain credentials or CRM fields.
+            diagnostics.error('MCP tool handler failed unexpectedly')
+            raise
         if error:
             meta = None
             if error == 'Required permission is not available' and params.name in mcp_reads.TOOL_SCOPES:
@@ -151,6 +159,23 @@ class Gateway:
     async def __call__(self,scope,receive,send):
         if scope['type']!='http' or scope.get('path')!='/mcp':
             return await self.web(scope,receive,send)
+        request_id = uuid4().hex
+        started = perf_counter()
+        state = {'status': None, 'phase': 'authentication', 'auth_ms': None}
+        diagnostics.info('MCP request started id=%s', request_id)
+        async def measured_send(message):
+            if message['type'] == 'http.response.start':
+                state['status'] = message['status']
+            await send(message)
+        try:
+            return await self.handle_mcp(scope,receive,measured_send,state)
+        finally:
+            # Fixed labels and generated IDs only: no headers, bodies, URLs,
+            # tool arguments, account IDs, response content or exception text.
+            diagnostics.info('MCP request finished id=%s status=%s phase=%s auth_ms=%s duration_ms=%.2f',
+                request_id,state['status'],state['phase'],state['auth_ms'],(perf_counter()-started)*1000)
+
+    async def handle_mcp(self,scope,receive,send,state):
         async def respond(status,error,headers=None):
             await JSONResponse({'error':error},status_code=status,headers={**COMMON_HEADERS,**(headers or {})})(scope,receive,send)
         try:
@@ -168,12 +193,16 @@ class Gateway:
             return await respond(403,'invalid_origin')
         if scope.get('query_string') or 'mcp-session-id' in headers:
             return await respond(400,'invalid_request')
+        auth_started = perf_counter()
         try:
             mcp_reads.authenticate(SessionLocal,bearer(headers))
         except (InvalidGrantError,InvalidScopeError,PermissionError):
             return await respond(401,'invalid_token',{'WWW-Authenticate':f'Bearer resource_metadata="{metadata_url()}"'})
         except SQLAlchemyError:
             return await respond(503,'temporarily_unavailable')
+        finally:
+            state['auth_ms'] = round((perf_counter()-auth_started)*1000,2)
+        state['phase'] = 'request_validation'
         if scope['method']!='POST': return await respond(405,'method_not_allowed',{'Allow':'POST'})
         if headers.get('content-type','').split(';')[0].strip()!='application/json':
             return await respond(415,'unsupported_media_type')
@@ -212,4 +241,5 @@ class Gateway:
                 extra=[(key.encode(),value.encode()) for key,value in COMMON_HEADERS.items()]
                 message={**message,'headers':list(message.get('headers',[]))+extra}
             await send(message)
+        state['phase'] = 'sdk'
         await self.sdk(scope,replay,protected_send)
