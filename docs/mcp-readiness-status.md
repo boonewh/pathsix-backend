@@ -49,8 +49,11 @@ Latest deployment: **staging v50 / `d64fe5c`**, October 26, 2026, repairs visibl
 review-result JSON/instructions with readable messages and a v3 card resource.
 705 backend tests, 12 component tests and 20 deployed inline checks passed.
 Phone save (lead 13) and cancellation outcomes are verified on v49; the v50
-presentation retest still showed the old message. Metadata refresh and a fresh
-manual retest remain required; see the stale-card investigation below.
+initial presentation retest showed the old message. After metadata refresh, the
+fresh phone cancellation and save presentation both passed. Lead 14 has one
+committed receipt and one matching lead; the cancelled trial has zero leads.
+The phone raw-message defect is closed for these paths; other MVP gates remain
+open. See the refreshed phone evidence below.
 
 ### Previous v49 baseline
 
@@ -622,6 +625,51 @@ screen rather than guessing another control. The defect remains open until a
 fresh phone trial displays readable text and the automatic confirmation.
 Sources: https://developers.openai.com/plugins/deploy/connect-chatgpt#refresh-metadata
 and https://developers.openai.com/plugins/deploy/app-review#other-changes .
+
+## Refreshed phone cancellation passes - October 26, 2026
+
+After the user reported refreshing PathSix CRM, the manual phone trial for
+`MVP-LEAD-20261026-REFRESHED-CANCEL` displayed the cancelled card, the repaired
+plain-language component message, and automatic assistant cancellation confirmation.
+Screenshot `1000023346.jpg` shows no raw JSON or internal follow-up instructions.
+An independent connected-tool search returned no accessible matching leads and
+no further page. The action ID is not visible in this screenshot, so no separate
+receipt lookup is claimed for this trial. Evidence: outer
+`temp/mvp-lead-creation/refreshed-phone-cancel-20261026.json`.
+
+The refreshed v50 cancellation presentation passes. This supports retained host
+metadata/resource content as the previous cause; the exact cache layer remains
+unobserved. A fresh v50 phone save confirmation is still required to finish the
+presentation retest. The earlier lead-13 save was on v49. Actual-host interruption
+and the other MVP gates remain open. No new code or deployment was needed.
+
+## Refreshed phone save and cancellation verified - October 26, 2026
+
+Screenshot `1000023348.jpg` shows the v50 saved card for
+`MVP-LEAD-20261026-REFRESHED-CREATE` (lead 14), readable component message and
+automatic assistant confirmation without raw JSON or internal instructions.
+Connected reads return lead 14, status new, and one matching result.
+Read-only staging database verification independently confirms one committed
+receipt `092bec8e-5471-4318-bac8-29741bbe11fd`, result_id 14, exactly one matching
+lead including deleted rows, and a successful creation audit at
+2026-10-26 18:59:02.760636 UTC.
+
+The same verification resolves the previous cancellation receipt evidence gap:
+`MVP-LEAD-20261026-REFRESHED-CANCEL` has cancelled action
+`e945358d-33e2-4321-a9ed-eebb84b6ac95`, null result_id, and zero matching leads
+including deleted rows. The earlier screenshot verifies its readable automatic
+conversation confirmation. Evidence: outer
+`temp/mvp-lead-creation/refreshed-phone-trials-db.json` and user screenshots
+`1000023346.jpg` / `1000023348.jpg`.
+
+The visible raw-JSON/instruction defect is now closed for the tested phone save
+and cancellation paths after the custom connection metadata refresh. Retained
+host metadata/content explains the observed sequence, but its exact cache layer
+was not inspected. Include metadata refresh and a fresh manual host trial in
+future custom-connection UI release checks. This is development release upkeep,
+not permission to require routine customer reconnects. Actual-host interrupted
+response recovery, host-security checks and other MVP gates remain open.
+No runtime changes or deployment were needed for this verification.
 
 ### Earlier deployment history
 
