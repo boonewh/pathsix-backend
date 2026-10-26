@@ -54,12 +54,13 @@ contract unchanged. Both machines passed health. The last 12 direct connector
 reads passed, including a five-minute idle return and a batch on each host.
 One earlier post-restart error is still unexplained, so returning-use reliability
 remains open. The October 26 fresh-chat trial retained consent and completed two
-successful CRM reads, but ChatGPT showed "This response couldn't load" on both
-attempts, including after reload. End-to-end answer delivery remains blocked; see
-the fresh-chat evidence below. Follow-up controls reproduce the load error in
-a separate chat with no plugin or tool use, while the actual CRM result passes
-its schema. This isolates a broader ChatGPT response-loading blocker; exact
-browser/account/service cause is unverified. The v48 UI evidence remains historical.
+successful CRM reads, but desktop ChatGPT showed "This response couldn't load".
+The user's phone screenshots now confirm the same conversation contains the
+correct saved answer (lead 12, status new) and the plain-text control response.
+CRM retrieval, answer generation/persistence and phone display are verified;
+desktop display of particular saved messages remains defective. No MCP schema
+or consent repair is indicated by this symptom. Exact desktop cause is unknown.
+This is phone viewing of an existing chat, not a fresh phone CRM workflow test.
 
 Live ChatGPT verifies ordinary three-scope consent, refresh rotation, lead reading,
 inline rendering and user-confirmed creation of lead 11. The v47 trial exposed
@@ -472,6 +473,39 @@ and answer-independent-control-failed-20261026.png. Both relevant Chrome chats
 are retained. Runtime stays v49 / 6b8d898; no deployment, CRM record change or
 production change was made. PR 27 remains draft. No new regression suite was
 required for this read-only diagnosis and evidence-only documentation change.
+
+## Phone confirms the saved answer - October 26, 2026
+
+User-supplied phone screenshots of the existing Find lead status conversation
+show the complete CRM answer: MVP-LEAD-20261024-CONFIRM, lead ID 12, status new,
+and the statement that no records were created or modified. The subsequent
+no-tool control in that conversation also displays PATHSIX-DISPLAY-OK.
+The user additionally reports both control answers in Display check render on
+phone, while their desktop screenshot shows the original unavailable and a later
+manually requested control answer visible.
+
+This supersedes the earlier uncertainty about answer generation/persistence:
+the CRM lookup completed, and ChatGPT generated and saved a correct answer
+that another client can display. The remaining observed failure is desktop
+loading/display of particular saved messages, not missing CRM data or a missing
+saved answer. No evidence supports changing the MCP result schema or OAuth
+permissions to repair this symptom. The precise desktop delivery/rendering
+mechanism remains unverified; do not attribute it to caching, an extension or
+a particular model without evidence.
+
+Acceptance accounting: retained consent, successful fresh-chat read, correct
+saved CRM answer and phone display of that answer are verified. Desktop display
+reliability remains open. This was viewing the existing conversation on a phone,
+not a fresh phone-originated CRM lookup or a phone creation/cancellation/recovery
+trial. Do not mark all phone acceptance or step 1 complete. The separate isolated
+warm-read error also remains unresolved. Runtime stays v49 / 6b8d898; no code,
+deployment, permissions, CRM record or production change was made for this update.
+
+Evidence in outer temp/mvp-lead-creation: phone-saved-answer-evidence-20261026.json
+records the user report and SHA-256 hashes of the unchanged supplied photos,
+phone-saved-crm-answer-20261026.jpg and
+phone-saved-answer-and-control-20261026.jpg. The existing backend audit and
+schema-validation evidence remains applicable. PR 27 stays draft.
 
 ### Earlier deployment history
 
