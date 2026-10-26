@@ -45,14 +45,15 @@ and remaining external release steps; do not automatically begin deferred work.
 
 ## Baseline and release status
 
-The latest verified deployment is **staging v48 / `aa3ca14`**, October 24, 2026
-(America/Chicago), with conversation-result reporting and the guarded in-chat
-lead review enabled only in staging. [Full CI](https://github.com/boonewh/pathsix-backend/actions/runs/40127746409)
-passed 702 backend tests with zero skips and 12 component bridge regressions.
-All 27 deployed connection/approval checks passed with public rows/sequences,
-the restricted role and 18-table/25-policy protection contract unchanged.
-Both machines passed health checks; normal auto-stop is restored. Twenty-two
-local browser checks passed at phone/desktop widths.
+The latest verified deployment is **staging v49 / `6b8d898`**, October 25, 2026
+(America/Chicago), with private MCP timing diagnostics and one staging web machine
+kept running to avoid scale-to-zero read failures. [Full CI](https://github.com/boonewh/pathsix-backend/actions/runs/40262205811)
+passed 705 backend tests with zero skips and 12 component regressions. All 30
+deployed checks passed with public data, the restricted role and 18-table/25-policy
+contract unchanged. Both machines passed health. The last 12 direct connector
+reads passed, including a five-minute idle return and a batch on each host.
+One earlier post-restart error is still unexplained, so returning-use reliability
+remains open. The v48 browser/UI evidence below remains applicable; no UI changed.
 
 Live ChatGPT verifies ordinary three-scope consent, refresh rotation, lead reading,
 inline rendering and user-confirmed creation of lead 11. The v47 trial exposed
@@ -298,9 +299,10 @@ Evidence in outer `temp/mvp-lead-creation/`: `returning-connector-results-202610
 ## Returning-read diagnosis - October 25, 2026
 
 A controlled cold-start reproduction returned two generic MCP -32603 errors
-before the application began listening; the third concurrent read succeeded.
+during machine wake-up; the third concurrent read succeeded.
 At 02:57:36 UTC on October 26 (October 25 locally), the three calls began.
-The two failures returned at 02:57:42; Hypercorn began listening at 02:57:45.859.
+Client failures returned around 02:57:42; the server logged its listener at
+02:57:45.859. These clocks are not synchronized evidence of exact ordering.
 Fly logged PM03 (machine wake-up timeout) at 02:57:44.621. All three reads had
 passed warm at 02:54:28, and both failed reads succeeded after startup without
 reconnection. This establishes a scale-to-zero startup failure path, not a loss
@@ -323,9 +325,46 @@ A bounded diagnostic patch adds generated request IDs, start/end times, HTTP
 status, authentication duration and a fixed processing phase. Unexpected tool
 handler failures emit a fixed marker. It logs no headers, arguments, CRM fields,
 account IDs, response contents or exception details. SDK debug logs stay disabled.
-The patch is awaiting CI and staging deployment; source changes are not runtime
-verification. Returning-use reliability and actual browser/phone acceptance remain
-open until the subsequent checks are recorded below.
+Staging v49 now runs `6b8d898e5041e61c8d3dec96ac472e22ddff93a9`.
+[Full CI](https://github.com/boonewh/pathsix-backend/actions/runs/40262205811)
+passed 705 backend tests with zero skips and all 12 component regressions.
+Focused local checks passed 56 tests with three PostgreSQL-only skips; the
+30 revision-pinned deployed checks passed without skips. Public rows/sequences,
+the restricted runtime role, 18-table/25-policy contract and immutable action
+trigger were unchanged; disposable schemas were cleaned. Both machines passed
+health, retain auto-start/auto-stop and have the one-machine minimum in iad.
+
+The next four concurrent three-read batches all passed (12 reads): an initial
+idle return, a return after more than five minutes without connector calls, and
+one batch on each deployed host tested separately. The five-minute return ran
+with one machine naturally stopped and the other retained. Deployed request logs
+show HTTP 200 and 54-443ms server durations on both hosts, with no unexpected
+handler marker in those test intervals. Generated IDs and fixed timing labels
+were verified in live logs. Client/server timestamps are separate clocks; these
+are server-measured durations, not inferred network latency. No deliberate
+transport interruption or new browser/phone conversation is claimed.
+
+Read-only final diagnostics confirm the original October 24 grant, all three
+scopes and five write actions are unchanged. No reconnection, new consent or
+CRM record write was needed. The scale-to-zero failure path is addressed; the
+single post-restart error remains unexplained and did not recur in these batches.
+Returning-use reliability stays open for a fresh real-host trial with diagnostics
+enabled. Do not infer that the isolated warm error was caused by slow SQL or
+that successful retries prove it fixed. Production is unchanged and PR 27 is draft.
+
+Image: `registry.fly.io/pathsixsolutions-backend-staging:reads-6b8d898`, digest
+`sha256:b5954795b7172ceaed6d2a7782c51ca588fc6ce4e2473d50df4687bf621f5660`.
+Code rollback is v48 `conversation-aa3ca14`, digest
+`sha256:d1feffabd5a15e29159eb8612fa8828fbf0bc89023ca9206f28b701e6e999cde`;
+retain the one-machine minimum when rolling back only diagnostics. No migration,
+permission or database resource change was made. Keeping one existing web machine
+running increases staging idle compute usage; no additional machine was created.
+
+Evidence: outer `temp/mvp-lead-creation/diagnosis-deployed-tests.json`,
+`diagnosis-deployed-batches.json`, `diagnosis-final-timing-summary.json`,
+`diagnosis-consent-final.json`, `diagnosis-final-machines.json`, and
+`read-diagnosis-idle-20261025.json`. Raw bounded logs remain local.
+
 
 Local evidence is in outer temp/mvp-lead-creation/read-diagnosis-*.json/jsonl,
 including cold-start logs, before/after machine configuration, call results and
