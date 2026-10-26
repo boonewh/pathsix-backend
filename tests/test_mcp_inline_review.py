@@ -126,11 +126,12 @@ def test_inline_resource_and_app_only_metadata_in_both_protocols(oauth, version)
     assert tools['decide_lead_creation']['_meta']['ui']['visibility'] == ['app']
     assert tools['prepare_lead_creation']['_meta']['ui']['resourceUri'] == REVIEW_URI
     assert not tools['decide_lead_creation']['annotations']['readOnlyHint']
-    # Existing conversations can still resolve their v1 card after a UI update.
-    from app.mcp_lead_tools import LEGACY_REVIEW_URI
-    _, legacy, _ = rpc(oauth, token, 'resources/read', {**meta,'uri':LEGACY_REVIEW_URI}, headers={'MCP-Protocol-Version':version})
-    assert legacy['result']['contents'][0]['uri'] == LEGACY_REVIEW_URI
-    assert legacy['result']['contents'][0]['text'] == resource['text']
+    # Existing conversations can still resolve both older cards after a UI update.
+    from app.mcp_lead_tools import LEGACY_REVIEW_URI, PREVIOUS_REVIEW_URI
+    for uri in (LEGACY_REVIEW_URI, PREVIOUS_REVIEW_URI):
+        _, legacy, _ = rpc(oauth, token, 'resources/read', {**meta,'uri':uri}, headers={'MCP-Protocol-Version':version})
+        assert legacy['result']['contents'][0]['uri'] == uri
+        assert legacy['result']['contents'][0]['text'] == resource['text']
 
 
 def test_inline_disabled_retains_external_review_and_denies_component_decisions(oauth):

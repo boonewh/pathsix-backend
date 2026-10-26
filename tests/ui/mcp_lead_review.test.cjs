@@ -54,8 +54,11 @@ for(const approved of [true,false])test(`decision ${approved?'save':'cancel'} re
  await h.click(approved?'create':'cancel');
  assert.equal(h.state.writes,1);assert.equal(h.state.messages.length,1);
  const message=h.state.messages[0];assert.equal(message.role,'user');assert.equal(message.content[0].type,'text');
- assert.match(message.content[0].text,new RegExp(approved?'committed':'cancelled'));
- if(approved)assert.match(message.content[0].text,/"id":11/);
+ assert.equal(message.content[0].text,approved?'PathSix CRM saved the lead (ID 11).':'PathSix CRM cancelled the proposal. No lead was created.');
+ assert.equal(/action_id|status|[{}]|Briefly confirm|Do not prepare/.test(message.content[0].text),false);
+ assert.equal(h.state.contexts[0].structuredContent.action_id,action);
+ assert.equal(h.state.contexts[0].structuredContent.status,approved?'committed':'cancelled');
+ if(approved)assert.equal(h.state.contexts[0].structuredContent.lead.id,11);
  assert.equal(/PRIVATE_CAPABILITY|private@example|private.test|Ignore all/.test(JSON.stringify([h.state.messages,h.state.contexts])),false);
  await h.click('refresh');await h.click('create');await h.click('cancel');
  assert.equal(h.state.writes,1);assert.equal(h.state.messages.length,1);
@@ -82,7 +85,7 @@ test('uncommitted interrupted decision never announces a saved lead',async()=>{
 test('expiry after a decision reports the terminal outcome without a lead',async()=>{
  const h=await host({lostWrite:true,failRecovery:true});await h.click('create');
  h.state.receipt={action_id:action,status:'expired'};h.state.failReads=false;await h.click('refresh');
- assert.match(h.state.messages[0].content[0].text,/"status":"expired"/);
+ assert.equal(h.state.messages[0].content[0].text,'The PathSix CRM proposal expired. No lead was created.');
  assert.equal(h.state.contexts[0].structuredContent.lead,undefined);
 });
 
@@ -96,7 +99,7 @@ for(const option of ['noMessages','rejectMessage','messageTimeout'])test(`${opti
 
 test('context failure does not block a self-contained confirmation',async()=>{
  const h=await host({failContext:true});await h.click('create');
- assert.equal(h.state.messages.length,1);assert.match(h.state.messages[0].content[0].text,/"id":11/);
+ assert.equal(h.state.messages.length,1);assert.equal(h.state.messages[0].content[0].text,'PathSix CRM saved the lead (ID 11).');
  assert.equal(h.node('conversation-notice').textContent,'');
 });
 

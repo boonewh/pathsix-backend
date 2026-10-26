@@ -454,6 +454,62 @@ phone-saved-crm-answer-20261026.jpg and
 phone-saved-answer-and-control-20261026.jpg. The existing backend audit and
 schema-validation evidence remains applicable. PR 27 stays draft.
 
+## Phone creation verification - October 26, 2026
+
+The user manually ran the phone creation trial for
+`MVP-LEAD-20261026-PHONE-CREATE`. Their screenshot shows an automatic saved
+confirmation identifying lead 13. Independent read-only connected-tool checks
+confirm action `8e11c9e5-0897-4b53-9fca-979355a66590` is committed to lead 13.
+An exact-name search returned one accessible matching lead, status new, with no
+further page. This establishes the saved receipt and one visible matching record;
+it is not a database-wide duplicate/audit attestation.
+
+The screenshot also exposes the component's raw `PathSix review result` JSON and
+model-directed follow-up instructions in the conversation before the friendly
+confirmation. Record this as an open in-scope customer-experience defect: the
+save and follow-up worked, but phone presentation is not ready for acceptance.
+Investigate the supported host message contract before changing the notification;
+preserve exact-action approval, receipt recovery and duplicate protection.
+The subsequent manual phone cancellation trial also completed. Screenshot
+`1000023342.jpg` shows automatic cancellation confirmation. Independent read-only
+checks confirm action `05fddcf7-b5fd-44bf-b1a0-e1ae01525e41` is cancelled;
+searching `MVP-LEAD-20261026-PHONE-CANCEL` returns no accessible matching leads
+and no further page. Evidence: outer
+`temp/mvp-lead-creation/phone-cancel-verification-20261026.json`.
+The cancellation message exposes the same raw JSON and follow-up instructions,
+so the presentation defect affects both terminal outcomes. Phone save and cancel
+outcomes are verified, while full phone acceptance and actual-host interruption
+remain open. Neither screenshot establishes fresh phone consent or absence of
+reconnect prompts.
+
+Evidence: user attachment `1000023340.jpg` and outer
+`temp/mvp-lead-creation/phone-create-verification-20261026.json`.
+No runtime change or deployment was made for this verification.
+
+## Readable review follow-up repair - October 26, 2026
+
+Phone trials exposed raw JSON and model instructions from our `ui/message`
+payload. This is a component-authored chat message, not a hidden instruction
+channel. The component now sends only a short factual result: saved with lead ID,
+cancelled with no lead created, or expired with no lead created. Receipt action
+ID/status remain in `ui/update-model-context` structured content. Neither channel
+includes review capabilities, account data, review URLs or user-authored fields.
+The same once-per-decision notification, unknown-outcome recovery and no-write-
+retry behavior remain. The visible message remains self-contained if the context
+update fails. No claim is made that hosts hide the readable component message.
+
+New cards advertise `ui://pathsix/lead-review-v3.html` to avoid cached v2 HTML;
+v1 and v2 resources still resolve to the repaired component for existing chats.
+The component bridge suite passes all 12 tests, covering save/cancel/expiry copy,
+private-data exclusion, failed context/message delivery and response recovery.
+Source checks pass; exact-revision CI, deployment and a manual fresh-card phone
+retest are pending. Existing transcript messages cannot be retroactively changed.
+
+References: https://developers.openai.com/plugins/build/chatgpt-ui and
+https://developers.openai.com/plugins/reference (component-authored follow-up and
+structured model context). This repair does not change permissions, writes or
+production configuration.
+
 ## Permissions and tools
 
 `list_leads`, `get_lead` and `get_lead_options` require `leads:read`.

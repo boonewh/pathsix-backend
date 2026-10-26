@@ -3,8 +3,9 @@ import mcp_types as types
 from app.schemas.leads import LeadCreateSchema
 from app.models import Lead
 
-REVIEW_URI = 'ui://pathsix/lead-review-v2.html'
+REVIEW_URI = 'ui://pathsix/lead-review-v3.html'
 LEGACY_REVIEW_URI = 'ui://pathsix/lead-review-v1.html'
+PREVIOUS_REVIEW_URI = 'ui://pathsix/lead-review-v2.html'
 
 
 def tools(*, inline_review=False):

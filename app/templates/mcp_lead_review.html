@@ -50,14 +50,20 @@ async function reportDecision(){
  reportRequested=false;
  const outcome={action_id:actionId,status:receipt.status};
  if(receipt.status==='committed')outcome.lead={id:receipt.lead?.id};
- // Only server receipt identifiers/state go into chat: no capability, account,
- // review URL or user-authored fields that could become prompt instructions.
+ // Keep receipt identifiers/state in model context. The follow-up is visible
+ // on some hosts, so use customer-facing copy without JSON or instructions.
+ // Neither channel includes capabilities, account data, review URLs or
+ // user-authored fields that could become prompt instructions.
  void request('ui/update-model-context',{structuredContent:outcome}).catch(()=>{});
+ const message=receipt.status==='committed'
+  ? `PathSix CRM saved the lead (ID ${receipt.lead.id}).`
+  : receipt.status==='cancelled'
+   ? 'PathSix CRM cancelled the proposal. No lead was created.'
+   : 'The PathSix CRM proposal expired. No lead was created.';
  const fallback='The result above is confirmed, but the automatic chat confirmation is unavailable.';
  if(!canMessage){el('conversation-notice').textContent=fallback;return;}
  try{
-  const result=await request('ui/message',{role:'user',content:[{type:'text',text:
-   'PathSix review result: '+JSON.stringify(outcome)+'. Briefly confirm this result in the conversation. A committed result is already saved; cancelled or expired means this proposal created nothing. Do not prepare or save another lead.'}]});
+  const result=await request('ui/message',{role:'user',content:[{type:'text',text:message}]});
   if(result?.isError)throw new Error('Message rejected');
  }catch{el('conversation-notice').textContent=fallback;}
 }
@@ -91,6 +97,6 @@ window.addEventListener('message',event=>{
  if(message.method==='ui/notifications/host-context-changed')applyTheme(message.params);
 });
 function applyTheme(context){if(context?.theme==='dark'||context?.theme==='light')document.documentElement.style.colorScheme=context.theme;}
-(async()=>{try{const host=await request('ui/initialize',{appInfo:{name:'PathSix lead review',version:'1.1.0'},appCapabilities:{},protocolVersion:'2026-01-26'});applyTheme(host?.hostContext);canMessage=!!host?.hostCapabilities?.message?.text;ready=true;notify('ui/notifications/initialized',{});if(actionId)void refresh();}catch{el('notice').textContent='The review could not connect. Ask ChatGPT to check the proposal or offer its secure review link.';}})();
+(async()=>{try{const host=await request('ui/initialize',{appInfo:{name:'PathSix lead review',version:'1.1.1'},appCapabilities:{},protocolVersion:'2026-01-26'});applyTheme(host?.hostContext);canMessage=!!host?.hostCapabilities?.message?.text;ready=true;notify('ui/notifications/initialized',{});if(actionId)void refresh();}catch{el('notice').textContent='The review could not connect. Ask ChatGPT to check the proposal or offer its secure review link.';}})();
 new ResizeObserver(()=>notify('ui/notifications/size-changed',{height:document.documentElement.scrollHeight})).observe(document.body);
 </script></body></html>
