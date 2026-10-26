@@ -124,6 +124,26 @@ No new security defect was demonstrated by this source/evidence reconciliation;
 the open items above must not be reported as either proven vulnerabilities or
 completed acceptance checks.
 
+### Ordinary-user permission trial preparation - October 26, 2026
+
+Prepared one synthetic ordinary staging account with no administrator role and
+one administrator-created lead assigned to it. Existing administrator records
+and grants were not modified. Setup used the deployed user/lead services with
+the restricted, non-superuser/non-BYPASSRLS runtime role and enabled RLS. The
+separate diagnostic administrator connection was read-only. No OAuth grants or
+tokens were created.
+
+Fresh ordinary-user service sessions on staging v50 verified the assigned lead
+is readable, while an administrator-owned lead and client return RecordNotFound.
+This is a deployed service preflight, not a live ChatGPT pass. Live account
+consent, allowed reads/create and inaccessible record/receipt checks remain
+pending. Isolate the ordinary ChatGPT connection from the administrator
+connection, since the host may otherwise select another connected account;
+corroborate the actual grant owner and server outcomes before accepting results.
+
+Detailed fixture evidence and temporary login credentials remain local-only,
+outside this public repository. No runtime code or deployment changed.
+
 ### Approval-boundary and card-security checks - October 26, 2026
 
 Status: server and component checks pass; the current Codex connector provides
