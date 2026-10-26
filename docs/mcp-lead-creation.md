@@ -606,6 +606,56 @@ not permission to require routine customer reconnects. Actual-host interrupted
 response recovery, host-security checks and other MVP gates remain open.
 No runtime changes or deployment were needed for this verification.
 
+## Manual phone interruption returned to pending - October 26, 2026
+
+The user reports the original RECOVERY attempt did not lose Wi-Fi and was likely
+cancelled. They then used RECOVERY1 in a new chat, enabled airplane mode and
+turned Wi-Fi off. After reconnecting, the card automatically returned without a
+manual Refresh tap. Screenshot `1000023350.jpg` shows the pending review,
+Create/Cancel buttons and Review refreshed, not a saved result.
+
+Read-only staging verification confirms original
+`MVP-LEAD-20261026-RECOVERY` action `a2d25978-d187-4c79-bbcb-1e108b06ab87` is
+cancelled with null result_id and zero matching leads. RECOVERY1 action
+`1807c561-41da-439f-befa-85fa97503814` is pending with no decision timestamp,
+null result_id and zero matching leads. It expires at 19:13:16 UTC on October 26.
+The bounded recent audits contain preparation and successful receipt reads, with
+no RECOVERY1 decision shown. Evidence: outer
+`temp/mvp-lead-creation/phone-recovery-trials-db.json`.
+
+This demonstrates return to an unsaved proposal after the reported phone network
+interruption. It does not establish that a Create click reached the server or
+that a committed response was lost. Whether the user tapped Create before losing
+connectivity remains to be clarified. Do not mark actual-host post-commit response
+recovery complete or request a replacement proposal for an uncertain save.
+
+## Phone network interruption reaches one saved result - October 26, 2026
+
+The user clarified RECOVERY1 was never approved and later expired. Its database
+row remains pending with expiry at 19:13:16 UTC, no decision and no matching lead;
+expiry is derived, not a persisted cancelled decision. Original RECOVERY remains
+cancelled with no matching lead.
+
+For RECOVERY2, the user reported the review card ready before the instructed
+single Create click and network cutoff, then reported Sending while offline.
+Their subsequent screenshot `1000023352.jpg` shows the saved card, readable
+component message and automatic assistant confirmation, all identifying lead 15.
+Read-only verification confirms one committed action
+`15958828-df6d-4914-b952-efd053739cf8`, result_id 15, exactly one matching lead
+including deleted rows, a successful creation audit at 19:24:15.743536 UTC and a
+successful receipt read at 19:24:21.723231 UTC. Evidence: outer
+`temp/mvp-lead-creation/phone-recovery2-db.json`.
+
+The manual phone disconnect/reconnect trial reaches a consistent saved result
+without duplicate creation. We did not capture the exact network cutoff/restore
+instants or host bridge delivery, so this does not prove a response was dropped
+after commit rather than the host queuing/completing the request around reconnect.
+Record this as passing practical network-return behavior, with exact post-commit
+response-loss timing unverified in ChatGPT. Earlier controlled fault-injection
+covers that precise failure in the isolated host. Do not mark all interruption
+or MVP acceptance gates complete from this screenshot. No repeated airplane-mode
+race is required merely to reproduce an unobservable timing boundary.
+
 ## Permissions and tools
 
 `list_leads`, `get_lead` and `get_lead_options` require `leads:read`.
