@@ -18,9 +18,15 @@ This documentation-only reconciliation neither reruns tests nor closes step 1.
 
 The [subsequent host-boundary checks](mcp-readiness-status.md#approval-boundary-and-card-security-checks---october-26-2026)
 add a successful live Codex metadata-isolation observation and three component
-bridge security regressions (15 component tests now pass locally). The desktop
-SECURITY proposal remained unapproved with no saved lead. Its screenshot has no
-CSP badge; actual browser policy inspection is pending. Runtime remains v50.
+bridge security regressions (15 component tests now pass locally). The SECURITY
+proposal remained unapproved with no saved lead. The native app hid the CSP badge;
+Chrome showed CSP off. The user enabled Enforce CSP for custom apps and reloaded:
+rendering still works and the badge disappeared. Refresh status returned
+"Review refreshed"; the user then cancelled and both the card and chat confirmed.
+Staging verifies cancellation and zero matching leads, including deleted rows.
+CSP-enabled card functionality passes; direct effective-policy/blocked-network
+evidence and desktop ChatGPT model-context isolation remain unverified. CI for
+`4afe205` passed 705 backend and 15 component tests, zero skips. Runtime remains v50.
 
 This is the first write increment in the locked MVP. ChatGPT can find leads,
 read a selected lead and current option labels, and prepare a proposed lead.

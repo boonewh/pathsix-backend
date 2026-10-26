@@ -79,7 +79,7 @@ action trigger. Changes after this runtime revision are documentation and compon
 | Input validation and untrusted CRM text | Lead tests reject extra authority fields, invalid types/email/lengths and changed inputs under an existing request key. UI tests render text safely and keep hostile field text, private account data, review URLs and capabilities out of follow-up messages/context. | Run a bounded real ChatGPT trial with synthetic instruction-like CRM text and invalid input; inspect actual tool activity and database outcome. Escaping text and synthetic tests do not establish model resistance to prompt injection. |
 | Single save, terminal decisions and audit | Backend/PostgreSQL tests cover repeated and concurrent decisions, immutable receipts, cancel-then-create denial, atomic audit failure rollback and recovery. Deployed inline checks passed. Real phone save/cancel outcomes and exact matching lead counts were checked, including lead 15 once. | No repeat of the passing happy-path or concurrency suite is required for this documentation change. Apply these protections to each later MVP write increment. |
 | Expiry and response recovery | Automated expiry, lost-response, unknown-outcome and notification-failure cases pass. RECOVERY1 expired without approval or a lead. RECOVERY2 returned after network interruption with one saved lead (15), matching card and conversation result. | Exact post-commit response loss inside ChatGPT was not measured; controlled loopback fault injection covers that case, not the actual host. Keep this evidence limit explicit; do not ask the user to repeat an unobservable airplane-mode race. |
-| Component host security | Server resource metadata declares empty network/resource allowlists, app-only tool visibility is tested, and private metadata is separated from model-visible content. | Developer screenshots show CSP off, so effective host CSP enforcement is unverified. The resource also lacks a dedicated ui.domain, a UI submission requirement. Establish supported host enforcement evidence and configure/verify the submission origin before public release. |
+| Component host security | Server resource metadata declares empty network/resource allowlists, app-only tool visibility is tested, and private metadata is separated from model-visible content. | The user enabled custom-app CSP enforcement in Chrome; the card still renders and CSP off disappeared. Status refresh and user cancellation with automatic chat confirmation also passed; staging confirms cancellation and zero leads. Effective policy/blocked-network behavior is not directly verified. The resource also lacks a dedicated ui.domain, a UI submission requirement. Establish supported host enforcement evidence and configure/verify the submission origin before public release. |
 | Deployment isolation and operational safeguards | Restricted-role/RLS checks, append-only audit protections, durable read/proposal limits and privacy-conscious diagnostics have test evidence. Staging health and deployed inline checks passed on v50. | This does not close the existing release checklist for shared OAuth/MCP abuse limits, monitoring/alerts, retention, operational runbooks, production configuration and rollback/backup rehearsal. Those remain later MVP release work. |
 
 The host contract is documented: result `_meta` is component-only, while
@@ -127,9 +127,13 @@ completed acceptance checks.
 ### Approval-boundary and card-security checks - October 26, 2026
 
 Status: server and component checks pass; the current Codex connector provides
-supporting isolation evidence. Desktop ChatGPT CSP and model-context isolation
-are not yet established by direct inspection. The live desktop check is pending
-browser policy evidence. Do not mark the host-security gate complete.
+supporting isolation evidence. The user enabled ChatGPT custom-app CSP enforcement
+in Chrome, reloaded the SECURITY conversation and confirmed the card still
+renders and the CSP-off badge disappeared. Rendering compatibility under the
+enabled setting passes. The user also verified status retrieval and cancellation,
+including automatic conversation confirmation, with enforcement enabled. This
+does not directly establish the effective policy, blocked network behavior or
+desktop ChatGPT model-context isolation. Keep the overall host-security gate open.
 
 - Rechecked the actual response serializer: the signed decision capability is
   placed only in result `_meta`, not `content` or `structuredContent`. The decision
@@ -145,22 +149,39 @@ browser policy evidence. Do not mark the host-security gate complete.
   This is evidence about the current Codex connection, not proof about the
   desktop/phone ChatGPT model context or every possible host.
 - Read-only permission inspection reports default "Allow low-risk actions" and
-  PathSix "Use my default". No setting was changed. This host preference is
+  PathSix "Use my default". Those permission settings were not changed. This host preference is
   separate from PathSix's signed, exact-action review requirement.
 - Added three component bridge regressions: foreign-frame notifications cannot
   replace a proposal; foreign-frame or wrong-protocol replies cannot resolve a
   pending read or consume its request ID; the real parent can still resolve it.
   These checks also assert no write or conversation message is generated.
-  All **15 Node component tests passed locally**, with zero skips. No application
-  code changed, so the prior 705 backend/20 deployed checks remain the v50
-  evidence rather than being reported as newly run. No deployment was needed.
+  All **15 Node component tests passed locally**, with zero skips. CI for
+  `4afe205` subsequently passed **705 backend tests and 15 component tests**,
+  with zero skips. Application code is unchanged and no deployment was needed;
+  the 20 deployed inline checks remain the earlier v50 evidence.
 - The user manually prepared `MVP-LEAD-20261026-SECURITY` in a fresh desktop chat
   without clicking Create. Read-only staging inspection found action
   `f841d2c6-9049-4c3f-b69e-ae87079e5c69` pending, null result/decision, and zero
   matching leads including deleted rows. Created 19:40:51 UTC, expiry 19:50:51 UTC.
-  The screenshot shows the pending review card and no CSP badge. Absence of a
-  badge proves neither CSP enforcement nor CSP failure. The user was asked to
-  inspect only the card document's Content-Security-Policy response header.
+  The initial screenshot was from the native ChatGPT desktop app, which showed
+  no CSP badge. After clarifying the host, the user opened the same conversation
+  in Chrome and saw CSP off. The badge opened Settings > Security and login.
+  The settings screenshot shows App security > Enforce CSP for custom apps off.
+  Its explanation says the setting applies the restricted production default
+  to custom apps without a declared policy. The user enabled it and reloaded:
+  the card remained visible and the CSP-off badge disappeared. This is a user
+  setting change, not a PathSix deployment or proof that the host recognized
+  our declared empty allowlists. Browser policy/blocked-network evidence has
+  not been captured. Leave the setting enabled for subsequent live checks.
+- With enforcement enabled, the user clicked Refresh status and received
+  "Review refreshed" with the pending card intact. They then clicked Cancel;
+  both the card and ChatGPT confirmed cancellation. Read-only staging inspection
+  confirms the same action is cancelled, result_id null, decided at
+  **19:49:21.436756 UTC**, with **zero matching leads including deleted rows**.
+  Successful decide/cancel audits corroborate the click. This closes the live
+  rendering, read-bridge, cancellation and follow-up compatibility checks under
+  the enabled host setting. It does not prove a specific effective CSP directive
+  or a blocked network probe, and it does not expose ChatGPT model context.
 
 The current resource declares no allowed network or external asset domains and
 no nested-frame exceptions. The component uses textContent for CRM values and
@@ -180,7 +201,11 @@ badge means. Do not infer a platform security change from that screenshot.
 Evidence in the outer checkout: `temp/mvp-lead-creation/host-security-trial-db.json`
 and `host-boundary-connected-result.json`; new tests in
 `tests/ui/mcp_lead_review.test.cjs`. The user screenshot is
-`codex-clipboard-d7e05a4b-39bc-4610-abd9-e28228a403bf.png`.
+`codex-clipboard-d7e05a4b-39bc-4610-abd9-e28228a403bf.png` (native app); the
+settings screenshot is `codex-clipboard-a327fbab-8050-4bef-a575-191e212367be.png`.
+CI for the added security regressions is [run 40389245398](https://github.com/boonewh/pathsix-backend/actions/runs/40389245398),
+completed successfully: 705 backend tests and 15 component tests, zero skips.
+Terminal staging evidence: `temp/mvp-lead-creation/host-security-cancel-db.json`.
 
 ### Previous v49 baseline
 
