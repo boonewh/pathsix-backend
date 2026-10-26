@@ -502,8 +502,24 @@ New cards advertise `ui://pathsix/lead-review-v3.html` to avoid cached v2 HTML;
 v1 and v2 resources still resolve to the repaired component for existing chats.
 The component bridge suite passes all 12 tests, covering save/cancel/expiry copy,
 private-data exclusion, failed context/message delivery and response recovery.
-Source checks pass; exact-revision CI, deployment and a manual fresh-card phone
-retest are pending. Existing transcript messages cannot be retroactively changed.
+Exact-revision CI passed 705 backend tests with zero skips and all 12 component
+checks: https://github.com/boonewh/pathsix-backend/actions/runs/40371492217 .
+Staging v50 deploys `d64fe5c998d5d4ee992e0827d38bab7e65b0ad0c`, image digest
+`sha256:0f8aca62b9e7fa7c431610e610c6566cb3e508e66de7d60992a2bb2cd81a69cf`.
+All 20 deployed inline-review checks passed, zero skips. Deployed source hashes
+match the clean commit archive; public rows/sequences, restricted role, 18-table /
+25-policy contract and action trigger are unchanged; disposable schemas are clean.
+The active machine passed deployment health and public HTTPS health returned 200.
+Both machine configurations use the repaired image and revision, with one ready
+machine and automatic spare shutdown retained. No schema or grant change occurred.
+
+Evidence in outer temp/mvp-lead-creation: phone-deployed-tests.json,
+phone-verification-input.json, phone-machines-after.json, phone-releases-after.json.
+Rollback is the prior v49 image digest
+`sha256:b5954795b7172ceaed6d2a7782c51ca588fc6ce4e2473d50df4687bf621f5660`
+with APP_REVISION `6b8d898e5041e61c8d3dec96ac472e22ddff93a9` and existing staging
+configuration. A manual fresh-card phone retest is still required before closing
+the presentation defect. Existing transcript messages cannot be retroactively changed.
 
 References: https://developers.openai.com/plugins/build/chatgpt-ui and
 https://developers.openai.com/plugins/reference (component-authored follow-up and
