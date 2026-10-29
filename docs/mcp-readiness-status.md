@@ -10,6 +10,14 @@ below remains historical; this scope update does not establish a newer deploymen
 
 ## MVP scope lock and agent working rules
 
+**October 29 security maintenance:** the user separately authorized Python/Quart
+backend dependency/runtime upgrades after SessionLoom, Rexco and Permian Alliance.
+The isolated `codex/mvp-security-upgrades` backport changes dependencies, CA trust,
+verified mail transport, Docker runtime and verification only. It adds no MVP
+capabilities and closes none of the outstanding manual/host acceptance gates.
+The active original worktree and its unpublished readiness updates are preserved.
+See `docs/security-upgrade-2026-10-29.md` for scope and evidence boundaries.
+
 **Status: scope locked by the user on October 6, 2026; build incomplete.**
 This MVP is the only planned product build until its completion criteria are met.
 The approved workflow table, implementation steps and completion checklist below
