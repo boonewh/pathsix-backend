@@ -47,7 +47,7 @@ architecture remain existing behavior; do not change storage ownership blindly.
 
 ## Verification and release boundaries
 
-Run `SECRET_KEY=test-only DATABASE_URL=sqlite:// SENTRY_DSN= python -m pytest -q`
+Run `SECRET_KEY=test-only DATABASE_URL=sqlite:///test-unused.db SENTRY_DSN= python -m pytest -q`
 with disposable fixtures. PostgreSQL tests use only a dedicated
 PURGE_TEST_DATABASE_URL; fixtures create/drop random test schemas there. Never
 point these destructive fixture operations at a shared database. The existing
