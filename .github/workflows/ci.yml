@@ -1,32 +1,19 @@
 name: CI
-
-# Insurance gate for the backend. Starts as a dependency-free syntax/compile
-# check; Phase 4 adds `pip install -r requirements.txt` + `pytest` (incl. the
-# tenant-isolation regression tests).
 on:
   pull_request:
     branches: [main]
   push:
     branches: [main]
-
+permissions:
+  contents: read
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   backend:
-    name: Backend — compile check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Syntax / compile check
-        run: python -m compileall app
-      # Phase 4 (add tests):
-      # - run: pip install -r requirements.txt
-      # - run: pytest
-
-  purge-regression:
-    name: Purge and production recovery regressions
-    runs-on: ubuntu-latest
+    name: Python runtime, PostgreSQL regressions and production image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:18
@@ -39,15 +26,25 @@ jobs:
           --health-cmd "pg_isready -U crm_test"
           --health-interval 10s --health-timeout 5s --health-retries 5
     env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
       SECRET_KEY: ci-test-only-key
       SENTRY_DSN: ''
       DATABASE_URL: postgresql://crm_test:test-only@localhost:5432/crm_test
       PURGE_TEST_DATABASE_URL: postgresql://crm_test:test-only@localhost:5432/crm_test
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.12'
+          python-version: '3.12.16'
           cache: pip
-      - run: pip install -r requirements.txt pytest
-      - run: python -m pytest -q tests/test_lead_schemas.py tests/test_lead_options.py tests/test_purge_ux.py tests/test_read_recovery.py tests/test_auth_sentry_diagnostics.py tests/test_sales_activity.py tests/test_project_archive.py --tb=short
+          cache-dependency-path: requirements-test.txt
+      - run: python -m pip install --upgrade pip==26.2.2
+      - run: python -m pip install --require-hashes -r requirements-test.txt
+      - run: python -m pip check
+      - run: python -m compileall -q app
+      - run: python -m pytest -q --tb=short
+      - name: Build and verify the exact production image
+        run: |
+          docker build --tag pathsix-release .
+          docker run --rm pathsix-release python scripts/verify_security_runtime.py
+          docker run --rm -e SECRET_KEY=ci-import-only -e DATABASE_URL=sqlite:// -e SENTRY_DSN= pathsix-release python -c "import asgi; print('Quart application import passed without starting the server')"

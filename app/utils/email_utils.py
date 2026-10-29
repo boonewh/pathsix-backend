@@ -1,5 +1,7 @@
 # app/utils/email_utils.py
 import aiosmtplib
+import ssl
+import certifi
 from email.message import EmailMessage
 from app.config import (
     MAIL_SERVER,
@@ -25,6 +27,9 @@ async def send_email(subject: str, recipient: str, body: str):
         username=MAIL_USERNAME,
         password=MAIL_PASSWORD,
         start_tls=MAIL_USE_TLS,
+        validate_certs=True,
+        tls_context=ssl.create_default_context(cafile=certifi.where()),
+        timeout=15,
     )
 
 async def send_assignment_notification(to_email: str, entity_type: str, entity_name: str, assigned_by: str):

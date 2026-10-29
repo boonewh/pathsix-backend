@@ -93,8 +93,6 @@ async def forgot_password():
         token = generate_reset_token(email)
         reset_link = f"{current_app.config['FRONTEND_URL']}/reset-password/{token}"
 
-        print("Reset link:", reset_link)
-
         try:
             await send_email(
                 subject="Password Reset Request",
@@ -102,7 +100,8 @@ async def forgot_password():
                 body=f"Click to reset your password: {reset_link}"
             )
         except Exception as e:
-            print(f"Failed to send password reset email to {email}: {e}")
+            import logging
+            logging.getLogger(__name__).warning("Password reset email delivery failed (%s)", type(e).__name__)
 
         return jsonify({"message": "If that account exists, a reset email was sent."})
     except SQLAlchemyError:
