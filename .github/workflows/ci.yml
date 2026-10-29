@@ -47,4 +47,4 @@ jobs:
         run: |
           docker build --tag pathsix-release .
           docker run --rm pathsix-release python scripts/verify_security_runtime.py
-          docker run --rm -e SECRET_KEY=ci-import-only -e DATABASE_URL=sqlite:// -e SENTRY_DSN= pathsix-release python -c "import asgi; print('Quart application import passed without starting the server')"
+          docker run --rm -e SECRET_KEY=ci-import-only -e DATABASE_URL=postgresql://unused:unused@127.0.0.1:1/unused -e SENTRY_DSN= pathsix-release python -c "import asgi; print('Quart application import passed without starting the server')"
