@@ -283,7 +283,10 @@ def test_metadata_document_rejects_duplicate_keys_and_defaults_name():
 
 def test_connect_page_gives_one_url_for_any_ai_app(oauth, monkeypatch):
     status, body, headers = oauth.request('GET', '/connect')
-    assert status == 200 and f'<code>{RESOURCE}</code>' in body
+    assert status == 200 and 'Your PathSix connection URL' not in body
+    # Every app's steps carry the URL itself, inside a numbered list.
+    assert body.count(f'<code class="url">{RESOURCE}</code>') == 3 and body.count(RESOURCE) == 5
+    assert body.count('<ol>') == 5 and '<strong>Settings</strong>' in body and '<strong>Connectors</strong>' in body
     assert "frame-ancestors 'none'" in headers['Content-Security-Policy'] and headers['Cache-Control'] == 'no-store'
     for app in ('Claude', 'ChatGPT', 'Gemini', 'Claude Code', 'VS Code'):
         assert f'<h3>{app}</h3>' in body
