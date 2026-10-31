@@ -9,6 +9,9 @@ primary_region = "iad"
 
 [env]
   OAUTH_STAGING = "true"
+  MCP_INLINE_REVIEW = "true" # Controlled staging verification; disabled by default elsewhere.
+  MCP_RESOURCE_URI = "https://pathsixsolutions-backend-staging.fly.dev/mcp"
+  MCP_CLIENT_REGISTRATION = "1" # Lets standards-based AI clients self-register (CIMD/DCR); off elsewhere.
 
 [processes]
   app = "hypercorn asgi:app --bind 0.0.0.0:8000 --keep-alive 600"
@@ -16,9 +19,9 @@ primary_region = "iad"
 [http_service]
   internal_port = 8000
   force_https = true
-  auto_stop_machines = "stop"    # staging sleeps when idle, auto-wakes on request (cheap)
+  auto_stop_machines = "stop"    # Extra capacity sleeps; keep one ready for returning MCP calls.
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
   processes = ["app"]
 
   # Deploy health gate — same as prod, validated here first.

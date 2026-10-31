@@ -27,7 +27,7 @@ def oauth(crm, monkeypatch):
     monkeypatch.setenv('MCP_RESOURCE_URI',RESOURCE)
     reset_rate_limit()
     with crm[1]() as db:
-        db.add(AIClient(id='pilot',name='Pilot <AI>',is_active=True,oauth_enabled=True,
+        db.add(AIClient(id='pilot',name='Pilot <AI>',is_active=True,oauth_enabled=True,inline_review=True,
             allowed_scopes=['clients:read','reports:read'],redirect_uris=[REDIRECT]))
         db.commit()
     return Flow(crm)
@@ -90,6 +90,25 @@ class Flow:
             return validate_access(db,principal,raw,resource,scopes or ['clients:read'])
 
 
+@pytest.mark.parametrize('scope', ['clients:read', 'leads:read leads:create'])
+def test_consent_explains_requested_write_capability(oauth, scope):
+    with oauth.admin() as db:
+        db.get(AIClient, 'pilot').allowed_scopes = ['clients:read', 'leads:read', 'leads:create']
+        db.commit()
+    oauth.params['scope'] = scope
+    status, body, _ = oauth.request('GET', '/oauth/authorize?' + urlencode(oauth.params))
+    assert status == 200
+    if 'leads:create' in scope.split():
+        assert 'Each new lead requires your separate review and confirmation.' in body
+        assert 'cannot update or delete existing records' in body
+        assert 'cannot change or delete records' not in body
+    else:
+        assert 'cannot change or delete records' in body
+        assert 'Each new lead' not in body
+    with oauth.admin() as db:
+        assert db.query(AIConnection).count() == 0
+
+
 def test_browser_code_exchange_rotation_and_replay_revokes_family(oauth,caplog):
     import logging
     caplog.set_level(logging.DEBUG)
@@ -148,7 +167,7 @@ def test_duplicate_ui_locales_are_rejected(oauth):
 
 @pytest.mark.parametrize('change',[
     {'redirect_uri':'https://evil.test/callback'}, {'scope':'clients:write'},
-    {'code_challenge_method':'plain'}, {'resource':None}, {'unexpected':'value'}])
+    {'code_challenge_method':'plain'}, {'code_challenge':None}, {'redirect_uri':None}])
 def test_ui_locales_does_not_relax_authorization_checks(oauth,change):
     oauth.params.update(ui_locales='en-US',**change)
     params={key:value for key,value in oauth.params.items() if value is not None}
@@ -242,7 +261,7 @@ def test_expired_credentials_fail_closed(oauth,monkeypatch,kind):
         assert status==200
     class Future(datetime):
         @classmethod
-        def utcnow(cls): return datetime.utcnow()+timedelta(days=8)
+        def utcnow(cls): return datetime.utcnow()+timedelta(days=91)
     monkeypatch.setattr(implementation,'datetime',Future)
     if kind=='code': assert oauth.exchange(code)[0]==400
     elif kind=='refresh': assert oauth.refresh(tokens['refresh_token'])[0]==400
@@ -372,3 +391,57 @@ def test_credential_owner_rls_and_immutable_history(oauth):
     # After returning pooled connections, an anonymous session sees nothing.
     with auth_utils.SessionLocal() as db:
         assert db.query(OAuthCredential).count()==0
+
+
+def shift(monkeypatch, days):
+    """Move OAuth and consent checks forward together."""
+    from app.services import oauth as implementation, ai_connections
+    class Future(datetime):
+        @classmethod
+        def utcnow(cls): return datetime.utcnow()+timedelta(days=days)
+    for module in (implementation, ai_connections):
+        monkeypatch.setattr(module,'datetime',Future)
+
+
+def connection_row(oauth):
+    with oauth.admin() as db:
+        return db.query(AIConnection).one()
+
+
+def test_regular_use_keeps_connection_without_new_consent(oauth,monkeypatch):
+    status,body,_=oauth.request('GET','/oauth/authorize?'+urlencode(oauth.params))
+    assert '90 days without use, or 365 days after you approve it' in body
+    token=oauth.tokens()
+    first=connection_row(oauth)
+    assert first.expires_at-first.created_at==timedelta(days=365)
+    # Each refresh within 90 days slides the inactivity limit forward.
+    for day in (80,160,240,320):
+        shift(monkeypatch,day)
+        status,token=oauth.refresh(token['refresh_token'])
+        assert status==200,token
+    row=connection_row(oauth)
+    # Day 320 + 90 passes the one-year approval, so use extends it only that far.
+    assert row.active_until==row.expires_at==first.expires_at
+    assert oauth.access(token['access_token']).scopes==frozenset({'clients:read'})
+
+
+def test_refresh_never_outlives_the_absolute_limit(oauth,monkeypatch):
+    token=oauth.tokens()
+    row=connection_row(oauth)
+    for day in (80,160,240,320):
+        shift(monkeypatch,day)
+        status,token=oauth.refresh(token['refresh_token'])
+    with oauth.admin() as db:
+        latest=db.query(OAuthCredential).filter_by(kind='refresh').order_by(OAuthCredential.created_at.desc()).first()
+        assert latest.expires_at<=row.expires_at
+        assert db.query(AIConnection).one().active_until<=row.expires_at
+    shift(monkeypatch,366)
+    assert oauth.refresh(token['refresh_token'])[0]==400
+
+
+def test_unused_connection_expires_after_inactivity(oauth,monkeypatch):
+    token=oauth.tokens()
+    shift(monkeypatch,91)
+    assert oauth.refresh(token['refresh_token'])[0]==400
+    status,body=oauth.call('GET','/api/ai-connections')
+    assert status==200 and json.loads(body)['connections'][0]['status']=='expired'

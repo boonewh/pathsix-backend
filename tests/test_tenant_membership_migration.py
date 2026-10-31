@@ -30,7 +30,7 @@ def test_models_declare_all_tenant_membership_foreign_keys():
     from app.database import Base
     from app import models  # noqa: F401
     tables = {t.name: t for t in Base.metadata.tables.values() if 'tenant_id' in t.c}
-    assert set(tables) == set(TABLES) | {'ai_connections', 'oauth_credentials', 'ai_tool_audits'}
+    assert set(tables) == set(TABLES) | {'ai_connections', 'oauth_credentials', 'ai_tool_audits', 'ai_write_actions'}
     for table in tables.values():
         assert not table.c.tenant_id.nullable
         assert any(fk.target_fullname == 'tenants.id' for fk in table.c.tenant_id.foreign_keys)

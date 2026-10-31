@@ -18,6 +18,7 @@ from app.routes.subscriptions import subscriptions_bp
 from app.routes.ai_connections import ai_connections_bp
 from app.routes.oauth import oauth_bp
 from app.routes.project_archive import project_archive_bp
+from app.routes.ai_actions import ai_actions_bp
 
 def register_blueprints(app):
     app.register_blueprint(auth_bp)
@@ -40,5 +41,6 @@ def register_blueprints(app):
     app.register_blueprint(ai_connections_bp)
     app.register_blueprint(oauth_bp)
     app.register_blueprint(project_archive_bp)
+    app.register_blueprint(ai_actions_bp)
     from app.mcp_server import install_mcp
     install_mcp(app)

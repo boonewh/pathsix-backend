@@ -31,7 +31,7 @@ def test_relationship_inventory_covers_declared_tenant_foreign_keys():
             if fk.parent.name != 'tenant_id' and 'tenant_id' in fk.column.table.c:
                 expected.add((table.name, fk.parent.name, fk.column.table.name))
     # New consent table declares its composite owner FK in its own revision.
-    assert set(EDGES) | {('ai_connections', 'user_id', 'users'), ('oauth_credentials', 'user_id', 'ai_connections'), ('oauth_credentials', 'connection_id', 'ai_connections'), ('ai_tool_audits', 'user_id', 'ai_connections'), ('ai_tool_audits', 'connection_id', 'ai_connections')} == expected
+    assert set(EDGES) | {('ai_connections', 'user_id', 'users'), ('oauth_credentials', 'user_id', 'ai_connections'), ('oauth_credentials', 'connection_id', 'ai_connections'), ('ai_tool_audits', 'user_id', 'ai_connections'), ('ai_tool_audits', 'connection_id', 'ai_connections'), ('ai_write_actions', 'user_id', 'ai_connections'), ('ai_write_actions', 'connection_id', 'ai_connections')} == expected
     assert ScriptDirectory.from_config(config()).get_revision(revision).down_revision == down_revision
 
 

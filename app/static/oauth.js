@@ -91,7 +91,7 @@
       const section = document.createElement('section');
       const title = document.createElement('h2'); title.textContent = connection.client_id;
       const detail = document.createElement('p');
-      detail.textContent = `${connection.status} · ${connection.scopes.join(', ')} · Expires ${new Date(connection.expires_at).toLocaleDateString()}`;
+      detail.textContent = `${connection.status} · ${connection.scopes.join(', ')}${connection.status === 'active' ? ` · Stays active with use; ends ${new Date(connection.active_until).toLocaleDateString()} if unused` : ''}`;
       section.append(title, detail);
       if (connection.status === 'active') {
         const button = document.createElement('button'); button.type = 'button'; button.className = 'secondary'; button.textContent = 'Revoke access';

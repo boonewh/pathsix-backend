@@ -17,15 +17,17 @@ from authlib.oauth2.rfc7636 import CodeChallenge
 from authlib.oauth2.rfc7636.challenge import create_s256_code_challenge
 from app.models import AIClient, AIConnection, OAuthCredential, User
 from app.services.principal import Principal
-from app.services.ai_connections import AIConnectionService, READ_SCOPES, resource_uri, scope_set
+from app.services.ai_connections import (AIConnectionService, IDLE_DAYS, PUBLISHED_SCOPES, SCOPES,
+                                         resource_uri, scope_set)
 from app.services.database_context import auth_lookup, bind_principal
 from app.services.errors import RecordNotFound
 
 # Authlib debug records can include issued credentials. Never enable them here.
 logging.getLogger('authlib.oauth2').setLevel(logging.WARNING)
 ACCESS_SECONDS = 300
-REFRESH_SECONDS = 86400 * 7
 CODE_SECONDS = 120
+AUTHORIZATION_REQUIRED = frozenset({'client_id', 'redirect_uri', 'response_type', 'code_challenge', 'code_challenge_method'})
+AUTHORIZATION_OPTIONAL = frozenset({'scope', 'state', 'resource'})
 
 
 def digest(value):
@@ -41,13 +43,23 @@ def issuer():
     return f'{parsed.scheme}://{parsed.netloc}'
 
 
+LOOPBACK_HOSTS = ('127.0.0.1', '::1', 'localhost')
+
+
+def loopback(value):
+    p = urlsplit(value)
+    return p.scheme == 'http' and p.hostname in LOOPBACK_HOSTS
+
+
 def valid_redirect(value):
     if not isinstance(value, str) or len(value) > 1000:
         return False
     try:
         p = urlsplit(value)
         p.port
-        return bool(p.scheme == 'https' and p.hostname and not p.username and not p.password
+        # Native apps (RFC 8252) receive codes on a local loopback listener.
+        secure = p.scheme == 'https' or (p.scheme == 'http' and p.hostname in LOOPBACK_HOSTS)
+        return bool(secure and p.hostname and not p.username and not p.password
                     and not p.fragment and not p.query and not any(ord(c) < 33 or c == '\\' for c in value))
     except ValueError:
         return False
@@ -57,7 +69,14 @@ class Client:
     def __init__(self, row): self.row = row
     def get_client_id(self): return self.row.id
     def get_default_redirect_uri(self): return None  # Explicit redirect required.
-    def check_redirect_uri(self, uri): return valid_redirect(uri) and uri in self.row.redirect_uris
+    def check_redirect_uri(self, uri):
+        if not valid_redirect(uri): return False
+        if uri in self.row.redirect_uris: return True
+        if not loopback(uri): return False
+        # RFC 8252 7.3: a registered loopback redirect accepts any runtime port.
+        requested = urlsplit(uri)
+        return any(loopback(r) and (urlsplit(r).hostname, urlsplit(r).path) == (requested.hostname, requested.path)
+                   for r in self.row.redirect_uris)
     def check_response_type(self, value): return value == 'code'
     def check_grant_type(self, value): return value in ('authorization_code', 'refresh_token')
     def check_endpoint_auth_method(self, method, endpoint): return method == 'none'
@@ -122,7 +141,7 @@ class RefreshGrant(RefreshTokenGrant):
 
 class Server(AuthorizationServer):
     def __init__(self, db, principal=None, intent_hash=None):
-        super().__init__(scopes_supported=list(READ_SCOPES))
+        super().__init__(scopes_supported=list(SCOPES))
         self.db, self.principal, self.intent_hash = db, principal, intent_hash
         if principal is not None:
             bind_principal(db, principal)
@@ -139,14 +158,30 @@ class Server(AuthorizationServer):
             return None
         if not all(valid_redirect(uri) for uri in row.redirect_uris): return None
         return Client(row)
+    def normalize_authorization(self, data):
+        """Return the canonical request that is validated, signed and approved.
+
+        RFC 6749 3.1 requires ignoring unrecognized parameters (for example
+        ui_locales, prompt or nonce); they are dropped, never signed or echoed.
+        A client that omits resource or scope receives this server's single MCP
+        resource and the published scopes it is allowed, shown on consent.
+        """
+        if not AUTHORIZATION_REQUIRED <= set(data):
+            raise InvalidRequestError()
+        data = {key: value for key, value in data.items() if key in AUTHORIZATION_REQUIRED | AUTHORIZATION_OPTIONAL}
+        data.setdefault('resource', resource_uri())
+        if 'scope' not in data:
+            client = self.query_client(data['client_id'])
+            if client is None: raise InvalidRequestError()
+            scopes = PUBLISHED_SCOPES & scope_set(client.row.allowed_scopes)
+            if not scopes: raise InvalidScopeError()
+            data['scope'] = ' '.join(sorted(scopes))
+        return data
     def validate_authorization(self, data):
-        # ChatGPT sends this optional UI language hint. Our consent UI currently
-        # uses English; ignore the hint without relaxing any OAuth requirements.
-        data = {key: value for key, value in data.items() if key != 'ui_locales'}
-        if (set(data) != {'client_id','redirect_uri','response_type','scope','state','resource','code_challenge','code_challenge_method'}
-                or data['resource'] != resource_uri() or data['code_challenge_method'] != 'S256'
+        data = self.normalize_authorization(data)
+        if (data['resource'] != resource_uri() or data['code_challenge_method'] != 'S256'
                 or not re.fullmatch(r'[A-Za-z0-9_-]{43}', data['code_challenge'])
-                or not 1 <= len(data['state']) <= 512):
+                or ('state' in data and not 1 <= len(data['state']) <= 512)):
             raise InvalidRequestError()
         parse_scope(data['scope'])
         request = ProtocolRequest(data, 'GET')
@@ -204,11 +239,15 @@ class Server(AuthorizationServer):
                 'scope':scope, 'resource':self.connection.resource}
     def save_token(self, token, request):
         now = datetime.utcnow()
-        for kind, lifetime in (('access',token['expires_in']), ('refresh',REFRESH_SECONDS)):
+        # Each exchange is use: the refresh credential and the connection's
+        # inactivity limit move forward together, never past the absolute limit.
+        refresh_until = min(now+timedelta(days=IDLE_DAYS), self.connection.expires_at)
+        self.connection.active_until = max(self.connection.active_until, refresh_until)
+        for kind, until in (('access',min(now+timedelta(seconds=token['expires_in']),self.connection.expires_at)),
+                            ('refresh',refresh_until)):
             self.db.add(OAuthCredential(token_hash=digest(token[kind+'_token']), kind=kind,
                 tenant_id=self.principal.tenant_id,user_id=self.principal.user_id,connection_id=self.connection.id,
-                scopes=sorted(parse_scope(token['scope'])),created_at=now,
-                expires_at=min(now+timedelta(seconds=lifetime),self.connection.expires_at)))
+                scopes=sorted(parse_scope(token['scope'])),created_at=now,expires_at=until))
         self.db.flush()
 
 
