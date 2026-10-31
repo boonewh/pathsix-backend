@@ -1351,6 +1351,57 @@ client. Each target client gets one manual connect/read/create check when this
 increment ships, then joins the per-release manual check only when auth or
 approval code changes.
 
+#### Progress — October 31, 2026: items 1–3 and the safe default of item 5 (source only)
+
+Implemented on `codex/mvp-lead-creation`; **not yet deployed or migrated on
+staging**, and no live client has connected yet.
+
+- Migration `mcp_client_registration` adds `registration`
+  (operator/cimd/dcr), `created_at`, `metadata_fetched_at` and `inline_review` to
+  `ai_clients`. Existing OAuth operator clients keep `inline_review`. The runtime
+  role stays read-only on the catalog. Self-registration goes through
+  `crm_register_ai_client`, a SECURITY DEFINER function that only creates or
+  refreshes CIMD/DCR rows, limits them to the published scopes and never changes
+  operator rows or trust flags. It also removes unused DCR rows older than a
+  day and caps DCR at 200 per hour. A check constraint keeps the inline card
+  operator-only.
+- CIMD: an HTTPS `client_id` URL is fetched at authorization and cached for 24
+  hours. The fetch resolves DNS once and refuses non-public addresses and IP
+  literals. It pins the connection to the resolved address while TLS still
+  verifies the hostname. It follows no redirects, reads at most 5 KB and
+  accepts only public authorization-code clients. A failed first fetch leaves
+  the client unknown, so authorization fails closed.
+- DCR: `POST /oauth/register`, rate-limited to 10 per minute per IP. Every
+  registration is a public PKCE client, whatever auth method was requested. The
+  consent page states that a DCR name is unverified. For CIMD it names the host
+  that publishes the identity.
+- Registration is off unless `MCP_CLIENT_REGISTRATION=1`. Authorization-server
+  metadata then advertises `registration_endpoint` and
+  `client_id_metadata_document_supported`.
+- Loopback `http://127.0.0.1`, `[::1]` and `localhost` redirects are accepted
+  for registered loopback URIs on any port (RFC 8252). Host and path must match.
+- Tolerant requests: unknown authorization and token parameters are ignored and
+  never signed. Missing `state` is allowed (PKCE is required). Missing
+  `resource` means this server's MCP resource. Missing `scope` means the
+  published scopes the client is allowed, shown on consent. Wrong resources,
+  non-S256 PKCE, duplicate parameters and unregistered redirects are still
+  rejected.
+- Both metadata documents now publish the same scopes (`PUBLISHED_SCOPES`).
+- Per-client approval routing: only clients with `inline_review` see
+  `decide_lead_creation` or receive the card. The server also drops the review
+  capability for other clients at execution, so they get the signed-in review
+  link.
+- Tests: `tests/test_mcp_client_registration.py` (50) and
+  `tests/test_mcp_client_registration_migration.py` (10, PostgreSQL with the
+  restricted role). Two existing assertions changed intentionally: a missing
+  resource or unknown parameter no longer fails authorization, and the scope
+  order is now sorted.
+
+Remaining in this increment: item 4 (connect-once lifetime) and item 6 (wording
+and the Connect page). Then deploy to staging, which needs the user's go-ahead
+to run the migration and set `MCP_CLIENT_REGISTRATION=1`. After that come
+agent-run CIMD/DCR checks against staging and the per-client manual checks.
+
 The external review page remains a fallback. Staging now uses an inline review
 card; its remaining acceptance gates are summarized in the current security
 reconciliation above. This approach is supported by the

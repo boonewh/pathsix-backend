@@ -27,7 +27,7 @@ def oauth(crm, monkeypatch):
     monkeypatch.setenv('MCP_RESOURCE_URI',RESOURCE)
     reset_rate_limit()
     with crm[1]() as db:
-        db.add(AIClient(id='pilot',name='Pilot <AI>',is_active=True,oauth_enabled=True,
+        db.add(AIClient(id='pilot',name='Pilot <AI>',is_active=True,oauth_enabled=True,inline_review=True,
             allowed_scopes=['clients:read','reports:read'],redirect_uris=[REDIRECT]))
         db.commit()
     return Flow(crm)
@@ -167,7 +167,7 @@ def test_duplicate_ui_locales_are_rejected(oauth):
 
 @pytest.mark.parametrize('change',[
     {'redirect_uri':'https://evil.test/callback'}, {'scope':'clients:write'},
-    {'code_challenge_method':'plain'}, {'resource':None}, {'unexpected':'value'}])
+    {'code_challenge_method':'plain'}, {'code_challenge':None}, {'redirect_uri':None}])
 def test_ui_locales_does_not_relax_authorization_checks(oauth,change):
     oauth.params.update(ui_locales='en-US',**change)
     params={key:value for key,value in oauth.params.items() if value is not None}

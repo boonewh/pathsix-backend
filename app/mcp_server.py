@@ -14,7 +14,7 @@ from mcp.server.lowlevel import Server
 from mcp.server.transport_security import TransportSecuritySettings
 import mcp_types as types
 from app.database import SessionLocal
-from app.services.ai_connections import AIConfigurationError, resource_uri
+from app.services.ai_connections import AIConfigurationError, PUBLISHED_SCOPES, resource_uri
 from app.services.oauth import issuer
 from app.services import mcp_reads
 
@@ -46,7 +46,7 @@ def scope_challenge(scopes):
 async def metadata():
     try:
         value={'resource':configured_resource(),'authorization_servers':[issuer()],
-               'scopes_supported':['clients:read','leads:read','leads:create'],'bearer_methods_supported':['header']}
+               'scopes_supported':sorted(PUBLISHED_SCOPES),'bearer_methods_supported':['header']}
         status=200
     except AIConfigurationError:
         value,status={'error':'temporarily_unavailable'},503
@@ -97,9 +97,9 @@ def install_mcp(app):
 
     async def list_tools(ctx,params):
         try:
-            discoverable=mcp_reads.discoverable_tools(SessionLocal,bearer(ctx.request.headers))
+            discoverable,client_inline=mcp_reads.discoverable_tools(SessionLocal,bearer(ctx.request.headers))
             from app.mcp_lead_tools import tools as lead_tools
-            available = tools() + lead_tools(inline_review=app.config.get('MCP_INLINE_REVIEW', False))
+            available = tools() + lead_tools(inline_review=app.config.get('MCP_INLINE_REVIEW', False) and client_inline)
             return types.ListToolsResult(tools=[tool for tool in available
                 if tool.name in discoverable])
         except (InvalidGrantError,SQLAlchemyError):

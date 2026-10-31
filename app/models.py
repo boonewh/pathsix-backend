@@ -84,14 +84,28 @@ class Role(Base):
 
 
 class AIClient(Base):
-    """Operator-managed client catalog; the web runtime has read access only."""
+    """Client catalog: operator rows plus self-registered public clients.
+
+    The web runtime has read access only; self-registration goes through the
+    crm_register_ai_client database function. Only operator clients may use the
+    inline review card, whose host must keep result metadata from the model.
+    """
     __tablename__ = 'ai_clients'
+    __table_args__ = (
+        CheckConstraint("registration IN ('operator','cimd','dcr')", name='ck_ai_clients_registration'),
+        CheckConstraint("NOT inline_review OR registration = 'operator'", name='ck_ai_clients_inline_operator'),
+        Index('ix_ai_clients_registration_created', 'registration', 'created_at'),
+    )
     id = Column(String(200), primary_key=True)
     name = Column(String(100), nullable=False)
     is_active = Column(Boolean, nullable=False, default=False)
     allowed_scopes = Column(JSON, nullable=False, default=list)
     redirect_uris = Column(JSON, nullable=False, default=list)
     oauth_enabled = Column(Boolean, nullable=False, default=False)
+    registration = Column(String(10), nullable=False, default='operator')
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    metadata_fetched_at = Column(DateTime)
+    inline_review = Column(Boolean, nullable=False, default=False)
 
 
 class AIConnection(Base):

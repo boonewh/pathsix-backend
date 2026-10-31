@@ -99,6 +99,8 @@ def crm(tmp_path, monkeypatch, request):
                 secure_mcp(connection,schema,runtime_role)
                 from migrations.versions.mcp_lead_creation import secure as secure_actions
                 secure_actions(connection,schema,runtime_role)
+                from migrations.versions.mcp_client_registration import secure as secure_clients
+                secure_clients(connection,schema,runtime_role)
         runtime_factory = sessionmaker(bind=engine)
         @event.listens_for(runtime_factory, 'after_begin')
         def set_runtime_role(session, transaction, connection):
@@ -262,7 +264,7 @@ def test_every_data_route_requires_authentication(crm):
     call, _, app = crm
     public = {'auth.login', 'auth.forgot_password', 'auth.reset_password', 'static',
                   'oauth.static', 'oauth.metadata', 'oauth.authorize', 'oauth.connections',
-                  'oauth.token', 'oauth.revoke', 'mcp_metadata.metadata',
+                  'oauth.token', 'oauth.revoke', 'oauth.register', 'mcp_metadata.metadata',
                   'ai_actions.page'}  # Public shells; credential/CSRF/data proofs cover OAuth and action endpoints.
     for rule in app.url_map.iter_rules():
         if rule.endpoint in public:

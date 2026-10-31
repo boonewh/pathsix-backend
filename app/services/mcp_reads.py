@@ -35,6 +35,7 @@ def discoverable_tools(factory, raw):
     Discovery returns static definitions, not records or permission to execute.
     Filtering by the token's scopes prevents a read-only connection from ever
     discovering the write scopes it needs to request during reconnection.
+    Returns the tool names and whether this client may use the inline review.
     """
     principal = lookup_principal(factory, raw)
     with factory() as db:
@@ -42,13 +43,21 @@ def discoverable_tools(factory, raw):
         client = db.query(AIClient).filter_by(id=identity.client_id,
             is_active=True, oauth_enabled=True).one()
         allowed = scope_set(client.allowed_scopes)
-        return {name for name, required in TOOL_SCOPES.items() if set(required) <= allowed}
+        names = {name for name, required in TOOL_SCOPES.items() if set(required) <= allowed}
+        if not client.inline_review:
+            names.discard('decide_lead_creation')
+        return names, client.inline_review
 
 
 def execute(factory, raw, name, arguments, *, review=None):
     # No request-supplied owner, tenant, role, scope or Principal is accepted.
     principal,identity = authenticate(factory,raw)
     with factory() as db:
+        # The card's signed capability is private result metadata; only operator
+        # clients whose host keeps it from the model may receive or redeem it.
+        # Other clients get the signed-in review link instead.
+        if not db.query(AIClient.inline_review).filter_by(id=identity.client_id).scalar():
+            review = None
         bind_principal(db,principal)
         grant = db.query(AIConnection).filter_by(id=identity.connection_id,
             tenant_id=principal.tenant_id,user_id=principal.user_id).with_for_update().one()

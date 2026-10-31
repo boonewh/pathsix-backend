@@ -17,6 +17,10 @@ READ_SCOPES = {
     'reports:read': 'Read your company reports (administrators only)',
 }
 SCOPES = {**READ_SCOPES, 'leads:create': 'Create leads after you review and confirm each proposal'}
+# Scopes the MCP tools actually use; advertised in OAuth metadata and the only
+# ones a self-registered client may request. Keep in step with the
+# crm_register_ai_client database function.
+PUBLISHED_SCOPES = frozenset({'clients:read', 'leads:read', 'leads:create'})
 MAX_ACTIVE_CONNECTIONS = 20
 MAX_DAILY_CONSENTS = 100
 CONSENT_DAYS = 30
