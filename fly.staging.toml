@@ -11,6 +11,7 @@ primary_region = "iad"
   OAUTH_STAGING = "true"
   MCP_INLINE_REVIEW = "true" # Controlled staging verification; disabled by default elsewhere.
   MCP_RESOURCE_URI = "https://pathsixsolutions-backend-staging.fly.dev/mcp"
+  MCP_CLIENT_REGISTRATION = "1" # Lets standards-based AI clients self-register (CIMD/DCR); off elsewhere.
 
 [processes]
   app = "hypercorn asgi:app --bind 0.0.0.0:8000 --keep-alive 600"
