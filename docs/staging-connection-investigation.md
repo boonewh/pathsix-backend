@@ -172,3 +172,22 @@ not in the saved artifacts. Staging app remains v28 / de3f468.
 References: https://fly.io/docs/monitoring/metrics/ (CPU counter units and metrics API),
 https://fly.io/docs/postgres/advanced-guides/high-availability-and-global-replication/
 (port 5432 proxy), and https://fly.io/docs/postgres/managing/scaling/ (VM memory scaling).
+
+## Staging idle shutdown — 2026-09-16
+
+The user specified that staging should sleep after an hour. A live read found that
+the application VMs already auto-stop/auto-start and both were stopped, but database
+machine 830376c7157038 had no FLY_SCALE_TO_ZERO and no service autostart.
+
+Configured that existing staging database with FLY_SCALE_TO_ZERO=1h and autostart
+on both service ports (5432/5433). Preserved its PostgreSQL 18.1 image, 256 MB RAM,
+CPU, and storage. The update restarted staging; all three health checks passed.
+Logs at 18:29:09 UTC confirm "Configured scale to zero with duration of 1h0m0s".
+The database checks for unused connections hourly and can remain running while
+connections are open; this is not an unconditional shutdown during active work.
+Automatic wake-up is enabled. The first actual idle shutdown has not yet been
+observed. Prior configuration is saved in
+diagnostics/staging-db-before-sleep-2026-09-16.json. Production was not modified.
+
+This is a staging cost/lifecycle change, not a fix or test of the earlier I/O-stall
+hypothesis. The proposed staging RAM experiment still has not been applied.

@@ -1,5 +1,14 @@
 # PathSix CRM agent instructions
 
+## Branches and deployments
+
+- `main` is the production CRM (Fly app `pathsixsolutions-backend`).
+- `codex/mvp-lead-creation` is the AI connector MVP on staging (Fly app
+  `pathsixsolutions-backend-staging`). Never merge or deploy MVP work to
+  production without the user's explicit decision.
+- Local PostgreSQL for the full test suite: `G:\Projects\tools\pathsix-test-db.sh
+  start`, then `eval "$(bash G:/Projects/tools/pathsix-test-db.sh env)"`.
+
 ## Active MVP scope lock
 
 Read `docs/mcp-readiness-status.md` before planning or changing this project. Its

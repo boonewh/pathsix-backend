@@ -1,4 +1,4 @@
-# PathSix ChatGPT MVP plan and readiness — October 6, 2026
+# PathSix AI connector MVP plan and readiness — October 6, 2026 (multi-client scope added October 31)
 
 This reconciles the historical September 6 frontend roadmap against the integrated
 backend. The goal remains a remote MCP adapter over the same tenant-bound services
@@ -23,6 +23,13 @@ This MVP is the only planned product build until its completion criteria are met
 The approved workflow table, implementation steps and completion checklist below
 define the work. Older roadmaps and historical gaps in this document do not add
 tasks to the MVP. This lock supersedes the earlier read-only release target.
+
+**Scope change approved by the user on October 31, 2026:** the MVP must let
+customers connect any mainstream, standards-based AI client easily, not only
+ChatGPT. The bounded requirements are in
+[Multi-client connection](#multi-client-connection--approved-october-31-2026).
+The CRM workflows themselves are unchanged. ChatGPT remains the first submission
+target.
 
 - Work toward completing this MVP. Make routine implementation choices and the
   supporting code, schema, test and UI changes necessary for its listed workflows.
@@ -82,7 +89,7 @@ action trigger. Changes after this runtime revision are documentation and compon
 | Boundary | Verified evidence | Remaining acceptance work |
 | --- | --- | --- |
 | Consent and current authority | OAuth/connection tests cover explicit narrow consent, PKCE/client/redirect/resource binding, refresh rotation and replay, no scope expansion, revocation and current user/tenant/client state. Inline tests reject read-only, revoked and removed-scope grants. Real administrator consent and returning reads passed. | Capture real ChatGPT insufficient-access/revoked-connection behavior with a dedicated synthetic connection; do not revoke the working administrator connection casually. Automated server denial is already verified. |
-| Tenant, owner and record access | MCP read tests deny foreign-tenant and same-tenant inaccessible clients; granting assignment permits the ordinary user. Lead tests deny foreign records and other owners/connections accessing action receipts; receipt access is rechecked after deletion. Ordinary-user lead creation is covered through the external-review backend test. | Real ChatGPT evidence is administrator-only. Verify an ordinary user's allowed reads/create and inaccessible record/action denials. Do not describe the ordinary-user backend test as a live inline pass. |
+| Tenant, owner and record access | MCP read tests deny foreign-tenant and same-tenant inaccessible clients; granting assignment permits the ordinary user. Lead tests deny foreign records and other owners/connections accessing action receipts; receipt access is rechecked after deletion. Ordinary-user lead creation is covered through the external-review backend test. | Real ChatGPT ordinary-user creation, assigned/owned lead reads and inaccessible lead/action receipt denials now pass with staging audits; see the ordinary-user live trial below. These checks do not close the separate insufficient/revoked-grant or adversarial-input trials. |
 | Exact-action approval | Inline tests reject missing/forged/expired capabilities, changed action/payload, wrong user/tenant/grant and alternate signatures. Signed data binds the action, payload, owner, tenant and connection. Model-visible result fields omit the capability. Actual user clicks saved leads 11-15; cancellation created no lead. | Host isolation remains open: confirm the supported ChatGPT host keeps private approval metadata out of model context and excludes the app-only decision tool from model invocation. The signature is not independent proof of human presence in an arbitrary MCP client. |
 | Input validation and untrusted CRM text | Lead tests reject extra authority fields, invalid types/email/lengths and changed inputs under an existing request key. UI tests render text safely and keep hostile field text, private account data, review URLs and capabilities out of follow-up messages/context. | Run a bounded real ChatGPT trial with synthetic instruction-like CRM text and invalid input; inspect actual tool activity and database outcome. Escaping text and synthetic tests do not establish model resistance to prompt injection. |
 | Single save, terminal decisions and audit | Backend/PostgreSQL tests cover repeated and concurrent decisions, immutable receipts, cancel-then-create denial, atomic audit failure rollback and recovery. Deployed inline checks passed. Real phone save/cancel outcomes and exact matching lead counts were checked, including lead 15 once. | No repeat of the passing happy-path or concurrency suite is required for this documentation change. Apply these protections to each later MVP write increment. |
@@ -100,6 +107,25 @@ or harmless synthetic canaries for remaining host checks, never real capability
 disclosure. A model saying it cannot see a value is not proof of isolation.
 
 #### Remaining work before expanding the first write workflow
+
+**Updated October 31, 2026 by the [verification policy](#verification-policy--approved-october-31-2026).**
+The October 26 list below is historical. Its remaining items are now handled as
+follows:
+
+- Host approval boundary (item 1): the observable checks have passed. Model-input
+  isolation is an accepted trusted-host limit, so no further trial is needed.
+- Manual security session (item 2): live allowed/create, inaccessible
+  record/receipt and invalid-input checks passed on October 26. Insufficient and
+  revoked grants move to agent-run checks with a dedicated synthetic connection.
+  Instruction-like CRM text is one step in the per-release manual check.
+- Reliability (item 3): the desktop display failure is recorded as a ChatGPT-side
+  limitation. The agent's end-to-end checks include repeated reads with
+  diagnostics enabled to watch for the earlier warm-read error.
+- Item 4: first complete the approved
+  [multi-client connection](#multi-client-connection--approved-october-31-2026)
+  work. Then proceed to the contacts/projects/interactions and
+  update/assignment/status/notes increments, built on one shared review/approval
+  path.
 
 1. Verify the host approval boundary and effective card security configuration.
    Record what is directly observable, what relies on the documented host
@@ -151,6 +177,54 @@ corroborate the actual grant owner and server outcomes before accepting results.
 
 Detailed fixture evidence and temporary login credentials remain local-only,
 outside this public repository. No runtime code or deployment changed.
+
+### Ordinary-user live creation and missing follow-up - October 26, 2026
+
+The user connected the synthetic ordinary account and manually approved a lead
+in its ChatGPT review card. Read-only staging inspection confirmed the actual
+grant belongs to that ordinary user with only the user role and the expected
+read/create scopes. One committed receipt, one matching lead owned by that user,
+and successful decision/confirmation audits establish the live ordinary-user
+creation pass. The screenshot shows the matching saved lead ID in the card.
+The subsequent manual lookup of an administrator-owned lead returned "Record or
+action not found" in ChatGPT. The corresponding staging get_lead audit identifies
+the ordinary user, outcome not_found and result_count zero. This corroborates the
+same-tenant inaccessible-lead denial; the audit intentionally omits arguments,
+so the target is established by the user's screenshot. Detailed local evidence:
+ordinary-live-denied.json. The next manual read returned both the assigned lead
+and the ordinary user's newly created lead with their expected IDs/names/statuses.
+Two corresponding get_lead audits identify the ordinary user, each with success
+and result_count one. Assigned-record and own-record live reads pass; local
+evidence is ordinary-live-allowed.json. The subsequent manual request for the
+administrator's earlier action receipt returned "Record or action not found".
+The corresponding get_lead_creation audit identifies the ordinary user with
+not_found and result_count zero, corroborating the screenshot's target and
+response. Local evidence: ordinary-live-receipt-denied.json. Live ordinary-user
+creation, assigned/owned lead reads, inaccessible lead denial and inaccessible
+receipt denial now pass. Insufficient/revoked grants and adversarial-input trials
+remain separate pending checks.
+
+The same screenshot lacks the automatic conversation confirmation seen in earlier
+trials; only the original review text remains below the successful card. Record
+this as an unresolved follow-up delivery/presentation issue, separately from the
+verified save. Source review shows the card requests model-context update and a
+host message after the decision, with a fallback on unsupported/rejected/timed-out
+messaging. There is no host message acknowledgment or frame-lifecycle evidence
+for this trial, so the screenshot and database audits cannot establish its cause.
+Do not retry the write or mark follow-up reliability complete. Detailed fixture,
+receipt and audit evidence remains in local-only ordinary-live-created.json.
+
+### Ordinary-user invalid-input trial - October 26, 2026
+
+The user submitted a lead-preparation request with an invalid email and explicitly
+asked ChatGPT not to correct it or save anything. ChatGPT reported Invalid tool
+arguments. Staging records a matching ordinary-user prepare_lead_creation audit
+with invalid_arguments and result_count zero. An exact-name query across the
+staging tenant found zero proposals and zero leads, including deleted leads.
+The screenshot identifies the supplied input; the privacy-conscious audit omits
+arguments. This bounded live invalid-input case passes. It does not establish
+resistance to instruction-like CRM text, which remains a separate pending trial.
+Detailed local-only evidence: ordinary-invalid-input.json. No runtime changes.
 
 ### Approval-boundary and card-security checks - October 26, 2026
 
@@ -1115,6 +1189,7 @@ and record permissions through ChatGPT.
 | Update client, lead, contact and project details | Existing record update services | Explicit field allowlists, current-record checks, conflict detection and confirmed updates |
 | Change assignments and statuses where the CRM supports them | Existing assignment operations and schema validation | Authorized assignee selection, current-role checks, existing status rules and safe handling of notification side effects |
 | Record notes and interactions | Existing record notes fields and InteractionService | Clear append-versus-replace semantics for notes and confirmed, repeat-safe interaction creation |
+| Connect from the customer's own AI client (added October 31) | OAuth/PKCE server, operator-registered ChatGPT client, review-link fallback | CIMD/DCR registration, loopback redirects, tolerant requests, connect-once lifetime and per-client approval routing; see [Multi-client connection](#multi-client-connection--approved-october-31-2026) |
 
 Use these boundaries when implementing the table:
 
@@ -1170,11 +1245,111 @@ the supporting connection and approval-flow changes, not additional CRM capabili
 - Verify the normal path on desktop and phone, including a fresh connection,
   returning use, cancellation, one successful save, and recovery after a lost
   response. Record actual prompts/clicks and host limitations. Manual diagnostic
-  workarounds and eventual OpenAI review do not satisfy this requirement.
+  workarounds and eventual OpenAI review do not satisfy this requirement. Since
+  October 31, this is evidenced through the verification policy below. The
+  per-release manual check covers desktop and phone, and lost-response recovery
+  relies on the existing fault-injection and phone network-return evidence.
 
 The October 9 source increment implements a guarded in-chat review candidate;
 [its evidence and host trust limits](mcp-lead-creation.md#in-chat-review-increment--october-9-2026)
 are tracked separately from deployed behavior and live acceptance.
+
+### Verification policy — approved October 31, 2026
+
+**User decision, October 31, 2026.** Manual trials were the main cause of slow
+progress. Verification now uses three tiers. This changes how acceptance is
+evidenced, not the security, data-integrity or customer-experience requirements.
+Where older text in this document asks for a separate live trial per case, this
+policy supersedes it.
+
+1. **Automated tests (required for every increment).** Backend and
+   PostgreSQL/RLS CI cover scopes, revocation, tenant and record access, invalid
+   input, parents/assignees, duplicates and concurrency, stale updates, rollback
+   and audit failures, and receipt recovery. Server-side denials are proven here,
+   and they are not repeated by hand in ChatGPT.
+2. **Agent-run end-to-end checks (required for every increment, no user
+   action).** The agent drives a scripted MCP client against staging with
+   synthetic accounts: OAuth sign-in and refresh, tool discovery, reads, prepare,
+   approve and cancel, receipt recovery, and denial cases, then verifies database
+   outcomes. Where possible, the agent may also drive ChatGPT web in its own
+   browser after the user signs in there. The agent never enters the user's
+   passwords.
+3. **One manual release check per staging release, not per feature (about 10–15
+   minutes).** The user follows a short script on desktop and phone: connect or
+   return, look up a record, create one record, cancel one, update one, and read a
+   synthetic record containing instruction-like text, confirming that nothing is
+   written without approval. The agent prepares the script and verifies the
+   database afterward. Before submission, one final walkthrough also produces the
+   reviewer demonstration.
+
+Host properties already established are not re-proven per feature: card
+CSP/network denial, app-only decision visibility, readable follow-up messages,
+phone rendering and practical network-return recovery. New write workflows reuse
+the shared review card and approval path, so they inherit that evidence. A new
+manual host trial is needed only if that shared mechanism changes.
+
+Accepted limits (no further trials): ChatGPT's hidden model input and exact
+post-commit response-loss timing cannot be observed. They rely on the documented
+host contract and the controlled fault-injection tests. Desktop display failures
+reproduced without PathSix are a ChatGPT-side issue, not an MVP gate. Record
+evidence as a short checklist entry linking to CI runs or check output, not as
+narrative trial logs.
+
+### Multi-client connection — approved October 31, 2026
+
+**Goal:** a customer pastes one PathSix MCP URL into their AI client, signs in to
+PathSix, approves the permissions and starts working. They need no client IDs,
+operator registration or vendor review. Directory listings stay optional extras.
+The current server works only with the operator-registered ChatGPT client.
+
+**Target clients for acceptance:** ChatGPT (web, desktop and phone), Claude (web,
+desktop and phone custom connectors), Gemini web custom apps, and one local
+developer client (Claude Code or VS Code). Other clients that follow the MCP
+authorization spec should work but are not individually verified. Copilot Studio
+and other enterprise builders are not targets.
+
+Required work, bounded to the connection and approval layers:
+
+1. **Client registration without an operator.** Support OAuth Client ID
+   Metadata Documents (CIMD), which the MCP spec and OpenAI both prefer. Support
+   dynamic client registration (DCR) as a fallback for clients without CIMD.
+   Keep operator-registered clients working, including the existing ChatGPT
+   staging client. Self-registered clients may request only the published scopes.
+   The consent screen must show the client name and redirect host. DCR needs rate
+   limits and cleanup of registrations that are never used.
+2. **Native-app redirects.** Accept loopback redirect URIs (`http://127.0.0.1`
+   / `http://localhost` with any port, per RFC 8252) for local clients. All other
+   redirects stay HTTPS-only with exact matching.
+3. **Standards-tolerant authorization requests.** Accept spec-valid requests from
+   other clients without weakening the checks: ignore unknown optional
+   parameters, and handle a missing `scope` with a defined default. Keep PKCE
+   S256, state, exact redirect matching, resource binding when the resource is
+   sent, single-use codes and refresh rotation. Fix the existing mismatch where
+   protected-resource metadata lists fewer scopes than the authorization server.
+4. **Connect once.** The fixed 30-day connection expiry and 7-day refresh window
+   force periodic re-consent, which conflicts with the customer experience
+   requirement. Replace them with an expiry based on inactivity, plus a bounded
+   absolute limit if needed. Revocation, user/tenant deactivation and scope
+   checks stay unchanged.
+5. **Approval boundary per client.** Use the in-chat review card only for clients
+   whose host is known to keep result `_meta` private and to honor app-only tool
+   visibility. Start with ChatGPT, then add others only after their documented
+   contract is checked. Every other client gets the signed-in review-link flow
+   and never sees `decide_lead_creation`. Treat an unknown or self-registered
+   client as unable to provide trusted in-chat approval.
+6. **Host-neutral wording.** Remove ChatGPT-specific assumptions from tool
+   descriptions, server instructions and consent copy. Then publish a short
+   customer "Connect your AI" page with the MCP URL and per-client steps.
+
+**Order:** complete this before expanding to the contacts/projects/interactions
+and update increments. New tools then work in every target client from the start.
+
+**Verification:** follow the verification policy. Automated tests cover CIMD,
+DCR, loopback redirects, tolerant parsing, inactivity expiry and per-client
+approval routing. The agent's scripted checks act as a CIMD client and as a DCR
+client. Each target client gets one manual connect/read/create check when this
+increment ships, then joins the per-release manual check only when auth or
+approval code changes.
 
 The external review page remains a fallback. Staging now uses an inline review
 card; its remaining acceptance gates are summarized in the current security
@@ -1214,7 +1389,9 @@ and [authentication guidance](https://developers.openai.com/plugins/build/auth).
    records, invalid parents/assignees, concurrent/replayed requests, stale updates,
    rollback/audit failures and ambiguous response recovery. Include prompt-driven
    attempts to turn CRM text into authorization. Preserve existing read and web
-   regressions. Run real ChatGPT end-to-end checks before calling a workflow ready.
+   regressions. Before calling a workflow ready, run the agent end-to-end checks
+   from the verification policy. Real ChatGPT is checked once per release in the
+   manual release check.
 6. Complete production readiness and rollout verification, then prepare the public
    package, listing/policy links, reviewer access, demonstrations and positive and
    negative workflow cases. Submit the implemented capability set for OpenAI review
@@ -1238,13 +1415,21 @@ Mark a criterion complete only with linked test or release evidence. The earlier
   ChatGPT against synthetic staging records, including cancellation, invalid
   input, ambiguous selection and insufficient permissions. Confirm resulting
   records in the CRM. Verify connection, consent and confirmation on phone and
-  desktop, with ordinary-user and administrator permission cases.
+  desktop, with ordinary-user and administrator permission cases. Per the
+  verification policy, failure and permission cases come from automated and
+  agent-run checks. Phone and desktop come from the per-release manual check.
 - [ ] The approved customer experience above works through normal ChatGPT use:
   persistent account connection, natural-language reads, writes and necessary
   approval in the conversation, and automatic saved-result reporting. Fresh
   connection and returning-use trials pass on phone and desktop without manual
   scope fixes or routine external review/login steps. Document any host limitation
   for the user's decision rather than silently accepting a different workflow.
+- [ ] Each target client in
+  [Multi-client connection](#multi-client-connection--approved-october-31-2026)
+  connects by URL with sign-in and consent only. No operator registration or
+  client ID entry is needed. Each completes a read and an approved lead creation,
+  using the in-chat card or the review link as its approval routing allows.
+  Routine use does not force re-consent.
 - [ ] Write consent, action confirmation, revocation, audit, idempotency and stale
   update protection meet the implementation criteria. Repeated/concurrent calls
   and lost responses cannot silently duplicate actions or overwrite newer work.
@@ -1288,7 +1473,8 @@ moving it into the build.
 | --- | --- | --- |
 | Client creation and lead-to-client conversion tools | Extend the sales lifecycle beyond the approved create/update set | Requires a scope decision |
 | Delete, restore, bulk/import, file, reporting and administrative tools | Additional CRM workflows beyond this MVP | Requires a scope decision; file tools also need durable storage |
-| Dynamic client registration/CIMD and broader AI-client support | Improve interoperability beyond the configured ChatGPT connection | Deferred unless required for the agreed connection; ask before expanding |
+| Dynamic client registration/CIMD and broader AI-client support | Improve interoperability beyond the configured ChatGPT connection | **Moved into the MVP by the user on October 31, 2026**; see Multi-client connection |
+| Listings in other directories (Anthropic Connectors Directory, Gemini, others) | Discoverability beyond ChatGPT; connecting by URL already works without them | Requires a scope decision; not needed for the MVP |
 | Full resource/cost inventory and platform-wide recovery work | Older operational roadmap extends beyond recovery checks for this release | Deferred; release-specific recovery checks remain in the MVP |
 | Global account-number uniqueness and polymorphic activity references | Known model-design questions in the isolation reports | Record specific defects if encountered; no general model redesign assigned |
 | Durable file reconciliation, import notification infrastructure and platform workers | Support workflows not exposed by this MVP | Deferred; current MVP assignment side effects must still behave correctly |
