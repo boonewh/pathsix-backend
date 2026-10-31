@@ -1397,8 +1397,26 @@ staging**, and no live client has connected yet.
   resource or unknown parameter no longer fails authorization, and the scope
   order is now sorted.
 
-Remaining in this increment: item 4 (connect-once lifetime) and item 6 (wording
-and the Connect page). Then deploy to staging, which needs the user's go-ahead
+#### Progress — October 31, 2026: item 4, connect once (source only)
+
+- Connections now stay usable while they are used and end after **90 days
+  without use**. **One year** after approval, the owner approves them again. The
+  previous fixed limits were 30 days per connection and 7 days per refresh
+  token.
+- `expires_at` remains the immutable absolute limit, still enforced by the
+  existing trigger. Migration `ai_connection_idle_expiry` adds `active_until`.
+  It is set to `expires_at` for existing grants, so they keep exactly their
+  approved lifetime. A check constraint keeps it at or before `expires_at`.
+  Each token exchange moves `active_until` and the new refresh credential
+  forward together to `min(now + 90 days, expires_at)`.
+- Consent checks, connection status, the active-connection limit and the
+  connections page all use the earlier of the two dates. Consent copy states
+  both limits.
+- Tests: refreshes at days 80/160/240/320 keep one grant working without new
+  consent. Nothing outlives the one-year approval. 91 idle days fails closed
+  and shows as expired. The migration preserves existing lifetimes and limits.
+
+Remaining in this increment: item 6 (wording and the Connect page). Then deploy to staging, which needs the user's go-ahead
 to run the migration and set `MCP_CLIENT_REGISTRATION=1`. After that come
 agent-run CIMD/DCR checks against staging and the per-client manual checks.
 

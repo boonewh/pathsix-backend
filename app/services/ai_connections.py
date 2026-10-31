@@ -23,7 +23,14 @@ SCOPES = {**READ_SCOPES, 'leads:create': 'Create leads after you review and conf
 PUBLISHED_SCOPES = frozenset({'clients:read', 'leads:read', 'leads:create'})
 MAX_ACTIVE_CONNECTIONS = 20
 MAX_DAILY_CONSENTS = 100
-CONSENT_DAYS = 30
+# A connection stays usable while it is used at least every IDLE_DAYS, up to
+# CONSENT_DAYS after approval; then the owner approves it again.
+CONSENT_DAYS = 365
+IDLE_DAYS = 90
+
+
+def active_until(row):
+    return min(row.expires_at, row.active_until)
 
 
 class ConnectionLimit(ValueError):
@@ -110,9 +117,10 @@ class AIConnectionService(TenantService):
         now = datetime.utcnow()
         return {'id': row.id, 'client_id': row.client_id, 'resource': row.resource,
                 'scopes': list(row.scopes),
-                'status': 'revoked' if row.revoked_at else 'expired' if row.expires_at <= now else 'active',
+                'status': 'revoked' if row.revoked_at else 'expired' if active_until(row) <= now else 'active',
                 'created_at': row.created_at.isoformat() + 'Z',
                 'expires_at': row.expires_at.isoformat() + 'Z',
+                'active_until': active_until(row).isoformat() + 'Z',
                 'revoked_at': row.revoked_at.isoformat() + 'Z' if row.revoked_at else None,
                 'last_used_at': row.last_used_at.isoformat() + 'Z' if row.last_used_at else None}
 
@@ -126,7 +134,8 @@ class AIConnectionService(TenantService):
             if available:
                 result.append({'id': client.id, 'name': client.name, 'scopes': available, 'oauth_enabled': client.oauth_enabled})
         return {'clients': result, 'scopes': {s: SCOPES[s] for s in sorted(permitted)},
-                'consent_days': CONSENT_DAYS, 'tokens_available': any(client['oauth_enabled'] for client in result)}
+                'consent_days': CONSENT_DAYS, 'idle_days': IDLE_DAYS,
+                'tokens_available': any(client['oauth_enabled'] for client in result)}
 
     def preview(self, data):
         if not isinstance(data, dict) or set(data) != {'client_id', 'scopes'}:
@@ -138,7 +147,7 @@ class AIConnectionService(TenantService):
             raise PermissionError('Requested permissions are not available')
         return {'client_id': client.id, 'client_name': client.name, 'resource': resource_uri(),
                 'scopes': sorted(scopes), 'permissions': [SCOPES[s] for s in sorted(scopes)],
-                'consent_days': CONSENT_DAYS}
+                'consent_days': CONSENT_DAYS, 'idle_days': IDLE_DAYS}
 
     def consent(self, data):
         if (not isinstance(data, dict) or set(data) != {'client_id', 'scopes', 'approved'}
@@ -148,7 +157,8 @@ class AIConnectionService(TenantService):
         self._user(lock=True)
         preview = self.preview({k: data[k] for k in ('client_id', 'scopes')})
         now = datetime.utcnow()
-        active = self._owned().filter(AIConnection.revoked_at.is_(None), AIConnection.expires_at > now).count()
+        active = self._owned().filter(AIConnection.revoked_at.is_(None), AIConnection.expires_at > now,
+                                      AIConnection.active_until > now).count()
         if active >= MAX_ACTIVE_CONNECTIONS:
             raise ConnectionLimit('Revoke an existing AI connection before adding another')
         recent = self._owned().filter(AIConnection.created_at >= now-timedelta(days=1)).count()
@@ -157,7 +167,8 @@ class AIConnectionService(TenantService):
         row = AIConnection(id=str(uuid4()), tenant_id=self.principal.tenant_id,
                            user_id=self.principal.user_id, client_id=preview['client_id'],
                            resource=preview['resource'], scopes=preview['scopes'],
-                           created_at=now, expires_at=now + timedelta(days=CONSENT_DAYS))
+                           created_at=now, expires_at=now + timedelta(days=CONSENT_DAYS),
+                           active_until=now + timedelta(days=min(IDLE_DAYS, CONSENT_DAYS)))
         self.session.add(row)
         self.session.flush()
         return self._serialize(row)
@@ -192,7 +203,7 @@ class AIConnectionService(TenantService):
         client = self._client(client_id)
         required = scope_set(scopes)
         approved = scope_set(row.scopes)
-        if (row.revoked_at is not None or row.expires_at <= datetime.utcnow()
+        if (row.revoked_at is not None or active_until(row) <= datetime.utcnow()
                 or row.client_id != client.id or row.resource != resource or resource != resource_uri()
                 or not required <= (approved & scope_set(client.allowed_scopes) & self._permitted(user))):
             raise PermissionError('AI connection permission denied')

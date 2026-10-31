@@ -12,7 +12,7 @@
 {% if registration == 'cimd' %}<p class="note">This app’s identity is published by <strong>{{ client_host }}</strong>.</p>{% elif registration == 'dcr' %}<p class="note">This app registered itself and named itself “{{ client_name }}”. PathSix has not verified that name. Continue only if you just started this connection from an AI app you trust.</p>{% endif %}
 <section aria-labelledby="permission-title"><h2 id="permission-title">Requested access</h2>
 <ul>{% for permission in permissions %}<li>{{ permission }}</li>{% endfor %}</ul>
-<p class="note">Access lasts up to 30 days. You can revoke it from <a href="/oauth/connections" target="_blank" rel="noopener noreferrer">your AI connections</a>. {% if 'leads:create' in scopes.split() %}Each new lead requires your separate review and confirmation. This connection cannot update or delete existing records.{% else %}This connection cannot change or delete records.{% endif %}</p></section>
+<p class="note">Access stays on while you use it. It ends after {{ idle_days }} days without use, or {{ consent_days }} days after you approve it. You can revoke it anytime from <a href="/oauth/connections" target="_blank" rel="noopener noreferrer">your AI connections</a>. {% if 'leads:create' in scopes.split() %}Each new lead requires your separate review and confirmation. This connection cannot update or delete existing records.{% else %}This connection cannot change or delete records.{% endif %}</p></section>
 <form id="login"><h2>Sign in to review</h2>
 <p class="note">Sign in with your PathSix{% if staging %} staging test{% endif %} account.</p>
 <label for="email">Email</label><input id="email" name="email" type="email" autocomplete="username" required>

@@ -116,6 +116,7 @@ class AIConnection(Base):
         ForeignKeyConstraint(['tenant_id', 'user_id'], ['users.tenant_id', 'users.id'],
                              name='fk_ai_connections_owner_same_tenant'),
         CheckConstraint('expires_at > created_at', name='ck_ai_connections_expiry'),
+        CheckConstraint('active_until > created_at AND active_until <= expires_at', name='ck_ai_connections_active_until'),
         Index('ix_ai_connections_owner_created', 'tenant_id', 'user_id', 'created_at', 'id'),
     )
     id = Column(String(36), primary_key=True)
@@ -125,7 +126,11 @@ class AIConnection(Base):
     resource = Column(String(500), nullable=False)
     scopes = Column(JSON, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    # expires_at is the immutable absolute limit; active_until slides forward
+    # with use (token exchange) and never passes expires_at.
     expires_at = Column(DateTime, nullable=False)
+    active_until = Column(DateTime, nullable=False,
+                          default=lambda context: context.get_current_parameters()['expires_at'])
     revoked_at = Column(DateTime)
     last_used_at = Column(DateTime)
 

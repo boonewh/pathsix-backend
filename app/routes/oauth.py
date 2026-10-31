@@ -9,7 +9,8 @@ from authlib.oauth2.rfc6749.errors import OAuth2Error, InvalidRequestError
 from app.database import SessionLocal
 from app.models import OAuthCredential, AIConnection
 from app.services.oauth import Server, ProtocolRequest, lookup_principal, issuer, digest, valid_secret
-from app.services.ai_connections import PUBLISHED_SCOPES, SCOPES, resource_uri, AIConfigurationError
+from app.services.ai_connections import (CONSENT_DAYS, IDLE_DAYS, PUBLISHED_SCOPES, SCOPES, resource_uri,
+                                         AIConfigurationError)
 from app.services.client_metadata import ClientMetadataError
 from app.services.client_registration import (RegistrationUnavailable, ensure_metadata_client,
                                               register_dynamic, enabled as registration_enabled)
@@ -120,7 +121,8 @@ async def authorize():
         client_name=name, callback_host=urlsplit(data['redirect_uri']).netloc, registration=registration,
         client_host=urlsplit(data['client_id']).hostname if registration == 'cimd' else None,
         permissions=[SCOPES[s] for s in data['scope'].split()], client_id=data['client_id'], scopes=data['scope'],
-        intent_seconds=INTENT_SECONDS, staging=current_app.config.get('OAUTH_STAGING', False)))
+        intent_seconds=INTENT_SECONDS, staging=current_app.config.get('OAUTH_STAGING', False),
+        idle_days=IDLE_DAYS, consent_days=CONSENT_DAYS))
     response.set_cookie(COOKIE,binding,max_age=INTENT_SECONDS,secure=True,httponly=True,samesite='Lax',path='/')
     return response
 

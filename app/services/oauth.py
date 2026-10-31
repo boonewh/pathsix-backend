@@ -17,14 +17,14 @@ from authlib.oauth2.rfc7636 import CodeChallenge
 from authlib.oauth2.rfc7636.challenge import create_s256_code_challenge
 from app.models import AIClient, AIConnection, OAuthCredential, User
 from app.services.principal import Principal
-from app.services.ai_connections import AIConnectionService, PUBLISHED_SCOPES, SCOPES, resource_uri, scope_set
+from app.services.ai_connections import (AIConnectionService, IDLE_DAYS, PUBLISHED_SCOPES, SCOPES,
+                                         resource_uri, scope_set)
 from app.services.database_context import auth_lookup, bind_principal
 from app.services.errors import RecordNotFound
 
 # Authlib debug records can include issued credentials. Never enable them here.
 logging.getLogger('authlib.oauth2').setLevel(logging.WARNING)
 ACCESS_SECONDS = 300
-REFRESH_SECONDS = 86400 * 7
 CODE_SECONDS = 120
 AUTHORIZATION_REQUIRED = frozenset({'client_id', 'redirect_uri', 'response_type', 'code_challenge', 'code_challenge_method'})
 AUTHORIZATION_OPTIONAL = frozenset({'scope', 'state', 'resource'})
@@ -239,11 +239,15 @@ class Server(AuthorizationServer):
                 'scope':scope, 'resource':self.connection.resource}
     def save_token(self, token, request):
         now = datetime.utcnow()
-        for kind, lifetime in (('access',token['expires_in']), ('refresh',REFRESH_SECONDS)):
+        # Each exchange is use: the refresh credential and the connection's
+        # inactivity limit move forward together, never past the absolute limit.
+        refresh_until = min(now+timedelta(days=IDLE_DAYS), self.connection.expires_at)
+        self.connection.active_until = max(self.connection.active_until, refresh_until)
+        for kind, until in (('access',min(now+timedelta(seconds=token['expires_in']),self.connection.expires_at)),
+                            ('refresh',refresh_until)):
             self.db.add(OAuthCredential(token_hash=digest(token[kind+'_token']), kind=kind,
                 tenant_id=self.principal.tenant_id,user_id=self.principal.user_id,connection_id=self.connection.id,
-                scopes=sorted(parse_scope(token['scope'])),created_at=now,
-                expires_at=min(now+timedelta(seconds=lifetime),self.connection.expires_at)))
+                scopes=sorted(parse_scope(token['scope'])),created_at=now,expires_at=until))
         self.db.flush()
 
 
