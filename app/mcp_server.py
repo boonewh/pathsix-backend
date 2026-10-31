@@ -78,7 +78,7 @@ def bearer(headers):
 
 def install_mcp(app):
     from app.services.ai_action_review import ActionReview
-    from app.mcp_lead_tools import REVIEW_URI, LEGACY_REVIEW_URI, PREVIOUS_REVIEW_URI
+    from app.mcp_lead_tools import REVIEW_URI, RETIRED_REVIEW_URIS
     review = ActionReview(app.config['SECRET_KEY'])
 
     async def list_resources(ctx, params):
@@ -88,7 +88,7 @@ def install_mcp(app):
             name='PathSix lead review', mimeType='text/html;profile=mcp-app')])
 
     async def read_resource(ctx, params):
-        if not app.config.get('MCP_INLINE_REVIEW', False) or str(params.uri) not in (REVIEW_URI, LEGACY_REVIEW_URI, PREVIOUS_REVIEW_URI):
+        if not app.config.get('MCP_INLINE_REVIEW', False) or str(params.uri) not in (REVIEW_URI, *RETIRED_REVIEW_URIS):
             raise ValueError('Resource unavailable')
         return types.ReadResourceResult(contents=[types.TextResourceContents(uri=str(params.uri),
             mimeType='text/html;profile=mcp-app',

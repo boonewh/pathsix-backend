@@ -1416,7 +1416,27 @@ staging**, and no live client has connected yet.
   consent. Nothing outlives the one-year approval. 91 idle days fails closed
   and shows as expired. The migration preserves existing lifetimes and limits.
 
-Remaining in this increment: item 6 (wording and the Connect page). Then deploy to staging, which needs the user's go-ahead
+#### Progress — October 31, 2026: item 6, host-neutral wording (source only)
+
+- Tool descriptions, server instructions and consent copy were already
+  host-neutral. Six user-facing strings told people to "ask/return to
+  ChatGPT"; they now say "your AI app". These are in the inline card, the
+  signed-in review page and script, and the expired-proposal error. A test
+  keeps ChatGPT out of these files.
+- The card's text changed, so it is advertised as
+  `ui://pathsix/lead-review-v4.html`. v1–v3 still resolve to the current card
+  for existing conversations, and hosts that cache by URI fetch the new copy.
+- New public page `/connect`, "Connect your AI": the MCP URL (no client ID or
+  secret needed), short steps for Claude, ChatGPT, Gemini, Claude Code and VS
+  Code, and what happens at sign-in. It has no scripts and uses the OAuth pages'
+  CSP. It returns 503 when the MCP URL is not configured. The per-client steps
+  come from each vendor's current help pages and are **not yet verified live**.
+  Confirm or correct each during the manual client checks. The page's layout
+  was not visually checked by the agent.
+
+Remaining in this increment: deploy to staging (user go-ahead needed for the two
+migrations and `MCP_CLIENT_REGISTRATION=1`), agent-run CIMD/DCR checks against
+staging, and one manual connect/read/create check per target client. Then deploy to staging, which needs the user's go-ahead
 to run the migration and set `MCP_CLIENT_REGISTRATION=1`. After that come
 agent-run CIMD/DCR checks against staging and the per-client manual checks.
 

@@ -126,9 +126,10 @@ def test_inline_resource_and_app_only_metadata_in_both_protocols(oauth, version)
     assert tools['decide_lead_creation']['_meta']['ui']['visibility'] == ['app']
     assert tools['prepare_lead_creation']['_meta']['ui']['resourceUri'] == REVIEW_URI
     assert not tools['decide_lead_creation']['annotations']['readOnlyHint']
-    # Existing conversations can still resolve both older cards after a UI update.
-    from app.mcp_lead_tools import LEGACY_REVIEW_URI, PREVIOUS_REVIEW_URI
-    for uri in (LEGACY_REVIEW_URI, PREVIOUS_REVIEW_URI):
+    # Existing conversations can still resolve every older card after a UI update.
+    from app.mcp_lead_tools import RETIRED_REVIEW_URIS
+    assert len(RETIRED_REVIEW_URIS) == 3 and REVIEW_URI not in RETIRED_REVIEW_URIS
+    for uri in RETIRED_REVIEW_URIS:
         _, legacy, _ = rpc(oauth, token, 'resources/read', {**meta,'uri':uri}, headers={'MCP-Protocol-Version':version})
         assert legacy['result']['contents'][0]['uri'] == uri
         assert legacy['result']['contents'][0]['text'] == resource['text']

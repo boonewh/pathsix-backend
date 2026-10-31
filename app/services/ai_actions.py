@@ -130,7 +130,7 @@ class AIActionService(TenantService):
         if row.status != 'pending':
             return self.result(row)
         if row.expires_at <= datetime.utcnow():
-            raise ActionConflict('Proposal expired; return to ChatGPT to prepare a new one')
+            raise ActionConflict('Proposal expired; return to your AI app to prepare a new one')
         now = datetime.utcnow()
         if approved:
             service = LeadService(self.session, self.principal)

@@ -279,3 +279,22 @@ def test_metadata_document_rejects_duplicate_keys_and_defaults_name():
         parse(CIMD, ('{"client_id":"%s","client_id":"%s","redirect_uris":["%s"]}' % (CIMD, CIMD, CIMD_REDIRECT)).encode())
     parsed = parse(CIMD, json.dumps({'client_id': CIMD, 'redirect_uris': [CIMD_REDIRECT]}).encode())
     assert parsed == {'name': 'agent.example', 'redirect_uris': [CIMD_REDIRECT]}
+
+
+def test_connect_page_gives_one_url_for_any_ai_app(oauth, monkeypatch):
+    status, body, headers = oauth.request('GET', '/connect')
+    assert status == 200 and f'<code>{RESOURCE}</code>' in body
+    assert "frame-ancestors 'none'" in headers['Content-Security-Policy'] and headers['Cache-Control'] == 'no-store'
+    for app in ('Claude', 'ChatGPT', 'Gemini', 'Claude Code', 'VS Code'):
+        assert f'<h3>{app}</h3>' in body
+    assert 'client ID or secret' in body and '90 days without use' in body and '<script' not in body
+    monkeypatch.setenv('MCP_RESOURCE_URI', 'http://insecure.test/mcp')
+    assert oauth.request('GET', '/connect')[0] == 503
+
+
+def test_user_facing_copy_does_not_assume_one_ai_host():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1] / 'app'
+    for path in ('templates/mcp_lead_review.html', 'templates/ai_action.html', 'static/ai_action.js',
+                 'services/ai_actions.py', 'templates/oauth.html'):
+        assert 'ChatGPT' not in (root / path).read_text(encoding='utf-8'), path

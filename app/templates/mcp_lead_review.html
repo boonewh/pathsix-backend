@@ -29,7 +29,7 @@ function render(){
  el('account').textContent=review?.account?[review.account,review.company].filter(Boolean).join(' · '):'';
  const state=receipt?.status;
  el('heading').textContent=state==='committed'?'Lead created':state==='cancelled'?'Proposal cancelled':state==='expired'?'Proposal expired':'Create this lead?';
- el('summary').textContent=state==='committed'?`${receipt.lead?.name ?? 'Lead'} was saved (ID ${receipt.lead?.id ?? 'unavailable'}).`:state==='cancelled'?'No lead was created by this proposal.':state==='expired'?'Nothing was saved. Ask ChatGPT for a new proposal.':'Check the details below. Nothing is saved until you choose Create lead.';
+ el('summary').textContent=state==='committed'?`${receipt.lead?.name ?? 'Lead'} was saved (ID ${receipt.lead?.id ?? 'unavailable'}).`:state==='cancelled'?'No lead was created by this proposal.':state==='expired'?'Nothing was saved. Ask your AI app for a new proposal.':'Check the details below. Nothing is saved until you choose Create lead.';
  if(state==='pending'&&review?.fields){for(const [key,value] of Object.entries(review.fields)){if(value===null||value==='')continue;const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=labels[key]||key.replaceAll('_',' ');dd.textContent=String(value);el('fields').append(dt,dd);}el('fields').hidden=false;}
  el('decisions').hidden=state!=='pending'||!review?.intent;
  el('create').disabled=el('cancel').disabled=busy||uncertain||!ready;
@@ -93,10 +93,10 @@ window.addEventListener('message',event=>{
  if(event.source!==parent||!event.data||event.data.jsonrpc!=='2.0')return;
  const message=event.data;
  if(message.id!==undefined&&pending.has(message.id)){const p=pending.get(message.id);pending.delete(message.id);clearTimeout(p.timer);message.error?p.reject(new Error('Host request failed')):p.resolve(message.result);return;}
- if(message.method==='ui/notifications/tool-result'&&!busy){try{accept(message.params);uncertain=true;render();void refresh();}catch{el('notice').textContent='This review is unavailable. Ask ChatGPT to check the proposal.';}}
+ if(message.method==='ui/notifications/tool-result'&&!busy){try{accept(message.params);uncertain=true;render();void refresh();}catch{el('notice').textContent='This review is unavailable. Ask your AI app to check the proposal.';}}
  if(message.method==='ui/notifications/host-context-changed')applyTheme(message.params);
 });
 function applyTheme(context){if(context?.theme==='dark'||context?.theme==='light')document.documentElement.style.colorScheme=context.theme;}
-(async()=>{try{const host=await request('ui/initialize',{appInfo:{name:'PathSix lead review',version:'1.1.1'},appCapabilities:{},protocolVersion:'2026-01-26'});applyTheme(host?.hostContext);canMessage=!!host?.hostCapabilities?.message?.text;ready=true;notify('ui/notifications/initialized',{});if(actionId)void refresh();}catch{el('notice').textContent='The review could not connect. Ask ChatGPT to check the proposal or offer its secure review link.';}})();
+(async()=>{try{const host=await request('ui/initialize',{appInfo:{name:'PathSix lead review',version:'1.1.1'},appCapabilities:{},protocolVersion:'2026-01-26'});applyTheme(host?.hostContext);canMessage=!!host?.hostCapabilities?.message?.text;ready=true;notify('ui/notifications/initialized',{});if(actionId)void refresh();}catch{el('notice').textContent='The review could not connect. Ask your AI app to check the proposal or offer its secure review link.';}})();
 new ResizeObserver(()=>notify('ui/notifications/size-changed',{height:document.documentElement.scrollHeight})).observe(document.body);
 </script></body></html>

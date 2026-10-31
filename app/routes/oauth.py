@@ -98,6 +98,12 @@ def single_values(values):
     return values.to_dict()
 
 
+@oauth_bp.route('/connect')
+async def connect_ai():
+    return await render_template('connect_ai.html', mcp_url=resource_uri(), idle_days=IDLE_DAYS,
+        consent_days=CONSENT_DAYS, staging=current_app.config.get('OAUTH_STAGING', False))
+
+
 @oauth_bp.route('/oauth/connections')
 async def connections():
     return await render_template('oauth_connections.html', staging=current_app.config.get('OAUTH_STAGING', False))

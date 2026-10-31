@@ -264,7 +264,7 @@ def test_every_data_route_requires_authentication(crm):
     call, _, app = crm
     public = {'auth.login', 'auth.forgot_password', 'auth.reset_password', 'static',
                   'oauth.static', 'oauth.metadata', 'oauth.authorize', 'oauth.connections',
-                  'oauth.token', 'oauth.revoke', 'oauth.register', 'mcp_metadata.metadata',
+                  'oauth.token', 'oauth.revoke', 'oauth.register', 'oauth.connect_ai', 'mcp_metadata.metadata',
                   'ai_actions.page'}  # Public shells; credential/CSRF/data proofs cover OAuth and action endpoints.
     for rule in app.url_map.iter_rules():
         if rule.endpoint in public:

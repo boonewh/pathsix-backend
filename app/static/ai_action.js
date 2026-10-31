@@ -57,11 +57,11 @@
       decisions.hidden = false;
       message.textContent = 'Review all details before creating the lead.';
     } else if (result.status === 'committed' && result.lead) {
-      message.textContent = `Lead created: ${result.lead.name} (ID ${result.lead.id}). Return to ChatGPT to continue.`;
+      message.textContent = `Lead created: ${result.lead.name} (ID ${result.lead.id}). Return to your AI app to continue.`;
     } else if (result.status === 'cancelled') {
       message.textContent = 'Proposal cancelled. No lead was created by this proposal.';
     } else if (result.status === 'expired') {
-      message.textContent = 'This proposal expired without creating a lead. Ask ChatGPT to prepare a new proposal.';
+      message.textContent = 'This proposal expired without creating a lead. Ask your AI app to prepare a new proposal.';
     } else throw new Error('Unexpected response. Refresh the status before continuing.');
   };
   const load = async () => display(await send(base+'/preview', {}));
