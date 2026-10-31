@@ -1473,8 +1473,12 @@ staging**, and no live client has connected yet.
 - **Not yet verified:** a full sign-in and token exchange by a real third-party
   client, and a live CIMD fetch (no CIMD-publishing client has connected yet).
   Both are covered by automated tests, and the manual client checks below will
-  exercise them. Rollback: release v51 / `df12f1d`. The added columns, function
-  and registrations are retained (additive; the v51 code ignores them).
+  exercise them. Rollback: release v51 / `df12f1d`. Keep the added columns,
+  function and registrations. v51 ignores the new `ai_clients` columns, but
+  its consent insert omits the required `ai_connections.active_until`. Before
+  rolling back, run a reviewed `ALTER TABLE public.ai_connections ALTER COLUMN
+  active_until DROP NOT NULL`; the check constraint accepts NULL. Otherwise new
+  approvals fail, though existing connections keep working.
 
 Remaining in this increment: one manual connect/read/create check per target
 client, starting with Claude, then the rest. Correct the `/connect` steps
