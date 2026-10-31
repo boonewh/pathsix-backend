@@ -1434,9 +1434,51 @@ staging**, and no live client has connected yet.
   Confirm or correct each during the manual client checks. The page's layout
   was not visually checked by the agent.
 
-Remaining in this increment: deploy to staging (user go-ahead needed for the two
-migrations and `MCP_CLIENT_REGISTRATION=1`), agent-run CIMD/DCR checks against
-staging, and one manual connect/read/create check per target client. Then deploy to staging, which needs the user's go-ahead
+#### Staging deployment — October 31, 2026 (user approved)
+
+- **Deployed:** staging now runs `a15d89d6d18598764e21379508b55d27c5a0c543`
+  (`APP_REVISION` recorded). [CI run 41246577285](https://github.com/boonewh/pathsix-backend/actions/runs/41246577285)
+  passed on that exact commit. Both machines passed health checks.
+  `MCP_CLIENT_REGISTRATION=1` is set in `fly.staging.toml` for staging only;
+  production is unchanged.
+- **Migrations:** `mcp_client_registration` and then `ai_connection_idle_expiry`
+  were each rehearsed (rolled back) and then applied with the operator script.
+  The administrator URL came from the local DPAPI store and was piped through
+  stdin, never printed. Row counts for all 11 bounded tables were identical
+  before and after.
+- **Read-only attestation:**
+  - Migration head is `ai_connection_idle_expiry`.
+  - The existing operator ChatGPT client keeps `inline_review`.
+  - The runtime role has no INSERT, UPDATE or DELETE on `ai_clients`.
+  - `crm_register_ai_client` is SECURITY DEFINER with a pinned `search_path`,
+    and only the runtime role may execute it.
+  - All 16 existing connections kept their approved lifetime
+    (`active_until = expires_at`).
+  - RLS remains forced on `ai_connections`.
+- **Agent-run public checks (pass):**
+  - Health returns 200.
+  - Authorization-server metadata advertises `registration_endpoint` and CIMD
+    support. Both metadata documents list the same three scopes.
+  - `/connect` returns 200 and shows the URL in all five app sections.
+  - Unauthenticated `/mcp` returns 401 with the resource-metadata challenge.
+  - DCR registration returns a public client (`token_endpoint_auth_method:
+    none`).
+  - An authorization request with no scope, resource or state, an extra
+    `prompt` parameter and a loopback redirect on port 53111 returned the
+    consent page. It showed the unverified-name warning, the three published
+    permissions and the 90-day wording.
+  - The same request with a different loopback path was rejected (400).
+  - The synthetic DCR registration ("PathSix staging DCR check") is never used,
+    so it is pruned after a day.
+- **Not yet verified:** a full sign-in and token exchange by a real third-party
+  client, and a live CIMD fetch (no CIMD-publishing client has connected yet).
+  Both are covered by automated tests, and the manual client checks below will
+  exercise them. Rollback: release v51 / `df12f1d`. The added columns, function
+  and registrations are retained (additive; the v51 code ignores them).
+
+Remaining in this increment: one manual connect/read/create check per target
+client, starting with Claude, then the rest. Correct the `/connect` steps
+wherever a vendor's menus differ. Then deploy to staging, which needs the user's go-ahead
 to run the migration and set `MCP_CLIENT_REGISTRATION=1`. After that come
 agent-run CIMD/DCR checks against staging and the per-client manual checks.
 
