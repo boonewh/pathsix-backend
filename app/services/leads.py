@@ -7,7 +7,7 @@ from app.services.purge import PurgeService
 from app.utils.lead_options import normalize_lead_options, tenant_lead_config
 from datetime import datetime
 from app.models import Lead, Contact, ActivityLog, ActivityType, User
-from sqlalchemy import or_, and_
+from sqlalchemy import or_, and_, func
 from app.schemas.leads import LeadCreateSchema, LeadUpdateSchema, LeadAssignSchema
 from app.services.principal import Principal
 from app.services.access import owned_record_filter
@@ -113,7 +113,7 @@ class LeadService:
             entity_type='lead', entity_id=lead.id,
             description=f"Viewed lead '{lead.name}'"))
 
-    def list_mine(self, page=1, per_page=20, sort_order="newest"):
+    def list_mine(self, page=1, per_page=20, sort_order="newest", status=None):
         if type(page) is not int or type(per_page) is not int or page < 1 or not 1 <= per_page <= 200:
             raise ValueError("Invalid pagination: page must be positive and per_page between 1 and 200")
         # Validate sort order
@@ -132,6 +132,20 @@ class LeadService:
             )
         )
 
+        # Count per status over the same visible leads, ignoring the status
+        # filter and paging, so the Leads page can show real totals.
+        status_counts = {
+            lead_status: count
+            for lead_status, count in query.with_entities(Lead.lead_status, func.count(Lead.id))
+            .group_by(Lead.lead_status).all()
+            if lead_status
+        }
+
+        # Optional status filter, applied before counting and paging.
+        status = status.strip() if isinstance(status, str) else None
+        if status:
+            query = query.filter(Lead.lead_status == status)
+
         # Apply sorting
         if sort_order == "newest":
             query = query.order_by(Lead.created_at.desc())
@@ -148,7 +162,9 @@ class LeadService:
             "total": total,
             "page": page,
             "per_page": per_page,
-            "sort_order": sort_order
+            "sort_order": sort_order,
+            "status": status or None,
+            "status_counts": status_counts,
         })
         return response
 
