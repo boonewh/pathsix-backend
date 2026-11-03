@@ -1,13 +1,19 @@
 name: CI
 on:
   pull_request:
-    branches: [main, staging]
+    branches: [main, staging, codex/mvp-lead-creation]
   push:
-    branches: [main, staging]
+    branches: [main, staging, codex/mvp-lead-creation]
+permissions:
+  contents: read
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   backend:
-    name: Backend tests
-    runs-on: ubuntu-latest
+    name: Python runtime, PostgreSQL regressions and production image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:18
@@ -20,20 +26,30 @@ jobs:
           --health-cmd "pg_isready -U crm_test"
           --health-interval 10s --health-timeout 5s --health-retries 5
     env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
       CRM_RLS_ENABLED: '1'
       SECURITY_TEST_ROLE: crm_test_runtime
       SECRET_KEY: ci-test-only-key
+      SENTRY_DSN: ''
       DATABASE_URL: postgresql://crm_test:test-only@localhost:5432/crm_test
       SECURITY_TEST_DATABASE_URL: postgresql://crm_test:test-only@localhost:5432/crm_test
+      PURGE_TEST_DATABASE_URL: postgresql://crm_test:test-only@localhost:5432/crm_test
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.12'
+          python-version: '3.12.16'
           cache: pip
-      - run: pip install -r requirements.txt -r requirements-test.txt
+          cache-dependency-path: requirements-test.txt
+      - run: python -m pip install --upgrade pip==26.2.2
+      - run: python -m pip install --require-hashes -r requirements-test.txt
+      - run: python -m pip check
       - run: python -m compileall -q app
-      - name: Create restricted test role
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24.22.1'
+      - run: node --test tests/ui/mcp_lead_review.test.cjs
+      - name: Create isolated restricted test role
         run: |
           python - <<'PY'
           import os, psycopg2
@@ -41,4 +57,9 @@ jobs:
               with connection.cursor() as cursor:
                   cursor.execute('CREATE ROLE crm_test_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS')
           PY
-      - run: python -m pytest -q
+      - run: python -m pytest -q --tb=short
+      - name: Build and verify the exact production image
+        run: |
+          docker build --tag pathsix-release .
+          docker run --rm pathsix-release python scripts/verify_security_runtime.py
+          docker run --rm -e SECRET_KEY=ci-import-only -e DATABASE_URL=postgresql://unused:unused@127.0.0.1:1/unused -e SENTRY_DSN= pathsix-release python -c "import asgi; print('Quart application import passed without starting the server')"

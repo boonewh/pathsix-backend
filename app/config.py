@@ -1,10 +1,12 @@
 # app/config.py
 import os
+import certifi
 from dotenv import load_dotenv
 
 # Load a local .env for development. On Fly (prod/staging) there's no .env file, so
 # load_dotenv() is a harmless no-op and real values come from Fly secrets (env vars).
 load_dotenv()
+os.environ.setdefault('SSL_CERT_FILE', certifi.where())
 
 def _bool(env_name: str, default: bool = False) -> bool:
     return os.getenv(env_name, str(default)).strip().lower() in {"1", "true", "yes", "on"}
@@ -40,6 +42,8 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 # Label the separate test account environment on both OAuth browser pages.
 OAUTH_STAGING = _bool("OAUTH_STAGING", False)
+# Controlled rollout: requires a host that isolates app-only tools and component metadata.
+MCP_INLINE_REVIEW = _bool("MCP_INLINE_REVIEW", False)
 
 # --- Mail (SMTP) ------------------------------------------------------------
 MAIL_SERVER = os.getenv("MAIL_SERVER", "mail.gandi.net")

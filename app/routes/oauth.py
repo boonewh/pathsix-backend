@@ -9,7 +9,11 @@ from authlib.oauth2.rfc6749.errors import OAuth2Error, InvalidRequestError
 from app.database import SessionLocal
 from app.models import OAuthCredential, AIConnection
 from app.services.oauth import Server, ProtocolRequest, lookup_principal, issuer, digest, valid_secret
-from app.services.ai_connections import READ_SCOPES, resource_uri, AIConfigurationError
+from app.services.ai_connections import (CONSENT_DAYS, IDLE_DAYS, PUBLISHED_SCOPES, SCOPES, resource_uri,
+                                         AIConfigurationError)
+from app.services.client_metadata import ClientMetadataError
+from app.services.client_registration import (RegistrationUnavailable, ensure_metadata_client,
+                                              register_dynamic, enabled as registration_enabled)
 from app.services.database_context import bind_principal
 from app.services.errors import RecordNotFound
 from app.utils.auth_utils import requires_auth
@@ -61,18 +65,43 @@ async def unavailable(error):
 @oauth_bp.route('/.well-known/oauth-authorization-server')
 async def metadata():
     base = issuer()
-    return reply({'issuer':base, 'authorization_endpoint':base+'/oauth/authorize',
+    body = {'issuer':base, 'authorization_endpoint':base+'/oauth/authorize',
         'token_endpoint':base+'/oauth/token', 'revocation_endpoint':base+'/oauth/revoke',
         'response_types_supported':['code'], 'grant_types_supported':['authorization_code','refresh_token'],
         'token_endpoint_auth_methods_supported':['none'], 'revocation_endpoint_auth_methods_supported':['none'],
-        'code_challenge_methods_supported':['S256'], 'scopes_supported':list(READ_SCOPES),
-        'authorization_response_iss_parameter_supported':True})
+        'code_challenge_methods_supported':['S256'], 'scopes_supported':sorted(PUBLISHED_SCOPES),
+        'authorization_response_iss_parameter_supported':True}
+    if registration_enabled():
+        body.update({'registration_endpoint':base+'/oauth/register', 'client_id_metadata_document_supported':True})
+    return reply(body)
+
+
+@oauth_bp.route('/oauth/register',methods=['POST'])
+@rate_limit(max_attempts=10, window_seconds=60)
+async def register():
+    if not registration_enabled():
+        return reply({'error':'invalid_request'},404)
+    data = await request.get_json(silent=True)
+    request.database_write_started = True
+    try:
+        return reply(register_dynamic(SessionLocal,data),201)
+    except ClientMetadataError as error:
+        code = str(error) if str(error) in ('invalid_redirect_uri','invalid_client_metadata') else 'invalid_client_metadata'
+        return reply({'error':code},400)
+    except RegistrationUnavailable:
+        return reply({'error':'temporarily_unavailable'},503)
 
 
 def single_values(values):
     if any(len(values.getlist(key)) != 1 for key in values):
         raise InvalidRequestError()
     return values.to_dict()
+
+
+@oauth_bp.route('/connect')
+async def connect_ai():
+    return await render_template('connect_ai.html', mcp_url=resource_uri(), idle_days=IDLE_DAYS,
+        consent_days=CONSENT_DAYS, staging=current_app.config.get('OAUTH_STAGING', False))
 
 
 @oauth_bp.route('/oauth/connections')
@@ -85,15 +114,21 @@ async def connections():
 async def authorize():
     if len(request.query_string) > 4096: raise InvalidRequestError()
     data = single_values(request.args)
+    if isinstance(data.get('client_id'), str):
+        await ensure_metadata_client(SessionLocal, data['client_id'])
     with SessionLocal() as db:
         protocol, _ = Server(db).validate_authorization(data)
-        name = protocol.client.row.name
+        name, registration = protocol.client.row.name, protocol.client.row.registration
+    # Sign only the canonical request; ignored parameters never reach approval.
+    data = protocol.payload.data
     binding = secrets.token_urlsafe(32)
     intent = signer().dumps({'request':data,'binding':digest(binding),'nonce':secrets.token_urlsafe(16)})
     response = await make_response(await render_template('oauth.html', intent=intent,
-        client_name=name, callback_host=urlsplit(data['redirect_uri']).netloc,
-        permissions=[READ_SCOPES[s] for s in data['scope'].split()], client_id=data['client_id'], scopes=data['scope'],
-        intent_seconds=INTENT_SECONDS, staging=current_app.config.get('OAUTH_STAGING', False)))
+        client_name=name, callback_host=urlsplit(data['redirect_uri']).netloc, registration=registration,
+        client_host=urlsplit(data['client_id']).hostname if registration == 'cimd' else None,
+        permissions=[SCOPES[s] for s in data['scope'].split()], client_id=data['client_id'], scopes=data['scope'],
+        intent_seconds=INTENT_SECONDS, staging=current_app.config.get('OAUTH_STAGING', False),
+        idle_days=IDLE_DAYS, consent_days=CONSENT_DAYS))
     response.set_cookie(COOKIE,binding,max_age=INTENT_SECONDS,secure=True,httponly=True,samesite='Lax',path='/')
     return response
 
@@ -155,12 +190,18 @@ async def form_data():
 async def token():
     data = await form_data()
     grant_type = data.get('grant_type')
-    required = {'grant_type','client_id','resource'}
+    required = {'grant_type','client_id'}
     if grant_type == 'authorization_code': required |= {'code','code_verifier','redirect_uri'}
     elif grant_type == 'refresh_token': required |= {'refresh_token'}
     else: return reply({'error':'unsupported_grant_type'},400)
-    optional = {'scope'} if grant_type == 'refresh_token' else set()
-    if not required <= set(data) or set(data)-required-optional or data['resource'] != resource_uri():
+    optional = {'resource'} | ({'scope'} if grant_type == 'refresh_token' else set())
+    if not required <= set(data):
+        raise InvalidRequestError()
+    # Unrecognized parameters are ignored (RFC 6749 3.2); a missing resource
+    # means this server's single MCP resource, which credentials are bound to.
+    data = {key: value for key, value in data.items() if key in required | optional}
+    data.setdefault('resource', resource_uri())
+    if data['resource'] != resource_uri():
         raise InvalidRequestError()
     raw = data.get('code') if grant_type=='authorization_code' else data.get('refresh_token')
     try:

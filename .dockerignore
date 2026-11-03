@@ -20,3 +20,4 @@ tests/
 *.db
 temp/
 .codex-remote-attachments/
+password_changes.txt

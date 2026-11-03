@@ -84,14 +84,28 @@ class Role(Base):
 
 
 class AIClient(Base):
-    """Operator-managed client catalog; the web runtime has read access only."""
+    """Client catalog: operator rows plus self-registered public clients.
+
+    The web runtime has read access only; self-registration goes through the
+    crm_register_ai_client database function. Only operator clients may use the
+    inline review card, whose host must keep result metadata from the model.
+    """
     __tablename__ = 'ai_clients'
+    __table_args__ = (
+        CheckConstraint("registration IN ('operator','cimd','dcr')", name='ck_ai_clients_registration'),
+        CheckConstraint("NOT inline_review OR registration = 'operator'", name='ck_ai_clients_inline_operator'),
+        Index('ix_ai_clients_registration_created', 'registration', 'created_at'),
+    )
     id = Column(String(200), primary_key=True)
     name = Column(String(100), nullable=False)
     is_active = Column(Boolean, nullable=False, default=False)
     allowed_scopes = Column(JSON, nullable=False, default=list)
     redirect_uris = Column(JSON, nullable=False, default=list)
     oauth_enabled = Column(Boolean, nullable=False, default=False)
+    registration = Column(String(10), nullable=False, default='operator')
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    metadata_fetched_at = Column(DateTime)
+    inline_review = Column(Boolean, nullable=False, default=False)
 
 
 class AIConnection(Base):
@@ -102,6 +116,7 @@ class AIConnection(Base):
         ForeignKeyConstraint(['tenant_id', 'user_id'], ['users.tenant_id', 'users.id'],
                              name='fk_ai_connections_owner_same_tenant'),
         CheckConstraint('expires_at > created_at', name='ck_ai_connections_expiry'),
+        CheckConstraint('active_until > created_at AND active_until <= expires_at', name='ck_ai_connections_active_until'),
         Index('ix_ai_connections_owner_created', 'tenant_id', 'user_id', 'created_at', 'id'),
     )
     id = Column(String(36), primary_key=True)
@@ -111,7 +126,11 @@ class AIConnection(Base):
     resource = Column(String(500), nullable=False)
     scopes = Column(JSON, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    # expires_at is the immutable absolute limit; active_until slides forward
+    # with use (token exchange) and never passes expires_at.
     expires_at = Column(DateTime, nullable=False)
+    active_until = Column(DateTime, nullable=False,
+                          default=lambda context: context.get_current_parameters()['expires_at'])
     revoked_at = Column(DateTime)
     last_used_at = Column(DateTime)
 
@@ -157,6 +176,38 @@ class AIToolAudit(Base):
     outcome = Column(String(30),nullable=False)
     result_count = Column(Integer,nullable=False)
     created_at = Column(DateTime,nullable=False,default=datetime.utcnow)
+
+
+class AIWriteAction(Base):
+    """Immutable proposal and durable receipt; an ID alone never authorizes a write."""
+    __tablename__ = 'ai_write_actions'
+    __table_args__ = (
+        ForeignKeyConstraint(['tenant_id', 'user_id', 'connection_id'],
+            ['ai_connections.tenant_id', 'ai_connections.user_id', 'ai_connections.id'],
+            name='fk_ai_write_actions_owner_grant'),
+        UniqueConstraint('connection_id', 'request_key', name='uq_ai_write_actions_request'),
+        CheckConstraint("kind = 'create_lead'", name='ck_ai_write_actions_kind'),
+        CheckConstraint("status IN ('pending','cancelled','committed')", name='ck_ai_write_actions_status'),
+        CheckConstraint("(status = 'committed' AND result_id IS NOT NULL AND decided_at IS NOT NULL) OR "
+                        "(status = 'cancelled' AND result_id IS NULL AND decided_at IS NOT NULL) OR "
+                        "(status = 'pending' AND result_id IS NULL AND decided_at IS NULL)",
+                        name='ck_ai_write_actions_result'),
+        CheckConstraint('expires_at > created_at', name='ck_ai_write_actions_expiry'),
+        Index('ix_ai_write_actions_owner_created', 'tenant_id', 'user_id', 'created_at'),
+    )
+    id = Column(String(36), primary_key=True)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
+    user_id = Column(Integer, nullable=False)
+    connection_id = Column(String(36), nullable=False)
+    request_key = Column(String(64), nullable=False)
+    input_hash = Column(String(64), nullable=False)
+    kind = Column(String(30), nullable=False)
+    payload = Column(JSON, nullable=False)
+    status = Column(String(12), nullable=False, default='pending')
+    result_id = Column(Integer)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    decided_at = Column(DateTime)
 
 
 class Client(Base):

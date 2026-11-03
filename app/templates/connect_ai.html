@@ -1,0 +1,50 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connect your AI · PathSix</title><link rel="stylesheet" href="{{ url_for('oauth.static', filename='oauth.css') }}"></head>
+<body><main><span class="wordmark">PathSix</span>
+{% include 'oauth_environment.html' %}<p class="eyebrow">AI CONNECTION</p>
+<h1>Connect your AI</h1>
+<p class="intro">Use your own AI app to look up and add records in your PathSix CRM. Add PathSix once, sign in, approve the access you want, and keep using it.</p>
+<section aria-labelledby="steps-title"><h2 id="steps-title">Add it to your AI app</h2>
+<h3>Claude</h3>
+<ol><li>Open <strong>Settings</strong>.</li>
+<li>Open <strong>Connectors</strong>.</li>
+<li>Choose <strong>Add custom connector</strong>.</li>
+<li>Paste this URL:<code class="url">{{ mcp_url }}</code></li>
+<li>Select <strong>Add</strong>.</li>
+<li>Select <strong>Connect</strong>, then sign in to PathSix.</li></ol>
+<p class="note">Free plans allow one custom connector. On Team and Enterprise plans, an owner adds it for the organization.</p>
+<h3>ChatGPT</h3>
+<ol><li>On the web, open <strong>Plugins</strong>.</li>
+<li>Choose <strong>+</strong>.</li>
+<li>Choose <strong>Add custom MCP server</strong>.</li>
+<li>Enter <strong>PathSix CRM</strong> as the name.</li>
+<li>Paste this URL:<code class="url">{{ mcp_url }}</code></li>
+<li>Choose <strong>OAuth</strong> for authentication.</li>
+<li>Review the warning and select <strong>I understand and want to continue</strong>.</li>
+<li>Select <strong>Create as a plugin</strong>, then sign in to PathSix.</li></ol>
+<p class="note">Availability depends on your ChatGPT plan, and workspace admins may need to allow custom servers.</p>
+<h3>Gemini</h3>
+<ol><li>Go to <strong>gemini.google.com</strong>.</li>
+<li>Open <strong>Settings</strong>.</li>
+<li>Open <strong>Connected apps</strong>.</li>
+<li>Choose to add a <strong>custom app</strong>.</li>
+<li>Paste this URL:<code class="url">{{ mcp_url }}</code></li>
+<li>Sign in to PathSix when prompted.</li></ol>
+<p class="note">Custom apps can currently be added only on the web. They then also appear in the mobile app.</p>
+<h3>Claude Code</h3>
+<ol><li>In your terminal, run:<code class="url">claude mcp add --transport http pathsix {{ mcp_url }}</code></li>
+<li>In Claude Code, run <strong>/mcp</strong>.</li>
+<li>Choose <strong>pathsix</strong>, then sign in to PathSix.</li></ol>
+<h3>VS Code</h3>
+<ol><li>Open or create <strong>.vscode/mcp.json</strong>.</li>
+<li>Add this server:<code class="url">{"servers": {"pathsix": {"type": "http", "url": "{{ mcp_url }}"}}}</code></li>
+<li>Select <strong>Start</strong> above the server.</li>
+<li>Sign in to PathSix when prompted.</li></ol>
+<p class="note">Menu names change from time to time. Any AI app that supports remote MCP servers with OAuth sign-in can connect the same way. You don’t need a client ID or secret.</p></section>
+<section aria-labelledby="next-title"><h2 id="next-title">What happens next</h2>
+<ul><li>Your AI app opens a PathSix page. Sign in{% if staging %} with your staging test account{% endif %} and choose <strong>Allow access</strong>.</li>
+<li>It can only see records your PathSix account can already see.</li>
+<li>Each new lead needs your separate approval before it is saved.</li>
+<li>Access stays on while you use it. It ends after {{ idle_days }} days without use, or {{ consent_days }} days after you approve it.</li></ul>
+<p class="note">Review or revoke access anytime in <a href="/oauth/connections">your AI connections</a>.</p></section>
+</main></body></html>
