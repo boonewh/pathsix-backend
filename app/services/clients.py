@@ -133,14 +133,30 @@ class ClientService(TenantService):
             entity_type='client', entity_id=client.id,
             description=f"Viewed client '{client.name}'"))
 
-    def list_mine(self, page=1, per_page=20, sort_order="newest", activity_filter="all"):
+    def list_mine(self, page=1, per_page=20, sort_order="newest", activity_filter="all",
+                  client_type=None):
         # Preserve My Clients: assignment takes precedence over creation, even for admins.
         query = self._query(Client).filter(
             Client.deleted_at.is_(None),
             or_(Client.assigned_to == self.principal.user_id,
                 and_(Client.assigned_to.is_(None), Client.created_by == self.principal.user_id)),
         )
-        return self._list_page(query, page, per_page, sort_order, activity_filter)
+        # Count per type over the same visible clients, ignoring the type filter
+        # and paging, so the Accounts page can show real totals.
+        type_counts = {
+            value: count
+            for value, count in query.with_entities(Client.type, func.count(Client.id))
+            .group_by(Client.type).all()
+            if value
+        }
+        # Optional type filter, applied before counting and paging.
+        client_type = client_type.strip() if isinstance(client_type, str) else None
+        if client_type:
+            query = query.filter(Client.type == client_type)
+        result = self._list_page(query, page, per_page, sort_order, activity_filter)
+        result["type"] = client_type or None
+        result["type_counts"] = type_counts
+        return result
 
     def list_all(self, page=1, per_page=20, sort_order="newest", user_email=None,
                  activity_filter="all"):

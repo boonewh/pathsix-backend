@@ -20,6 +20,7 @@ async def list_clients():
                 per_page=int(request.args.get("per_page", 20)),
                 sort_order=request.args.get("sort", "newest"),
                 activity_filter=request.args.get("activity_filter", "all"),
+                client_type=request.args.get("type"),
             )
             response = jsonify(result)
             response.headers["Cache-Control"] = "no-store"

@@ -25,6 +25,7 @@ async def list_projects():
                 page=int(request.args.get("page", 1)),
                 per_page=int(request.args.get("per_page", 20)),
                 sort_order=request.args.get("sort", "newest"),
+                status=request.args.get("status"),
             )
             response = jsonify(result)
             response.headers["Cache-Control"] = "no-store"
