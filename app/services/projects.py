@@ -10,14 +10,14 @@ from app.schemas.projects import (
     ProjectAssignSchema,
 )
 from sqlalchemy.orm import joinedload
-from sqlalchemy import or_, and_
+from sqlalchemy import or_, and_, func
 from app.services.base import TenantService
 from app.services.errors import RecordNotFound
 from app.services.access import project_access_filter
 
 
 class ProjectService(TenantService):
-    def list_mine(self, page=1, per_page=20, sort_order="newest"):
+    def list_mine(self, page=1, per_page=20, sort_order="newest", status=None):
         self._pagination(page, per_page)
         if sort_order not in ["newest", "oldest", "alphabetical"]:
             sort_order = "newest"
@@ -77,6 +77,19 @@ class ProjectService(TenantService):
             )
         )
         query = query.filter(project_access_filter(self.principal))
+        # Count per status over the same visible projects, ignoring the status
+        # filter and paging, so the Projects page can show real totals.
+        status_counts = {
+            value: count
+            for value, count in query.enable_eagerloads(False)
+            .with_entities(Project.project_status, func.count(Project.id))
+            .group_by(Project.project_status).all()
+            if value
+        }
+        # Optional status filter, applied before counting and paging.
+        status = status.strip() if isinstance(status, str) else None
+        if status:
+            query = query.filter(Project.project_status == status)
         if sort_order == "newest":
             query = query.order_by(Project.created_at.desc())
         elif sort_order == "oldest":
@@ -121,6 +134,8 @@ class ProjectService(TenantService):
             "page": page,
             "per_page": per_page,
             "sort_order": sort_order,
+            "status": status or None,
+            "status_counts": status_counts,
         }
         return response
 
