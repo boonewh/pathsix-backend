@@ -14,3 +14,4 @@ button:hover{background:#123e4b}button:disabled{opacity:.6;cursor:wait}.secondar
 @media(min-width:700px){main{padding-top:64px}.wordmark{margin-bottom:48px}}
 h3{font-size:19px;font-weight:650;letter-spacing:-.3px;margin:50px 0 8px}h2+h3{margin-top:20px}code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:13px;background:#f1f5f7;border-radius:4px;padding:1px 4px;overflow-wrap:anywhere}
 ol{padding-left:24px;margin:0 0 12px}code.url{display:block;margin:8px 0 4px;padding:12px;font-size:14px;user-select:all;white-space:pre-wrap}
+.tip{font-size:15px;margin:12px 0 0;padding:10px 12px;background:#f4f7f8;border-radius:6px}
