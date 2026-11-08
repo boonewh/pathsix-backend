@@ -12,8 +12,17 @@
     email:'Email',phone:'Phone',phone_label:'Phone label',secondary_phone:'Secondary phone',
     secondary_phone_label:'Secondary phone label',address:'Address',city:'City',state:'State',
     zip:'Postal code',notes:'Notes',type:'Business type',lead_status:'Lead status',lead_source:'Lead source'};
+  const heading = (eyebrow, title, intro, outcome = '', kind = '') => {
+    document.querySelector('#eyebrow').textContent = eyebrow;
+    document.querySelector('#title').textContent = title;
+    document.querySelector('#intro').textContent = intro;
+    const box = document.querySelector('#outcome');
+    box.textContent = outcome; box.className = kind; box.hidden = !outcome;
+  };
+  const awaiting = () => heading('REVIEW BEFORE SAVING', 'Create this lead?',
+    'Review the details proposed by your AI app. Nothing is saved to your CRM until you choose Create lead.');
   const reset = () => {
-    generation += 1; token = null; intent = null;
+    generation += 1; token = null; intent = null; awaiting();
     fields.replaceChildren(); document.querySelector('#identity').textContent = '';
     decisions.hidden = true; review.hidden = true; login.hidden = false;
     login.password.value = ''; login.email.focus();
@@ -35,6 +44,8 @@
         throw new Error(authenticated ? 'Sign in again to check this proposal.' :
           root.dataset.staging === 'true' ? 'Use your staging test email and password.' : 'Check your PathSix email and password.');
       }
+      if (response.status === 404) throw new Error('This review link doesn’t match a proposal for this account. ' +
+        'Ask your AI app to show the review link again, and open it exactly as given. If you have more than one PathSix account, check that you signed in with the right one.');
       throw new Error(response.status >= 500 || !result ? 'PathSix is temporarily unavailable.' :
         typeof result.error === 'string' ? result.error : 'Unable to complete this request.');
     }
@@ -55,13 +66,20 @@
       });
       document.querySelector('#expiry').textContent = `Proposal expires ${new Date(result.expires_at).toLocaleString()}.`;
       decisions.hidden = false;
+      awaiting();
       message.textContent = 'Review all details before creating the lead.';
     } else if (result.status === 'committed' && result.lead) {
-      message.textContent = `Lead created: ${result.lead.name} (ID ${result.lead.id}). Return to your AI app to continue.`;
+      heading('SAVED', 'Lead created', 'This proposal is complete. You can close this page and return to your AI app.',
+        `✓ ${result.lead.name} was saved to your CRM (lead ID ${result.lead.id}).`, 'success');
+      message.textContent = '';
     } else if (result.status === 'cancelled') {
-      message.textContent = 'Proposal cancelled. No lead was created by this proposal.';
+      heading('CANCELLED', 'Proposal cancelled', 'Nothing was saved. You can close this page.',
+        'No lead was created by this proposal.', 'neutral');
+      message.textContent = '';
     } else if (result.status === 'expired') {
-      message.textContent = 'This proposal expired without creating a lead. Ask your AI app to prepare a new proposal.';
+      heading('EXPIRED', 'Proposal expired', 'Nothing was saved. Ask your AI app to prepare a new proposal.',
+        'No lead was created by this proposal.', 'neutral');
+      message.textContent = '';
     } else throw new Error('Unexpected response. Refresh the status before continuing.');
   };
   const load = async () => display(await send(base+'/preview', {}));

@@ -302,3 +302,15 @@ def test_user_facing_copy_does_not_assume_one_ai_host():
     for path in ('templates/mcp_lead_review.html', 'templates/ai_action.html', 'static/ai_action.js',
                  'services/ai_actions.py', 'templates/oauth.html'):
         assert 'ChatGPT' not in (root / path).read_text(encoding='utf-8'), path
+
+
+def test_review_page_has_unmistakable_outcome_states():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1] / 'app'
+    page = (root / 'templates/ai_action.html').read_text(encoding='utf-8')
+    script = (root / 'static/ai_action.js').read_text(encoding='utf-8')
+    assert 'id="title"' in page and 'id="outcome"' in page and 'id="intro"' in page
+    # A saved, cancelled or expired proposal replaces the "Create this lead?" question.
+    for title in ("'Lead created'", "'Proposal cancelled'", "'Proposal expired'"):
+        assert title in script
+    assert "response.status === 404" in script and 'exactly as given' in script
