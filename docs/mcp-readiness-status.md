@@ -31,6 +31,11 @@ ChatGPT. The bounded requirements are in
 The CRM workflows themselves are unchanged. ChatGPT remains the first submission
 target.
 
+**Scope change approved by the user on November 8, 2026:** add a read-only
+schedule view. Users can ask "what do I have scheduled today?" or "what do I
+have this week?" and get the follow-ups and contacts (interactions) due in that
+period. See the "See what's scheduled" row in the locked capability table.
+
 - Work toward completing this MVP. Make routine implementation choices and the
   supporting code, schema, test and UI changes necessary for its listed workflows.
   Prefer the smallest adequate solution using existing services. Do not add
@@ -125,7 +130,7 @@ follows:
   [multi-client connection](#multi-client-connection--approved-october-31-2026)
   work. Then proceed to the contacts/projects/interactions and
   update/assignment/status/notes increments, built on one shared review/approval
-  path.
+  path. The schedule view (added November 8) belongs with the interaction reads.
 
 1. Verify the host approval boundary and effective card security configuration.
    Record what is directly observable, what relies on the documented host
@@ -1189,6 +1194,7 @@ and record permissions through ChatGPT.
 | Update client, lead, contact and project details | Existing record update services | Explicit field allowlists, current-record checks, conflict detection and confirmed updates |
 | Change assignments and statuses where the CRM supports them | Existing assignment operations and schema validation | Authorized assignee selection, current-role checks, existing status rules and safe handling of notification side effects |
 | Record notes and interactions | Existing record notes fields and InteractionService | Clear append-versus-replace semantics for notes and confirmed, repeat-safe interaction creation |
+| See what's scheduled today, this week or for a date range (added November 8) | Interaction `contact_date`, `follow_up` and `followup_status`; InteractionService pending ordering and the follow-up report | One bounded read of the caller's accessible interactions that fall in a requested period, each with its parent lead/client/project name, plus open follow-ups that are already overdue. Time-zone handling must be defined so "today" means the user's day (see boundaries) |
 | Connect from the customer's own AI client (added October 31) | OAuth/PKCE server, operator-registered ChatGPT client, review-link fallback | CIMD/DCR registration, loopback redirects, tolerant requests, connect-once lifetime and per-client approval routing; see [Multi-client connection](#multi-client-connection--approved-october-31-2026) |
 
 Use these boundaries when implementing the table:
@@ -1212,6 +1218,16 @@ Use these boundaries when implementing the table:
   report tools and platform/user administration are not included. Ask before
   adding any of them; existing CRM availability is not authorization to expose
   them to ChatGPT.
+- The schedule view is read-only and limited to interactions the user can
+  already access. It returns those whose follow-up or contact date falls in the
+  requested period, and lists overdue incomplete follow-ups separately. The
+  period is capped, for example at 31 days.
+- Time zones: the CRM stores naive datetimes and has no user or tenant time-zone
+  setting. Before building, confirm how the web app writes these dates (local
+  or UTC). Then have the tool take explicit dates plus the user's IANA time
+  zone, which the AI app normally knows, so "today" and "this week" match the
+  user's calendar. Add no new time-zone settings unless that check shows they
+  are needed; if so, ask first.
 
 Exact tool names and field contracts are implementation choices within these
 boundaries. Existing read-only connections must keep working with their original
@@ -1564,7 +1580,8 @@ step 1, not completion of the MVP or permission to start a deferred feature.
 Mark a criterion complete only with linked test or release evidence. The earlier
 594-test milestone is the read-only baseline, not proof of the future write build.
 
-- [ ] All five workflow groups in the locked capability table work end to end in
+- [ ] All workflow groups in the locked capability table, including the
+  schedule view, work end to end in
   ChatGPT against synthetic staging records, including cancellation, invalid
   input, ambiguous selection and insufficient permissions. Confirm resulting
   records in the CRM. Verify connection, consent and confirmation on phone and
