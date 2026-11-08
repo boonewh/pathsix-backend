@@ -1228,6 +1228,25 @@ Use these boundaries when implementing the table:
   zone, which the AI app normally knows, so "today" and "this week" match the
   user's calendar. Add no new time-zone settings unless that check shows they
   are needed; if so, ask first.
+  **User decision, November 8, 2026:** approved. If the check shows a stored
+  time zone is needed, add it. The user wants this settled once. The web app
+  currently converts dates in at least eight separate frontend places
+  (interaction forms, cards and modals, `calendarUtils.ts`, reports). Record
+  the single rule the backend uses, and flag frontend inconsistencies found
+  during the check rather than rewriting them; those need a separate decision.
+- Conversational building is an acceptance scenario for the create and update
+  workflows already in scope, not a new capability. The user should be able to:
+  - Ask "I want to add a lead for Acme, Inc. What do you need?" and get the
+    required and optional fields (`get_lead_options` and the tool schema
+    already support this).
+  - Create the lead, then add details in later messages ("For Acme, Inc, add
+    this address").
+  - Add or update a contact on that lead or client ("In Acme, Inc, add this
+    phone number for Adam Smith").
+  The AI resolves "Acme, Inc" and "Adam Smith" to one accessible record. It
+  asks when there is more than one match, or when the name could be either the
+  lead's own contact fields or a separate contact record. Each change goes
+  through the exact-action approval.
 
 Exact tool names and field contracts are implementation choices within these
 boundaries. Existing read-only connections must keep working with their original
