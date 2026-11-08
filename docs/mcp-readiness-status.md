@@ -1480,11 +1480,29 @@ staging**, and no live client has connected yet.
   active_until DROP NOT NULL`; the check constraint accepts NULL. Otherwise new
   approvals fail, though existing connections keep working.
 
-Remaining in this increment: one manual connect/read/create check per target
-client, starting with Claude, then the rest. Correct the `/connect` steps
-wherever a vendor's menus differ. Then deploy to staging, which needs the user's go-ahead
-to run the migration and set `MCP_CLIENT_REGISTRATION=1`. After that come
-agent-run CIMD/DCR checks against staging and the per-client manual checks.
+#### Claude connection check — November 8, 2026
+
+- **Branch:** the `codex/mvp-lead-creation` branch was merged into `staging`
+  (PR 27) and retired; `staging` is the working and deployed branch. The
+  user's separate demo-UI work (lead/client/project list filters, reseeded
+  sample data) is also on `staging`. Staging release v54 contains all of the
+  increment above.
+- **Result:** the user added PathSix as a Claude custom connector from
+  `/connect`. Claude used CIMD, which is the first live CIMD fetch: client
+  `https://claude.ai/oauth/mcp-oauth-client-meta` registered as `cimd`, named
+  "Claude", with redirect `https://claude.ai/api/mcp/auth_callback` and the
+  review link (not the inline card). The grant has the three published scopes,
+  absolute expiry 2027-11-08, and `active_until` 2027-02-06. That date already
+  slid forward on a refresh. Audited calls succeeded: `list_leads` (9) and
+  `get_lead`. **Connect, sign-in, consent and reads pass.** A lead created
+  through the review link is still to be checked.
+- **Page corrections from the user:** reach Claude's Settings via the name menu
+  (web) or the initials in the menu (phone), and add a step to name the
+  connector. A short "Using it" note now follows each app's steps.
+
+Remaining in this increment: a Claude lead creation through the review link,
+then connect/read/create checks for ChatGPT, Gemini, Claude Code and VS Code.
+Correct the `/connect` steps wherever a vendor's menus differ.
 
 The external review page remains a fallback. Staging now uses an inline review
 card; its remaining acceptance gates are summarized in the current security

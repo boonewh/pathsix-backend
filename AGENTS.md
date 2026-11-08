@@ -3,8 +3,9 @@
 ## Branches and deployments
 
 - `main` is the production CRM (Fly app `pathsixsolutions-backend`).
-- `codex/mvp-lead-creation` is the AI connector MVP on staging (Fly app
-  `pathsixsolutions-backend-staging`). Never merge or deploy MVP work to
+- `staging` is the AI connector MVP and the working branch (Fly app
+  `pathsixsolutions-backend-staging`). The former `codex/mvp-lead-creation`
+  branch was merged into it (PR 27) and is retired. Never merge or deploy MVP work to
   production without the user's explicit decision.
 - Local PostgreSQL for the full test suite: `G:\Projects\tools\pathsix-test-db.sh
   start`, then `eval "$(bash G:/Projects/tools/pathsix-test-db.sh env)"`.
