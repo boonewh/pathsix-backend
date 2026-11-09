@@ -102,7 +102,11 @@
     try { display(await send(base+'/decision', {intent:reviewed,approved})); }
     catch (error) {
       message.textContent = `${error.message || 'The connection was interrupted.'} Refresh status to find out whether the action completed before trying again.`;
-    } finally { locked(false); message.focus(); }
+    } finally {
+      locked(false);
+      const outcome = document.querySelector('#outcome');
+      (outcome.hidden ? message : outcome).focus();
+    }
   };
   document.querySelector('#confirm').addEventListener('click', () => decide(true));
   document.querySelector('#cancel').addEventListener('click', () => decide(false));
