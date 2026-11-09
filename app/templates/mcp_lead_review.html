@@ -21,6 +21,8 @@
 const el=id=>document.getElementById(id), pending=new Map();
 let sequence=0, receipt=null, review=null, busy=false, uncertain=false, ready=false, actionId=null;
 let reportRequested=false, canMessage=false;
+// Wording comes from the server per action kind; defaults match create_lead.
+let pres={noun:'lead',title:'Create this lead?',confirm:'Create lead',done:'Lead created',receipt:'lead',status_tool:'get_lead_creation',decide_tool:'decide_lead_creation'},pfields=null;
 const labels={name:'Company',contact_person:'Contact',email:'Email',phone:'Phone',phone_label:'Phone label',address:'Address',city:'City',state:'State',zip:'ZIP',type:'Business type',lead_status:'Status',notes:'Notes'};
 function notify(method,params){parent.postMessage({jsonrpc:'2.0',method,params},'*');}
 function request(method,params){return new Promise((resolve,reject)=>{const id=++sequence;const timer=setTimeout(()=>{pending.delete(id);reject(new Error('No response'));},30000);pending.set(id,{resolve,reject,timer});parent.postMessage({jsonrpc:'2.0',id,method,params},'*');});}
@@ -28,9 +30,9 @@ function render(){
  el('fields').replaceChildren();el('fields').hidden=true;
  el('account').textContent=review?.account?[review.account,review.company].filter(Boolean).join(' · '):'';
  const state=receipt?.status;
- el('heading').textContent=state==='committed'?'Lead created':state==='cancelled'?'Proposal cancelled':state==='expired'?'Proposal expired':'Create this lead?';
- el('summary').textContent=state==='committed'?`${receipt.lead?.name ?? 'Lead'} was saved (ID ${receipt.lead?.id ?? 'unavailable'}).`:state==='cancelled'?'No lead was created by this proposal.':state==='expired'?'Nothing was saved. Ask your AI app for a new proposal.':'Check the details below. Nothing is saved until you choose Create lead.';
- if(state==='pending'&&review?.fields){for(const [key,value] of Object.entries(review.fields)){if(value===null||value==='')continue;const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=labels[key]||key.replaceAll('_',' ');dd.textContent=String(value);el('fields').append(dt,dd);}el('fields').hidden=false;}
+ el('heading').textContent=state==='committed'?pres.done:state==='cancelled'?'Proposal cancelled':state==='expired'?'Proposal expired':pres.title;el('create').textContent=pres.confirm;const record=receipt?.[pres.receipt];
+ el('summary').textContent=state==='committed'?`${record?.name ?? 'Record'} was saved (ID ${record?.id ?? 'unavailable'}).`:state==='cancelled'?`No ${pres.noun} was created by this proposal.`:state==='expired'?'Nothing was saved. Ask your AI app for a new proposal.':`Check the details below. Nothing is saved until you choose ${pres.confirm}.`;
+ if(state==='pending'&&review?.fields){const entries=Array.isArray(pfields)?pfields:Object.entries(review.fields).filter(([,value])=>value!==null&&value!=='').map(([key,value])=>[labels[key]||key.replaceAll('_',' '),value]);for(const [label,value] of entries){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dd.textContent=String(value);el('fields').append(dt,dd);}el('fields').hidden=false;}
  el('decisions').hidden=state!=='pending'||!review?.intent;
  el('create').disabled=el('cancel').disabled=busy||uncertain||!ready;
  el('refresh').hidden=!actionId;el('refresh').disabled=busy;
@@ -41,7 +43,7 @@ function accept(result){
  const next=result.structuredContent;
  if(!next.action_id||!['pending','committed','cancelled','expired'].includes(next.status))throw new Error('Invalid result');
  if(actionId&&next.action_id!==actionId)throw new Error('Different action');
- actionId=next.action_id;receipt=next;review=result._meta?.['pathsix/review']??null;render();
+ actionId=next.action_id;receipt=next;review=result._meta?.['pathsix/review']??null;const shown=result._meta?.['pathsix/presentation'];if(shown){pres={...pres,...shown};pfields=Array.isArray(shown.fields)?shown.fields:null;}render();
 }
 async function reportDecision(){
  if(!reportRequested||!receipt||receipt.status==='pending')return;
@@ -49,17 +51,17 @@ async function reportDecision(){
  // must never resend messages or retry a business write.
  reportRequested=false;
  const outcome={action_id:actionId,status:receipt.status};
- if(receipt.status==='committed')outcome.lead={id:receipt.lead?.id};
+ if(receipt.status==='committed')outcome[pres.receipt]={id:receipt[pres.receipt]?.id};
  // Keep receipt identifiers/state in model context. The follow-up is visible
  // on some hosts, so use customer-facing copy without JSON or instructions.
  // Neither channel includes capabilities, account data, review URLs or
  // user-authored fields that could become prompt instructions.
  void request('ui/update-model-context',{structuredContent:outcome}).catch(()=>{});
  const message=receipt.status==='committed'
-  ? `PathSix CRM saved the lead (ID ${receipt.lead.id}).`
+  ? `PathSix CRM saved the ${pres.noun} (ID ${receipt[pres.receipt].id}).`
   : receipt.status==='cancelled'
-   ? 'PathSix CRM cancelled the proposal. No lead was created.'
-   : 'The PathSix CRM proposal expired. No lead was created.';
+   ? `PathSix CRM cancelled the proposal. No ${pres.noun} was created.`
+   : `The PathSix CRM proposal expired. No ${pres.noun} was created.`;
  const fallback='The result above is confirmed, but the automatic chat confirmation is unavailable.';
  if(!canMessage){el('conversation-notice').textContent=fallback;return;}
  try{
@@ -70,7 +72,7 @@ async function reportDecision(){
 async function refresh(){
  if(!ready||busy||!actionId)return;
  busy=true;render();el('notice').textContent='Checking current status…';
- try{accept(await request('tools/call',{name:'get_lead_creation',arguments:{action_id:actionId}}));uncertain=false;el('notice').textContent=receipt.status==='pending'?'Review refreshed.':'';void reportDecision();}
+ try{accept(await request('tools/call',{name:pres.status_tool,arguments:{action_id:actionId}}));uncertain=false;el('notice').textContent=receipt.status==='pending'?'Review refreshed.':'';void reportDecision();}
  catch{uncertain=true;el('notice').textContent='Status is unavailable. Refresh to check this proposal before trying again.';}
  finally{busy=false;render();}
 }
@@ -80,7 +82,7 @@ async function decide(approved){
  reportRequested=true;el('conversation-notice').textContent='';
  busy=true;uncertain=true;render();el('notice').textContent=approved?'Saving…':'Cancelling…';
  try{
-  accept(await request('tools/call',{name:'decide_lead_creation',arguments:args}));
+  accept(await request('tools/call',{name:pres.decide_tool,arguments:args}));
   uncertain=false;review=null;el('notice').textContent='';
   void reportDecision();
  }catch{

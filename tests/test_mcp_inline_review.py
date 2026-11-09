@@ -38,10 +38,12 @@ def test_inline_approval_has_private_capability_and_atomic_repeat_safe_result(oa
     saved = decision(oauth, token, result)
     assert saved['structuredContent']['status'] == 'committed'
     assert decision(oauth, token, result)['structuredContent'] == saved['structuredContent']
-    assert not saved.get('_meta')
+    # After a decision only public wording remains; no capability or fields.
+    assert set(saved.get('_meta') or {}) <= {'pathsix/presentation'}
+    assert 'fields' not in (saved.get('_meta') or {}).get('pathsix/presentation', {})
     receipt = call(oauth, token, 'get_lead_creation', {'action_id':result['structuredContent']['action_id']})
     assert receipt['structuredContent'] == saved['structuredContent']
-    assert not receipt.get('_meta')
+    assert set(receipt.get('_meta') or {}) <= {'pathsix/presentation'}
     with oauth.admin() as db:
         assert db.query(Lead).count() == 3
         assert db.query(AIToolAudit).filter_by(tool='confirm_lead_creation').count() == 1
@@ -128,7 +130,7 @@ def test_inline_resource_and_app_only_metadata_in_both_protocols(oauth, version)
     assert not tools['decide_lead_creation']['annotations']['readOnlyHint']
     # Existing conversations can still resolve every older card after a UI update.
     from app.mcp_lead_tools import RETIRED_REVIEW_URIS
-    assert len(RETIRED_REVIEW_URIS) == 3 and REVIEW_URI not in RETIRED_REVIEW_URIS
+    assert len(RETIRED_REVIEW_URIS) == 4 and REVIEW_URI not in RETIRED_REVIEW_URIS
     for uri in RETIRED_REVIEW_URIS:
         _, legacy, _ = rpc(oauth, token, 'resources/read', {**meta,'uri':uri}, headers={'MCP-Protocol-Version':version})
         assert legacy['result']['contents'][0]['uri'] == uri

@@ -1,24 +1,22 @@
-"""One reviewed lead proposal, one atomic creation, one durable outcome."""
+"""Shared reviewed-write mechanics: one proposal, one atomic outcome, one receipt.
+
+What a proposal contains and does comes from app.services.ai_action_kinds.
+"""
 from datetime import datetime, timedelta
 import hashlib
 import json
 import re
 from uuid import UUID, uuid4
 
-from app.models import AIClient, AIConnection, AIToolAudit, AIWriteAction, Lead
-from app.schemas.leads import LeadCreateSchema
+from app.models import AIClient, AIConnection, AIToolAudit, AIWriteAction
+from app.services.ai_action_kinds import ActionConflict, CREATE_LEAD, kind_of, validate_lead  # noqa: F401
 from app.services.ai_connections import AIConnectionService, resource_uri
 from app.services.base import TenantService
 from app.services.errors import RecordNotFound
-from app.services.leads import LeadService
 
-REQUIRED_SCOPES = ['leads:read', 'leads:create']
+REQUIRED_SCOPES = list(CREATE_LEAD.scopes)
 ACTION_SECONDS = 600
 MAX_DAILY_PROPOSALS = 100
-
-
-class ActionConflict(ValueError):
-    pass
 
 
 def payload_hash(value):
@@ -26,30 +24,15 @@ def payload_hash(value):
                                      ensure_ascii=True).encode()).hexdigest()
 
 
-def validate_lead(value):
-    if not isinstance(value, dict) or set(value) - set(LeadCreateSchema.model_fields):
-        raise ValueError('Supply only supported lead fields')
-    if any(v is not None and not isinstance(v, str) for v in value.values()):
-        raise ValueError('Lead fields must be text')
-    if any(isinstance(v, str) and len(v) > 4000 for v in value.values()):
-        raise ValueError('Lead fields are too long')
-    validated = LeadCreateSchema.model_validate(value)
-    for key, field in validated.model_dump(mode='json').items():
-        bound = getattr(Lead.__table__.c[key].type, 'length', None)
-        if bound and isinstance(field, str) and len(field) > bound:
-            raise ValueError('Lead field exceeds its storage limit')
-    return validated
-
-
 class AIActionService(TenantService):
-    def grant(self, connection_id):
+    def grant(self, connection_id, scopes=REQUIRED_SCOPES):
         # Global order: grant, then action. Revocation and OAuth exchanges use it too.
         grant = self._query(AIConnection).populate_existing().filter_by(
             id=connection_id, user_id=self.principal.user_id).with_for_update().first()
         if grant is None:
             raise RecordNotFound('Action unavailable')
         AIConnectionService(self.session, self.principal).require_permissions(grant.id,
-            client_id=grant.client_id, resource=resource_uri(), scopes=REQUIRED_SCOPES)
+            client_id=grant.client_id, resource=resource_uri(), scopes=list(scopes))
         client = self.session.query(AIClient).filter_by(id=grant.client_id,
             is_active=True, oauth_enabled=True).first()
         if client is None:
@@ -68,20 +51,23 @@ class AIActionService(TenantService):
         row = query.first()
         if row is None:
             raise RecordNotFound('Action unavailable')
-        self.grant(row.connection_id)
+        self.grant(row.connection_id, kind_of(row.kind).scopes)
         return query.populate_existing().with_for_update().one()
 
-    def prepare(self, connection_id, key, value):
+    def prepare(self, connection_id, key, value, kind=CREATE_LEAD.name):
         if not isinstance(key, str) or not re.fullmatch(r'[A-Za-z0-9_-]{16,64}', key):
             raise ValueError('Supply a unique request key of 16 to 64 letters, numbers, underscores or hyphens')
-        validated = validate_lead(value)
-        original = validated.model_dump(mode='json')
-        fingerprint = payload_hash(original)
-        self.grant(connection_id)
+        action = kind_of(kind)
+        if action is CREATE_LEAD:
+            # Fingerprint the caller's validated input; kept for existing request keys.
+            fingerprint = payload_hash(validate_lead(value).model_dump(mode='json'))
+        else:
+            fingerprint = payload_hash({'kind': kind, 'input': value})
+        self.grant(connection_id, action.scopes)
         row = self._query(AIWriteAction).filter_by(connection_id=connection_id,
             user_id=self.principal.user_id, request_key=key).first()
         if row is not None:
-            if row.input_hash != fingerprint:
+            if row.input_hash != fingerprint or row.kind != kind:
                 raise ActionConflict('This request key belongs to a different proposal')
             return self.result(row)
         now = datetime.utcnow()
@@ -89,12 +75,10 @@ class AIActionService(TenantService):
             AIWriteAction.created_at > now-timedelta(days=1)).count()
         if count >= MAX_DAILY_PROPOSALS:
             raise ActionConflict('Daily proposal limit reached')
-        # The shared service prepares exactly the values it will persist, including defaults.
-        fields = LeadService(self.session, self.principal).creation_fields(validated)
-        validate_lead(fields)  # Also validate tenant-configured defaults before offering confirmation.
+        fields = action.prepare(self.session, self.principal, value)
         row = AIWriteAction(id=str(uuid4()), tenant_id=self.principal.tenant_id,
             user_id=self.principal.user_id, connection_id=connection_id, request_key=key,
-            input_hash=fingerprint, kind='create_lead', payload=fields, status='pending',
+            input_hash=fingerprint, kind=kind, payload=fields, status='pending',
             created_at=now, expires_at=now+timedelta(seconds=ACTION_SECONDS))
         self.session.add(row)
         self.session.flush()
@@ -109,16 +93,18 @@ class AIActionService(TenantService):
         if state == 'pending':
             result['review_url'] = resource_uri().removesuffix('/mcp')+'/oauth/actions/'+row.id
         if state == 'committed':
-            # Receipts do not preserve permission to read a subsequently hidden/deleted lead.
-            lead = LeadService(self.session, self.principal)._get(row.result_id)
-            result['lead'] = {'id': lead.id, 'name': lead.name}
+            action = kind_of(row.kind)
+            result[action.receipt_key] = action.record(self.session, self.principal, row.result_id)
         return result
 
     def preview(self, ident):
         row = self.action(ident)
         result = self.result(row)
-        if row.status == 'pending' and row.expires_at > datetime.utcnow():
-            result['lead'] = row.payload
+        action = kind_of(row.kind)
+        pending = row.status == 'pending' and row.expires_at > datetime.utcnow()
+        if pending:
+            result[action.receipt_key] = row.payload
+        result['presentation'] = action.presentation(row.payload if pending else None)
         return row, result
 
     def decide(self, ident, approved, expected_hash):
@@ -132,19 +118,16 @@ class AIActionService(TenantService):
         if row.expires_at <= datetime.utcnow():
             raise ActionConflict('Proposal expired; return to your AI app to prepare a new one')
         now = datetime.utcnow()
+        action = kind_of(row.kind)
         if approved:
-            service = LeadService(self.session, self.principal)
-            data = validate_lead(row.payload)
-            if service.creation_fields(data) != row.payload:
-                raise ActionConflict('Lead defaults changed; prepare and review a new proposal')
-            row.result_id = service.create(data)
+            row.result_id = action.execute(self.session, self.principal, row.payload)
             row.status = 'committed'
         else:
             row.status = 'cancelled'
         row.decided_at = now
         self.session.add(AIToolAudit(id=str(uuid4()), tenant_id=self.principal.tenant_id,
             user_id=self.principal.user_id, connection_id=row.connection_id,
-            tool='confirm_lead_creation' if approved else 'cancel_lead_creation',
+            tool=action.confirm_audit if approved else action.cancel_audit,
             outcome='success', result_count=1 if approved else 0, created_at=now))
         self.session.flush()
         return self.result(row)

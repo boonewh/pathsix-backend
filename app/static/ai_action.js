@@ -8,10 +8,8 @@
   const fields = document.querySelector('#fields');
   const base = `/oauth/actions/${encodeURIComponent(root.dataset.action)}`;
   let token = null, intent = null, busy = false, generation = 0;
-  const labels = {name:'Company',contact_person:'Contact person',contact_title:'Contact title',
-    email:'Email',phone:'Phone',phone_label:'Phone label',secondary_phone:'Secondary phone',
-    secondary_phone_label:'Secondary phone label',address:'Address',city:'City',state:'State',
-    zip:'Postal code',notes:'Notes',type:'Business type',lead_status:'Lead status',lead_source:'Lead source'};
+  // Wording comes from the server per action kind; these defaults match create_lead.
+  let pres = {noun:'lead', title:'Create this lead?', confirm:'Create lead', done:'Lead created', receipt:'lead'};
   const heading = (eyebrow, title, intro, outcome = '', kind = '') => {
     document.querySelector('#eyebrow').textContent = eyebrow;
     document.querySelector('#title').textContent = title;
@@ -19,8 +17,8 @@
     const box = document.querySelector('#outcome');
     box.textContent = outcome; box.className = kind; box.hidden = !outcome;
   };
-  const awaiting = () => heading('REVIEW BEFORE SAVING', 'Create this lead?',
-    'Review the details proposed by your AI app. Nothing is saved to your CRM until you choose Create lead.');
+  const awaiting = () => heading('REVIEW BEFORE SAVING', pres.title,
+    `Review the details proposed by your AI app. Nothing is saved to your CRM until you choose ${pres.confirm}.`);
   const reset = () => {
     generation += 1; token = null; intent = null; awaiting();
     fields.replaceChildren(); document.querySelector('#identity').textContent = '';
@@ -55,11 +53,12 @@
     intent = null; decisions.hidden = true; fields.replaceChildren();
     document.querySelector('#expiry').textContent = '';
     document.querySelector('#guidance').hidden = result.status !== 'pending';
-    if (result.status === 'pending' && result.intent && result.lead) {
+    if (result.presentation) pres = {...pres, ...result.presentation};
+    document.querySelector('#confirm').textContent = pres.confirm;
+    const record = result[pres.receipt];
+    if (result.status === 'pending' && result.intent && Array.isArray(result.presentation?.fields)) {
       intent = result.intent;
-      Object.entries(labels).forEach(([key,label]) => {
-        const value = result.lead[key];
-        if (value === null || value === undefined || value === '') return;
+      result.presentation.fields.forEach(([label, value]) => {
         const term = document.createElement('dt'); term.textContent = label;
         const detail = document.createElement('dd'); detail.textContent = String(value);
         fields.append(term,detail);
@@ -67,18 +66,18 @@
       document.querySelector('#expiry').textContent = `Proposal expires ${new Date(result.expires_at).toLocaleString()}.`;
       decisions.hidden = false;
       awaiting();
-      message.textContent = 'Review all details before creating the lead.';
-    } else if (result.status === 'committed' && result.lead) {
-      heading('SAVED', 'Lead created', 'This proposal is complete. You can close this page and return to your AI app.',
-        `✓ ${result.lead.name} was saved to your CRM (lead ID ${result.lead.id}).`, 'success');
+      message.textContent = `Review all details before you choose ${pres.confirm}.`;
+    } else if (result.status === 'committed' && record) {
+      heading('SAVED', pres.done, 'This proposal is complete. You can close this page and return to your AI app.',
+        `✓ ${record.name} was saved to your CRM (${pres.noun} ID ${record.id}).`, 'success');
       message.textContent = '';
     } else if (result.status === 'cancelled') {
       heading('CANCELLED', 'Proposal cancelled', 'Nothing was saved. You can close this page.',
-        'No lead was created by this proposal.', 'neutral');
+        `No ${pres.noun} was created by this proposal.`, 'neutral');
       message.textContent = '';
     } else if (result.status === 'expired') {
       heading('EXPIRED', 'Proposal expired', 'Nothing was saved. Ask your AI app to prepare a new proposal.',
-        'No lead was created by this proposal.', 'neutral');
+        `No ${pres.noun} was created by this proposal.`, 'neutral');
       message.textContent = '';
     } else throw new Error('Unexpected response. Refresh the status before continuing.');
   };

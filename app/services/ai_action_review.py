@@ -6,6 +6,7 @@ isolates component metadata and app-only tools from the model.
 from itsdangerous import URLSafeTimedSerializer, BadSignature
 from app.models import User, Tenant
 from app.services.ai_actions import payload_hash, ActionConflict
+from app.services.ai_action_kinds import kind_of
 
 REVIEW_SECONDS = 300
 
@@ -24,8 +25,10 @@ class ActionReview:
     def present(self, service, connection_id, receipt):
         row = service.action(receipt['action_id'], connection_id=connection_id)
         receipt = service.result(row)
-        meta = {}
-        if receipt['status'] == 'pending':
+        pending = receipt['status'] == 'pending'
+        # Wording and labels for any action kind; cards keep it after the decision.
+        meta = {'pathsix/presentation': kind_of(row.kind).presentation(row.payload if pending else None)}
+        if pending:
             user = service.session.query(User).filter_by(id=service.principal.user_id, tenant_id=service.principal.tenant_id).one()
             tenant = service.session.query(Tenant).filter_by(id=service.principal.tenant_id).one()
             meta['pathsix/review'] = {'fields': row.payload, 'account': user.email, 'company': tenant.name,

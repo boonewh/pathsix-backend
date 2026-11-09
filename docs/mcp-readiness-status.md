@@ -1611,11 +1611,57 @@ staging**, and no live client has connected yet.
     28 `MVP-CHATGPT-CARD` from ChatGPT through the inline card, and it was
     saved exactly once.
 
-Remaining in this increment: connect/read/create checks for Gemini,
-Claude Code and VS Code. ChatGPT added through `/connect` self-registers, so it
-gets the review link rather than the inline card. Decide how ChatGPT's own
-registration earns inline trust once its trial shows the client ID it uses.
-Correct the `/connect` steps wherever a vendor's menus differ.
+Remaining in this increment: optional connect/read/create checks for Gemini,
+Claude Code and VS Code. Correct the `/connect` steps wherever a vendor's menus
+differ. ChatGPT's inline trust is decided and verified (above).
+
+### Phase 2: shared approval foundation — November 8, 2026 (source; deploy recorded below)
+
+Every reviewed write now uses one approval path, so later contact, project,
+interaction and update writes inherit the proven security instead of
+repeating host trials.
+
+- **Registry:** `app/services/ai_action_kinds.py` defines each action kind.
+  - What it declares: scopes; `prepare` (the exact payload that will be
+    saved), `execute` (stale-default protection) and `record` (rechecks access
+    on read-back); its status and decide tools; audit names; receipt key; and
+    user-facing wording and field labels.
+  - Contents: only `create_lead` is registered. New kinds also need the
+    `ai_write_actions` kind constraint extended (migration) and are added in
+    Phases 4–5.
+- **Shared mechanics:** `AIActionService` handles signed decisions, one save
+  per proposal, request-key replay, expiry, audits and receipts for any kind.
+  It rechecks the kind's own scopes. A request key reused for a different kind
+  is refused. Existing `create_lead` fingerprints, receipts (`lead`), tool
+  names and audit names are unchanged.
+- **Type-agnostic UI:** the signed-in review page and the inline card render
+  their title, button, done text, field labels and tool names from the
+  server's presentation data.
+  - The card keeps the wording after the decision. After a decision only the
+    public wording remains, with no capability and no fields; a test asserts
+    this.
+  - The card resource moved to `lead-review-v5`; v1–v4 still resolve.
+  - Older cached cards keep working from the unchanged `pathsix/review`
+    metadata.
+- **Tests:** a registry contract test checks that each kind's scopes are
+  published, its tools exist with matching scopes and its audit names fit.
+  Other tests cover presentation ordering and filtering, the review page's
+  registry-driven wording, all existing approval and replay tests, and a new
+  card test that renders a hypothetical contact kind end to end.
+- **Agent-run live check (pass):** `scripts/staging_access_check.py` ran
+  against staging.
+  - It registered "PathSix agent access check" via DCR and created a
+    read-only grant for the staging admin directly in the database. Only the
+    token hash crossed to the server.
+  - Reads succeeded. `prepare_lead_creation` was refused with an
+    `insufficient_scope` challenge requesting `leads:create`, and no lead was
+    created.
+  - After revocation, `tools/list` and `tools/call` both returned 401.
+  - Grant `ee21db54-0780-441c-a86e-5fe9defdaf2e` remains, revoked, as
+    evidence.
+  - Rerun it each release.
+- **Still pending:** the instruction-like CRM text step joins the per-release
+  manual check, as the verification policy describes.
 
 The external review page remains a fallback. Staging now uses an inline review
 card; its remaining acceptance gates are summarized in the current security

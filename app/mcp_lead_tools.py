@@ -3,10 +3,10 @@ import mcp_types as types
 from app.schemas.leads import LeadCreateSchema
 from app.models import Lead
 
-REVIEW_URI = 'ui://pathsix/lead-review-v4.html'
+REVIEW_URI = 'ui://pathsix/lead-review-v5.html'
 # Hosts cache card HTML by URI; new copy gets a new URI and earlier ones still
 # resolve to the current card for existing conversations.
-RETIRED_REVIEW_URIS = tuple(f'ui://pathsix/lead-review-v{n}.html' for n in (1, 2, 3))
+RETIRED_REVIEW_URIS = tuple(f'ui://pathsix/lead-review-v{n}.html' for n in (1, 2, 3, 4))
 
 
 def tools(*, inline_review=False):
