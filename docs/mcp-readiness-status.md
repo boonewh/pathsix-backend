@@ -1667,8 +1667,18 @@ repeating host trials.
   of the commit. After deploy: health 200, the review page serves the
   registry-driven script, the live ChatGPT and Claude client documents are
   accepted, and the existing Claude connection read leads without
-  reconnecting. Awaiting the per-release manual check: one ChatGPT card save
-  and one Claude review-link save.
+  reconnecting.
+- **Per-release manual check (pass):** lead 29 `MVP-PHASE2-CHATGPT` was saved
+  through the ChatGPT inline card, and lead 30 `MVP-PHASE2-CLAUDE` through
+  Claude's review link, each exactly once, with unchanged wording.
+  - Claude first shows its own tool-permission prompt for
+    `prepare_lead_creation`, because the tool is annotated as a write. After
+    the user chose "always allow", Claude goes straight to the review link.
+    That is safe: preparing saves nothing, and the PathSix approval is the
+    save. Mention this on `/connect` if users find it confusing.
+  - Claude web reaches connectors through Settings → Customization → Add →
+    Add a custom connector, not Connectors as on the phone. `/connect` is
+    updated in `aac5927`.
 
 The external review page remains a fallback. Staging now uses an inline review
 card; its remaining acceptance gates are summarized in the current security
@@ -1800,3 +1810,5 @@ moving it into the build.
 | Durable file reconciliation, import notification infrastructure and platform workers | Support workflows not exposed by this MVP | Deferred; current MVP assignment side effects must still behave correctly |
 | Broader scaling, generalized abstractions and UI redesign | Potential future improvements after real usage | Not part of this build |
 | CI action/runtime maintenance | [Lead-creation CI](https://github.com/boonewh/pathsix-backend/actions/runs/37543228687) warns that checkout/setup-python target deprecated Node 20 and that ubuntu-latest is scheduled to change | CI passed; record for later maintenance, not an expansion of this milestone |
+| Inline card for Claude | Claude supports MCP Apps, so a trusted Claude could approve in chat instead of through the review link. Requires confirming Claude keeps result `_meta` from the model and honors app-only visibility | Needs evidence, then the user's trust decision (as with ChatGPT) |
+| Pre-release check of `/connect` steps against vendor help pages | Vendor menus change often (ChatGPT "+" became "Add"; Claude web differs from phone), and catching changes before customers do avoids confusion | Suggested November 8; needs a scope decision after the MVP |
