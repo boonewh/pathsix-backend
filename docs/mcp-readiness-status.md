@@ -1873,6 +1873,24 @@ repeating host trials.
   tenant and activity checks, admin-only reassignment, follow-up completion
   leaving the schedule, project and client status, the update-scope challenge
   and kind isolation. Discovery tests now include `list_assignees`.
+- **Deployed:** `c0d0730` after [CI 42564240533](https://github.com/boonewh/pathsix-backend/actions/runs/42564240533),
+  from a clean checkout.
+  - `mcp_record_updates` was rehearsed (rolled back) and then applied in
+    separate reviewed steps. Head is `mcp_record_updates`, and table counts
+    were unchanged.
+  - The trust script was previewed and then applied, giving ChatGPT 14
+    scopes; self-registered clients received 14 through the migration.
+- **Agent-run live check (pass):** a temporary DCR client "PathSix agent update
+  check" received all five update kinds' prepare and status tools (no decide
+  tools) and `list_assignees`, which returned the two staging users.
+  - A lead 18 city change was proposed as pending with a review link.
+  - A no-op was refused with "Nothing would change", and a contact parent move
+    was refused.
+  - Lead 18 was unchanged. After revocation, calls returned 401. Grant
+    `7d9fe0bb-3e0b-4bd4-b771-1370d4ae5dcc` remains, revoked.
+- **Per-release manual check (pending):** in ChatGPT (card) and Claude (review
+  link), add a note to a lead, mark a follow-up completed and reassign a lead.
+  Each existing connection approves the update permissions once.
 
 The external review page remains a fallback. Staging now uses an inline review
 card; its remaining acceptance gates are summarized in the current security
