@@ -1535,8 +1535,25 @@ staging**, and no live client has connected yet.
   (web) or the initials in the menu (phone), and add a step to name the
   connector. A short "Using it" note now follows each app's steps.
 
-Remaining in this increment: a Claude lead creation through the review link,
-then connect/read/create checks for ChatGPT, Gemini, Claude Code and VS Code.
+- **Lead creation (phone, review link): pass.** Action
+  `5b49d314-6dfd-4e18-b653-5ed4997e968b` was prepared at 23:31:48 UTC and
+  committed at 23:32:05 to lead 25 `MVP-MULTI-CLAUDE`. Exactly one matching
+  lead exists. Two page defects were reported and fixed in `59bf9dd`, deployed
+  after [CI 42537277116](https://github.com/boonewh/pathsix-backend/actions/runs/42537277116):
+  - After saving, the page still asked "Create this lead?" and showed success
+    only as small red text, so the user feared a duplicate. The page now
+    switches to a Lead created / cancelled / expired heading with an outcome
+    box.
+  - A later open of a review link got a 404, shown as "Action unavailable".
+    This is most likely a link the model retyped; the logs omit paths, so it is
+    unproven. The page now explains the mismatch, and the tool and server
+    instructions require giving the link exactly as returned.
+- **Claude passes** connect, sign-in, consent, reads and reviewed creation.
+
+Remaining in this increment: connect/read/create checks for ChatGPT, Gemini,
+Claude Code and VS Code. ChatGPT added through `/connect` self-registers, so it
+gets the review link rather than the inline card. Decide how ChatGPT's own
+registration earns inline trust once its trial shows the client ID it uses.
 Correct the `/connect` steps wherever a vendor's menus differ.
 
 The external review page remains a fallback. Staging now uses an inline review
