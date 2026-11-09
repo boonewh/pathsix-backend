@@ -1607,6 +1607,9 @@ staging**, and no live client has connected yet.
   - Other self-registered clients, including Claude, keep the review link.
   - Hosts may cache tool lists, so refresh the ChatGPT connection metadata
     before verifying the card.
+  - **Verified on November 8:** after the trust change, the user created lead
+    28 `MVP-CHATGPT-CARD` from ChatGPT through the inline card, and it was
+    saved exactly once.
 
 Remaining in this increment: connect/read/create checks for Gemini,
 Claude Code and VS Code. ChatGPT added through `/connect` self-registers, so it
