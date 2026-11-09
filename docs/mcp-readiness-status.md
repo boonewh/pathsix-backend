@@ -1308,7 +1308,10 @@ policy supersedes it.
    approve and cancel, receipt recovery, and denial cases, then verifies database
    outcomes. Where possible, the agent may also drive ChatGPT web in its own
    browser after the user signs in there. The agent never enters the user's
-   passwords.
+   passwords. Every release also runs `scripts/check_ai_client_documents.py`,
+   which validates ChatGPT's and Claude's live client metadata documents with
+   PathSix's own rules, so a vendor change is caught before customers see
+   `invalid_client`.
 3. **One manual release check per staging release, not per feature (about 10–15
    minutes).** The user follows a short script on desktop and phone: connect or
    return, look up a record, create one record, cancel one, update one, and read a
@@ -1549,6 +1552,27 @@ staging**, and no live client has connected yet.
     unproven. The page now explains the mismatch, and the tool and server
     instructions require giving the link exactly as returned.
 - **Claude passes** connect, sign-in, consent, reads and reviewed creation.
+
+#### ChatGPT `invalid_client` — November 8, 2026 (fixed in `894f1ee`)
+
+- **Symptom:** ChatGPT added from `/connect` got `invalid_client`. The original
+  ChatGPT setup had the same failure. It was bypassed by hand-registering an
+  operator client, not fixed.
+- **Cause:** ChatGPT identifies itself with the CIMD document
+  `https://chatgpt.com/oauth/client.json`. That document declares
+  `token_endpoint_auth_method: private_key_jwt` and
+  `token_endpoint_auth_methods_supported: ["none", "private_key_jwt"]`.
+  PathSix accepted only documents whose preferred method was `none`.
+- **Fix:** accept documents that list `none` among their supported methods.
+  PathSix advertises only `none`, so these clients use PKCE without a client
+  credential. Documents that support only other methods are still refused.
+  - A regression test uses ChatGPT's real document.
+  - `scripts/check_ai_client_documents.py` checks the live documents each
+    release. The old rule fails it against the live ChatGPT document; the new
+    rule passes for ChatGPT and Claude.
+- **Open decision (user):** whether to also support `private_key_jwt`. ChatGPT
+  prefers it, and it would keep working if OpenAI dropped public mode. It needs
+  schema changes, JWKS fetching and assertion-replay protection.
 
 Remaining in this increment: connect/read/create checks for ChatGPT, Gemini,
 Claude Code and VS Code. ChatGPT added through `/connect` self-registers, so it
