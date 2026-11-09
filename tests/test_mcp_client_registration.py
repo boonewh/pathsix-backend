@@ -314,3 +314,19 @@ def test_review_page_has_unmistakable_outcome_states():
     for title in ("'Lead created'", "'Proposal cancelled'", "'Proposal expired'"):
         assert title in script
     assert "response.status === 404" in script and 'exactly as given' in script
+
+
+def test_chatgpt_style_document_is_accepted_as_a_public_client():
+    chatgpt = 'https://chatgpt.com/oauth/client.json'
+    document = {'client_id': chatgpt, 'client_name': 'ChatGPT', 'client_uri': 'https://chatgpt.com/',
+                'redirect_uris': ['https://chatgpt.com/connector_platform_oauth_redirect'],
+                'token_endpoint_auth_method': 'private_key_jwt',
+                'token_endpoint_auth_methods_supported': ['none', 'private_key_jwt'],
+                'grant_types': ['authorization_code', 'refresh_token'], 'response_types': ['code'],
+                'token_endpoint_auth_signing_alg': 'RS256', 'jwks_uri': 'https://chatgpt.com/oauth/jwks.json'}
+    assert parse(chatgpt, json.dumps(document).encode()) == {
+        'name': 'ChatGPT', 'redirect_uris': ['https://chatgpt.com/connector_platform_oauth_redirect']}
+    # Without public mode among its supported methods, the client is still refused.
+    document['token_endpoint_auth_methods_supported'] = ['private_key_jwt']
+    with pytest.raises(ClientMetadataError):
+        parse(chatgpt, json.dumps(document).encode())

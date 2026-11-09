@@ -114,7 +114,12 @@ def redirect_list(value):
 
 def check_public_code_client(data):
     """Only public authorization-code clients with PKCE are supported."""
-    if data.get('token_endpoint_auth_method', 'none') != 'none':
+    # A client may prefer another method (ChatGPT prefers private_key_jwt) while
+    # also supporting public mode; this server advertises only 'none', so such
+    # a client uses PKCE without a client credential here.
+    supported = data.get('token_endpoint_auth_methods_supported')
+    if (data.get('token_endpoint_auth_method', 'none') != 'none'
+            and not (isinstance(supported, list) and 'none' in supported)):
         raise ClientMetadataError('Only public clients are supported')
     grants = data.get('grant_types', ['authorization_code'])
     responses = data.get('response_types', ['code'])
