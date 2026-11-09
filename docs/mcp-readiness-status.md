@@ -1589,8 +1589,24 @@ staging**, and no live client has connected yet.
 - `/connect` corrections from the trial: ChatGPT connections are added on
   chatgpt.com from a computer, not the phone app, and its button is **Add** at
   the top right.
-- ChatGPT connected this way uses the review link, not the inline card. Giving
-  it the card needs the user's trust decision.
+- **User decision, November 8, 2026: trust ChatGPT for the inline card.**
+  - Basis: the CIMD identity is fetched from chatgpt.com over TLS, and its
+    redirect is restricted to chatgpt.com. ChatGPT's documented host contract
+    keeps result `_meta` from the model and honors app-only visibility, and the
+    earlier card security checks were done in ChatGPT.
+  - Applied on staging with the new reviewed operator script
+    `scripts/trust_ai_client.py --client chatgpt --apply`. The administrator URL
+    is piped over stdin, and the script previews by default. The row
+    `https://chatgpt.com/oauth/client.json` changed from `cimd`/no card to
+    `operator`/`inline_review`. Its two existing connections were kept.
+  - Trade-off: the row is no longer refreshed from ChatGPT's document. The
+    live document check flags a redirect change, and the script then updates
+    it.
+  - Production needs the same script run at rollout; its production target
+    must be added to the script deliberately then.
+  - Other self-registered clients, including Claude, keep the review link.
+  - Hosts may cache tool lists, so refresh the ChatGPT connection metadata
+    before verifying the card.
 
 Remaining in this increment: connect/read/create checks for Gemini,
 Claude Code and VS Code. ChatGPT added through `/connect` self-registers, so it
