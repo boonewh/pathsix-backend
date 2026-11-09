@@ -1744,9 +1744,14 @@ repeating host trials.
     Fabrication). A 61-day range was refused.
   - After revocation, `tools/list` returned 401. Grant
     `8eabf538-c0d6-4088-b819-f6ce363f850b` remains, revoked.
-- **Per-release manual check (pending):** in ChatGPT and Claude, ask "What do
-  I have scheduled this week?" and look up a contact. Existing connections
-  must first approve the new read permissions.
+- **Per-release manual check (pass, November 9):** "What do I have scheduled
+  this week?" worked in both apps.
+  - Claude showed its own tool-permission prompt for `get_schedule`, then
+    called it for 2026-11-08 to 2026-11-15. It listed the three follow-ups due
+    and the three overdue with times, parents and note context.
+  - ChatGPT worked after the user refreshed and reconnected the plugin to
+    approve the new read scopes.
+  - Re-consent for newly published scopes is one-time per connection.
 
 The external review page remains a fallback. Staging now uses an inline review
 card; its remaining acceptance gates are summarized in the current security
