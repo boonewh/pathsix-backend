@@ -1817,10 +1817,14 @@ repeating host trials.
 - **Fix from the check:** the time-zone refusal reached the model only as the
   generic "Invalid tool arguments". It now raises `ActionConflict`, so the
   guidance text reaches the AI, and a test asserts this.
-- **Per-release manual check (pending):** in ChatGPT (card) and Claude (review
-  link), add a contact to a lead and log an interaction with a follow-up, then
-  confirm both on the schedule. Existing connections must approve the new
-  create permissions once.
+- **Per-release manual check (pass, November 8 local):**
+  - ChatGPT inline card: contact 7 "Adam Smith" (+15125550100) was saved on
+    lead 18, Copper Fern Supply.
+  - Claude review link: interaction 16 "Call with Marigold Wellness Group"
+    was saved with `contact_date` 2026-11-08 22:21, the user's local time when
+    asked, and a follow-up on 2026-11-10 10:00 ("next Tuesday"), pending.
+  - Each saved exactly once (read-only database check). The local-time rule
+    holds end to end: the host sent local time and it was stored unchanged.
 
 The external review page remains a fallback. Staging now uses an inline review
 card; its remaining acceptance gates are summarized in the current security
