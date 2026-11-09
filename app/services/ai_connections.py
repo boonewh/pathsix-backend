@@ -20,12 +20,18 @@ READ_SCOPES = {
 SCOPES = {**READ_SCOPES, 'leads:create': 'Create leads after you review and confirm each proposal',
           'contacts:create': 'Add contacts after you review and confirm each one',
           'projects:create': 'Create projects after you review and confirm each one',
-          'interactions:create': 'Log interactions and follow-ups after you review and confirm each one'}
+          'interactions:create': 'Log interactions and follow-ups after you review and confirm each one',
+          'leads:update': 'Change lead details, status and assignment after you review each change',
+          'clients:update': 'Change client details, status and assignment after you review each change',
+          'contacts:update': 'Change contact details after you review each change',
+          'projects:update': 'Change project details, status and assignment after you review each change',
+          'interactions:update': 'Update interactions and complete follow-ups after you review each change'}
 # Scopes the MCP tools actually use; advertised in OAuth metadata and the only
 # ones a self-registered client may request. Keep in step with the
 # crm_register_ai_client database function.
-PUBLISHED_SCOPES = frozenset({'clients:read', 'contacts:create', 'contacts:read', 'interactions:create',
-                              'interactions:read', 'leads:create', 'leads:read', 'projects:create', 'projects:read'})
+PUBLISHED_SCOPES = frozenset({'clients:read', 'clients:update', 'contacts:create', 'contacts:read', 'contacts:update',
+                              'interactions:create', 'interactions:read', 'interactions:update', 'leads:create',
+                              'leads:read', 'leads:update', 'projects:create', 'projects:read', 'projects:update'})
 MAX_ACTIVE_CONNECTIONS = 20
 MAX_DAILY_CONSENTS = 100
 # A connection stays usable while it is used at least every IDLE_DAYS, up to

@@ -56,12 +56,17 @@ class ActionKind:
     # Pydantic schema describing the proposal fields offered to the model.
     input_schema: type
     excluded_inputs: tuple = ()
+    # describe(payload) -> [[label, value], ...] for kinds whose review needs
+    # more than labelled payload fields (updates show before -> after).
+    describe: Callable = None
 
     def presentation(self, payload=None):
         value = {'kind': self.name, 'noun': self.noun, 'title': self.title, 'confirm': self.confirm,
                  'done': self.done, 'receipt': self.receipt_key,
                  'status_tool': self.status_tool, 'decide_tool': self.decide_tool}
-        if payload is not None:
+        if payload is not None and self.describe:
+            value['fields'] = self.describe(payload)
+        elif payload is not None:
             value['fields'] = [[label, str(payload[key])] for key, label in self.labels.items()
                                if payload.get(key) not in (None, '')]
         return value
@@ -256,6 +261,9 @@ CREATE_INTERACTION = _record_kind(
     _interaction_record, InteractionCreateSchema, INTERACTION_EXCLUDED)
 
 KINDS = {kind.name: kind for kind in (CREATE_LEAD, CREATE_CONTACT, CREATE_PROJECT, CREATE_INTERACTION)}
+
+from app.services.ai_update_kinds import UPDATE_KINDS  # noqa: E402 (defined in terms of ActionKind above)
+KINDS.update(UPDATE_KINDS)
 
 
 def kind_of(name):

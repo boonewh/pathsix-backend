@@ -72,6 +72,11 @@ def tools():
              'Dates are the user\'s local times. ' + UNTRUSTED,
              {'client_id': INTEGER, 'lead_id': INTEGER, 'project_id': INTEGER, 'after_id': AFTER, 'limit': LIMIT},
              page('interactions', interaction), 'interactions:read'),
+        tool('list_assignees', 'List active users in the company who can be assigned leads, clients and projects. '
+             'Administrators only; use an ID from this list for assigned_to.',
+             {}, shape({'assignees': {'type': 'array', 'maxItems': 200,
+                                      'items': shape({'id': INTEGER, 'email': TEXT}, ['id', 'email'])}}, ['assignees']),
+             'leads:read'),
         tool('get_schedule', 'Show what the user has scheduled between two dates (inclusive, at most 31 days): open '
              'follow-ups due, contacts dated in that range, and open follow-ups already overdue before the start. '
              'Pass the user\'s own local dates: for "today" use today\'s date for both; for "this week" use the week\'s '

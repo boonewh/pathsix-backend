@@ -1826,6 +1826,54 @@ repeating host trials.
   - Each saved exactly once (read-only database check). The local-time rule
     holds end to end: the host sent local time and it was stored unchanged.
 
+### Phase 5: updates — November 9, 2026 (source; deploy recorded below)
+
+- **New action kinds** (`app/services/ai_update_kinds.py`): `update_lead`,
+  `update_client`, `update_contact`, `update_project` and
+  `update_interaction`. Each has `prepare_*_update`, `get_*_update` and the
+  app-only `decide_*_update`, the shared card and review link, and the
+  standard single-save, replay, expiry, audit and receipt guarantees.
+- **Review:** "Update this …?" lists each changed field as current → new,
+  phones cleaned and lead options normalized as the services would save them.
+  Notes are **appended** by default and shown as "Notes (adding)". Replacement
+  requires `notes_mode: replace` and is shown as "Notes (replacing)".
+- **Stale protection:** saving re-reads the record and refuses if any changed
+  field's current value differs from the reviewed "before" value, whether the
+  intervening edit came from the CRM or another action. Edits to other fields
+  do not block. No-op proposals are refused.
+- **Scope of changes:**
+  - Each update schema's fields are allowed, except parent moves
+    (client/lead/project IDs), which affect visibility and stay in the CRM.
+  - Statuses: lead and client status, project status and interaction
+    follow-up status (completing a follow-up removes it from the schedule).
+  - Interaction dates must be local times without an offset.
+- **Reassignment:** admin-only, using the services' existing assign
+  operations, to active users in the caller's company. `list_assignees`
+  (admins; `leads:read`) supplies IDs, and the review names the old and new
+  assignee.
+  - Notification parity with the web adapter: the assignment email is sent
+    only after commit, from both the MCP decide path and the signed-in review
+    page. A mail failure never undoes the change.
+- **Scopes and migration:** publishes `leads:update`, `clients:update`,
+  `contacts:update`, `projects:update` and `interactions:update`.
+  - Migration `mcp_record_updates` widens the action kind constraint, the
+    registration function (14 scopes) and self-registered clients. The
+    trusted ChatGPT row is updated with the trust script.
+  - Consent copy states that each new record and each change needs separate
+    review, and that the connection cannot delete records.
+- **Bug fixed during testing:** OAuth scope strings were capped at 200
+  characters. Requesting all 14 published scopes (about 210 characters) would
+  have failed sign-in. The cap is now 1000 characters, with every scope name
+  still validated, and a test requests every published scope.
+- **Tests:** `tests/test_mcp_record_updates.py` (11) and
+  `tests/test_mcp_record_updates_migration.py`. They cover before/after
+  review, single save and audit, notes append and replace, the stale-field
+  block versus an unrelated-field edit, refused no-op, parent-move and foreign
+  changes, admin reassignment with the post-commit notification, assignee
+  tenant and activity checks, admin-only reassignment, follow-up completion
+  leaving the schedule, project and client status, the update-scope challenge
+  and kind isolation. Discovery tests now include `list_assignees`.
+
 The external review page remains a fallback. Staging now uses an inline review
 card; its remaining acceptance gates are summarized in the current security
 reconciliation above. This approach is supported by the

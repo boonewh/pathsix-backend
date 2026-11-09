@@ -12,6 +12,7 @@ from app.services.leads import LeadService
 from app.services.mcp_records import RecordReads
 from app.services.ai_actions import AIActionService, ActionConflict
 from app.services.ai_action_kinds import KINDS
+from app.services.ai_update_kinds import pending_notifications
 from app.utils.lead_options import tenant_lead_config, configured_options
 
 # Each reviewed action kind has a prepare, status and (app-only) decide tool.
@@ -22,6 +23,7 @@ TOOL_SCOPES = {
     'list_contacts': ['contacts:read'], 'get_contact': ['contacts:read'],
     'list_projects': ['projects:read'], 'get_project': ['projects:read'],
     'list_interactions': ['interactions:read'], 'get_schedule': ['interactions:read'],
+    'list_assignees': ['leads:read'],
     'list_leads': ['leads:read'], 'get_lead': ['leads:read'], 'get_lead_options': ['leads:read'],
     **{tool: list(kind.scopes) for tool, (kind, _) in ACTION_TOOLS.items()},
 }
@@ -104,6 +106,7 @@ def execute(factory, raw, name, arguments, *, review=None):
         if outcome == 'success': grant.last_used_at = now
         # Audit and last-use must persist before any CRM data is returned.
         db.commit()
+        deliver_after_commit(pending_notifications(db))
         return result,error
 
 
@@ -130,6 +133,9 @@ def dispatch(db, principal, connection_id, name, args, *, review=None):
     if name == 'list_interactions':
         if set(args)-{'client_id','lead_id','project_id','after_id','limit'}: raise ValueError()
         return reads.interactions(**args)
+    if name == 'list_assignees':
+        if args: raise ValueError()
+        return reads.assignees()
     if name == 'get_schedule':
         if set(args) != {'start_date','end_date'}: raise ValueError()
         return reads.schedule(**args)
@@ -167,3 +173,21 @@ def dispatch(db, principal, connection_id, name, args, *, review=None):
         raise RecordNotFound('Action unavailable')
     return review.decide(service, connection_id, args)
 
+
+def deliver_after_commit(notifications):
+    """Send assignment notifications without blocking or failing the saved action."""
+    if not notifications:
+        return
+    import asyncio
+    from app.utils.email_utils import send_assignment_notification
+    async def send(notification):
+        try:
+            await send_assignment_notification(**notification)
+        except Exception:
+            pass  # Matches the web adapter: mail failure never undoes a committed change.
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    for notification in notifications:
+        loop.create_task(send(notification))

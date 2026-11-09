@@ -89,7 +89,8 @@ class Client:
 
 def parse_scope(value):
     try:
-        if not isinstance(value, str) or len(value) > 200: raise ValueError()
+        # Room for every published scope; individual names are still validated.
+        if not isinstance(value, str) or len(value) > 1000: raise ValueError()
         return scope_set(value.split(' '))
     except ValueError:
         raise InvalidScopeError() from None

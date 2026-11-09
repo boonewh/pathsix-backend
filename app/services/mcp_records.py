@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta
 
 from sqlalchemy import and_, func, or_
 
-from app.models import Client, Contact, FollowUpStatus, Interaction, Lead, Project
+from app.models import Client, Contact, FollowUpStatus, Interaction, Lead, Project, User
 from app.services.access import interaction_access_filter, owned_record_filter, project_access_filter
 from app.services.base import TenantService
 from app.services.errors import RecordNotFound
@@ -208,6 +208,15 @@ class RecordReads(TenantService):
         result = rows.with_entities(*self._interaction_columns()).order_by(Interaction.id).limit(limit + 1).all()
         return {'interactions': self._serialize_interactions(result[:limit]),
                 'next_after_id': result[limit - 1].id if len(result) > limit else None}
+
+    # Assignees -------------------------------------------------------------
+    def assignees(self):
+        """Active users in the caller's company who can be assigned records."""
+        if not self.principal.is_admin:
+            raise PermissionError('Only administrators can reassign records')
+        rows = self.session.query(User.id, func.substr(User.email, 1, 120).label('email')).filter(
+            User.tenant_id == self.principal.tenant_id, User.is_active.is_(True)).order_by(User.email).limit(200).all()
+        return {'assignees': [dict(row._mapping) for row in rows]}
 
     # Schedule --------------------------------------------------------------
     def schedule(self, *, start_date, end_date):

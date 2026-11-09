@@ -105,6 +105,8 @@ def crm(tmp_path, monkeypatch, request):
                 secure_scopes(connection,schema,runtime_role)
                 from migrations.versions.mcp_record_creation import secure as secure_creation
                 secure_creation(connection,schema,runtime_role)
+                from migrations.versions.mcp_record_updates import secure as secure_updates
+                secure_updates(connection,schema,runtime_role)
         runtime_factory = sessionmaker(bind=engine)
         @event.listens_for(runtime_factory, 'after_begin')
         def set_runtime_role(session, transaction, connection):

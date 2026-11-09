@@ -51,7 +51,7 @@ def test_catalog_restrictions_still_limit_discovery(oauth):
         db.get(AIClient, 'pilot').allowed_scopes = ['clients:read','leads:read']
         db.commit()
     names = {t['name'] for t in rpc(oauth, token)[1]['result']['tools']}
-    assert names == {'list_clients','get_client','list_leads','get_lead','get_lead_options'}
+    assert names == {'list_clients','get_client','list_leads','get_lead','get_lead_options','list_assignees'}
     assert call(oauth, token, 'list_leads')['isError']
 
 

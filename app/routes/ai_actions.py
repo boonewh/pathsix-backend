@@ -7,6 +7,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.database import SessionLocal
 from app.routes.oauth import protect, reply
 from app.services.ai_actions import AIActionService, ActionConflict, payload_hash
+from app.services.ai_update_kinds import pending_notifications
+from app.utils.email_utils import send_assignment_notification
 from app.services.ai_connections import AIConfigurationError
 from app.services.errors import RecordNotFound
 from app.services.oauth import issuer, digest, valid_secret
@@ -97,6 +99,11 @@ async def decision(ident):
         try:
             result = AIActionService(db, request.principal).decide(ident, data['approved'], intent['hash'])
             db.commit()
+            for notification in pending_notifications(db):
+                try:  # Mail failure never undoes the committed change (as in the web adapter).
+                    await send_assignment_notification(**notification)
+                except Exception:
+                    pass
             return reply(result)
         except (RecordNotFound, PermissionError, ValueError) as error:
             db.rollback()

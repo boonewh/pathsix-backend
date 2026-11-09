@@ -17,7 +17,7 @@ def test_every_kind_is_complete_and_consistent(kind):
         assert set(TOOL_SCOPES[tool]) == set(kind.scopes)
     audit_width = AIToolAudit.__table__.c.tool.type.length
     assert max(len(kind.confirm_audit), len(kind.cancel_audit)) <= audit_width
-    assert kind.title.endswith('?') and kind.confirm and kind.done and kind.labels
+    assert kind.title.endswith('?') and kind.confirm and kind.done and (kind.labels or kind.describe)
     assert all(callable(f) for f in (kind.prepare, kind.execute, kind.record))
     assert kind_of(kind.name) is kind
 

@@ -15,7 +15,7 @@ from app.services.ai_connections import PUBLISHED_SCOPES
 from app.services.client_metadata import ClientMetadataError, is_metadata_client_id, parse, public_address
 from app.services.oauth import digest
 from app.utils.rate_limiter import reset_rate_limit
-from migrations.versions.mcp_record_creation import PUBLISHED as MIGRATION_PUBLISHED
+from migrations.versions.mcp_record_updates import PUBLISHED as MIGRATION_PUBLISHED
 from test_security_boundaries import crm
 from test_oauth import oauth as oauth_fixture, RESOURCE, BASE
 from test_mcp_reads import oauth, rpc
@@ -340,3 +340,13 @@ def test_trust_script_grants_exactly_the_published_scopes():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     assert set(module.SCOPES) == PUBLISHED_SCOPES
+
+
+def test_a_client_may_request_every_published_scope(oauth):
+    with oauth.admin() as db:
+        db.get(AIClient, 'pilot').allowed_scopes = sorted(PUBLISHED_SCOPES)
+        db.commit()
+    everything = ' '.join(sorted(PUBLISHED_SCOPES))
+    assert len(everything) > 200
+    status, body, _ = authorize(oauth, client_id='pilot', redirect_uri=oauth.params['redirect_uri'], scope=everything)
+    assert status == 200, body

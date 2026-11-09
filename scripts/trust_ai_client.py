@@ -23,8 +23,9 @@ TRUSTED = {
                 'redirect_uris': ['https://chatgpt.com/connector_platform_oauth_redirect']},
 }
 # Keep equal to app.services.ai_connections.PUBLISHED_SCOPES (a test enforces it).
-SCOPES = ['clients:read', 'contacts:create', 'contacts:read', 'interactions:create', 'interactions:read',
-          'leads:create', 'leads:read', 'projects:create', 'projects:read']
+SCOPES = ['clients:read', 'clients:update', 'contacts:create', 'contacts:read', 'contacts:update',
+          'interactions:create', 'interactions:read', 'interactions:update', 'leads:create', 'leads:read',
+          'leads:update', 'projects:create', 'projects:read', 'projects:update']
 TARGETS = {
     'pathsixsolutions-backend-staging': ('pathsixsolutions-db-staging', 'pathsixsolutions_backend_staging'),
 }

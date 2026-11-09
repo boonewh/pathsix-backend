@@ -147,4 +147,4 @@ def test_untrusted_clients_see_no_decide_tools(writer):
     status, listing, _ = rpc(writer, token(writer))
     names = {tool['name'] for tool in listing['result']['tools']}
     assert not names & {kind.decide_tool for kind in KINDS.values()}
-    assert {kind.prepare_tool for kind in KINDS.values()} <= names
+    assert {kind.prepare_tool for kind in KINDS.values() if set(kind.scopes) <= set(CREATE)} <= names
