@@ -10,17 +10,20 @@ from app.services.clients import ClientService
 from app.services.errors import RecordNotFound
 from app.services.leads import LeadService
 from app.services.mcp_records import RecordReads
-from app.services.ai_actions import AIActionService, ActionConflict, REQUIRED_SCOPES
+from app.services.ai_actions import AIActionService, ActionConflict
+from app.services.ai_action_kinds import KINDS
 from app.utils.lead_options import tenant_lead_config, configured_options
 
+# Each reviewed action kind has a prepare, status and (app-only) decide tool.
+ACTION_TOOLS = {tool: (kind, role) for kind in KINDS.values()
+                for tool, role in ((kind.prepare_tool, 'prepare'), (kind.status_tool, 'status'), (kind.decide_tool, 'decide'))}
 TOOL_SCOPES = {
     'list_clients': ['clients:read'], 'get_client': ['clients:read'],
     'list_contacts': ['contacts:read'], 'get_contact': ['contacts:read'],
     'list_projects': ['projects:read'], 'get_project': ['projects:read'],
     'list_interactions': ['interactions:read'], 'get_schedule': ['interactions:read'],
     'list_leads': ['leads:read'], 'get_lead': ['leads:read'], 'get_lead_options': ['leads:read'],
-    'prepare_lead_creation': REQUIRED_SCOPES, 'get_lead_creation': REQUIRED_SCOPES,
-    'decide_lead_creation': REQUIRED_SCOPES,
+    **{tool: list(kind.scopes) for tool, (kind, _) in ACTION_TOOLS.items()},
 }
 TOOLS = tuple(TOOL_SCOPES)
 MAX_CALLS_PER_MINUTE = 60
@@ -49,7 +52,7 @@ def discoverable_tools(factory, raw):
         allowed = scope_set(client.allowed_scopes)
         names = {name for name, required in TOOL_SCOPES.items() if set(required) <= allowed}
         if not client.inline_review:
-            names.discard('decide_lead_creation')
+            names -= {kind.decide_tool for kind in KINDS.values()}
         return names, client.inline_review
 
 
@@ -145,16 +148,22 @@ def dispatch(db, principal, connection_id, name, args, *, review=None):
                 'business_types':[v[:100] for v in configured_options(config.get('businessTypes'))[:50]],
                 'default_status':(statuses[0] if statuses else 'open')[:100]}
     service = AIActionService(db,principal)
-    if name == 'prepare_lead_creation':
-        if set(args) != {'request_key','lead'}: raise ValueError()
-        receipt = service.prepare(connection_id,args['request_key'],args['lead'])
+    kind, role = ACTION_TOOLS[name]
+    if role == 'prepare':
+        if set(args) != {'request_key', kind.input_key}: raise ValueError()
+        receipt = service.prepare(connection_id,args['request_key'],args[kind.input_key],kind=kind.name)
         return review.present(service, connection_id, receipt) if review else receipt
-    if name == 'get_lead_creation':
+    if role == 'status':
         if set(args) != {'action_id'}: raise ValueError()
-        receipt = service.result(service.action(args['action_id'],connection_id=connection_id))
+        row = service.action(args['action_id'],connection_id=connection_id)
+        if row.kind != kind.name: raise RecordNotFound('Action unavailable')
+        receipt = service.result(row)
         return review.present(service, connection_id, receipt) if review else receipt
-    if name == 'decide_lead_creation':
-        if review is None:
-            raise PermissionError('Component review is unavailable')
-        return review.decide(service, connection_id, args)
-    raise ValueError()
+    if review is None:
+        raise PermissionError('Component review is unavailable')
+    # Each kind's decide tool only decides its own kind of proposal.
+    if not isinstance(args.get('action_id'), str): raise ValueError()
+    if service.action(args['action_id'],connection_id=connection_id).kind != kind.name:
+        raise RecordNotFound('Action unavailable')
+    return review.decide(service, connection_id, args)
+

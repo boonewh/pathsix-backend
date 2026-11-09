@@ -99,12 +99,12 @@ def test_consent_explains_requested_write_capability(oauth, scope):
     status, body, _ = oauth.request('GET', '/oauth/authorize?' + urlencode(oauth.params))
     assert status == 200
     if 'leads:create' in scope.split():
-        assert 'Each new lead requires your separate review and confirmation.' in body
+        assert 'Each new record requires your separate review and confirmation.' in body
         assert 'cannot update or delete existing records' in body
         assert 'cannot change or delete records' not in body
     else:
         assert 'cannot change or delete records' in body
-        assert 'Each new lead' not in body
+        assert 'Each new record' not in body
     with oauth.admin() as db:
         assert db.query(AIConnection).count() == 0
 

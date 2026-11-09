@@ -97,7 +97,9 @@ def install_mcp(app):
             discoverable,client_inline=mcp_reads.discoverable_tools(SessionLocal,bearer(ctx.request.headers))
             from app.mcp_lead_tools import tools as lead_tools
             from app.mcp_record_tools import tools as record_tools
-            available = tools() + record_tools() + lead_tools(inline_review=app.config.get('MCP_INLINE_REVIEW', False) and client_inline)
+            from app.mcp_action_tools import tools as action_tools
+            inline = app.config.get('MCP_INLINE_REVIEW', False) and client_inline
+            available = tools() + record_tools() + lead_tools(inline_review=inline) + action_tools(inline_review=inline)
             return types.ListToolsResult(tools=[tool for tool in available
                 if tool.name in discoverable])
         except (InvalidGrantError,SQLAlchemyError):

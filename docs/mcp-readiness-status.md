@@ -1753,6 +1753,47 @@ repeating host trials.
     approve the new read scopes.
   - Re-consent for newly published scopes is one-time per connection.
 
+### Phase 4: more to create — November 9, 2026 (source; deploy recorded below)
+
+- **New action kinds** in the shared registry: `create_contact`,
+  `create_project` and `create_interaction`. Each has the same three tools as
+  leads (`prepare_*_creation`, `get_*_creation` and the app-only
+  `decide_*_creation`, in `app/mcp_action_tools.py`), the same card or review
+  link, and the same one-save, replay, expiry, audit and receipt guarantees.
+  - Validation uses the CRM schemas and column limits.
+  - Parents are checked with the CRM services' own access rules:
+    - A contact needs exactly one accessible client or lead.
+    - A project needs at most one.
+    - An interaction needs exactly one client, lead or project.
+  - The review names the parent ("For: Client: …"); saving ignores that
+    display field.
+- **Stale protection:** before saving, the stored inputs are prepared again
+  and must equal the reviewed payload. For example, a parent renamed after
+  review forces a new proposal.
+- **Local times:** interaction and project dates must be local times without
+  an offset. `Z` or `-06:00` is refused with guidance. New interactions start
+  as pending follow-ups; a proposal cannot set `followup_status`.
+- **Kind isolation:** each kind's status and decide tools refuse another
+  kind's action ID. Untrusted clients see no decide tool of any kind, and the
+  server drops the review capability for them.
+- **Scopes and migration:** publishes `contacts:create`, `projects:create` and
+  `interactions:create`.
+  - Migration `mcp_record_creation` widens the `ai_write_actions` kind
+    constraint, replaces the registration function with nine published
+    scopes, and widens self-registered clients. The trusted ChatGPT row is
+    updated with `scripts/trust_ai_client.py`.
+  - Consent and `/connect` copy now say each new record needs separate
+    approval.
+- **Tests:** `tests/test_mcp_record_creation.py` (16), covering card approval,
+  retry and conflicting reuse of a request key, single save, audit, parent
+  rules, ordinary-user denial, standalone and lead projects, exact local times
+  with the schedule round trip, refused offsets, status and bad parents, kind
+  isolation, the create-scope challenge, stale-parent conflict and hidden
+  decide tools for untrusted clients.
+  - Plus `tests/test_mcp_record_creation_migration.py`.
+  - The published-scope assertion in `test_mcp_reads` now compares with
+    `PUBLISHED_SCOPES`.
+
 The external review page remains a fallback. Staging now uses an inline review
 card; its remaining acceptance gates are summarized in the current security
 reconciliation above. This approach is supported by the

@@ -128,7 +128,8 @@ async def authorize():
         client_host=urlsplit(data['client_id']).hostname if registration == 'cimd' else None,
         permissions=[SCOPES[s] for s in data['scope'].split()], client_id=data['client_id'], scopes=data['scope'],
         intent_seconds=INTENT_SECONDS, staging=current_app.config.get('OAUTH_STAGING', False),
-        idle_days=IDLE_DAYS, consent_days=CONSENT_DAYS))
+        idle_days=IDLE_DAYS, consent_days=CONSENT_DAYS,
+        creates=any(s.endswith(':create') for s in data['scope'].split())))
     response.set_cookie(COOKIE,binding,max_age=INTENT_SECONDS,secure=True,httponly=True,samesite='Lax',path='/')
     return response
 

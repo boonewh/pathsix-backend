@@ -9,6 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError,DBAPIError
 from app.models import Client,AIConnection,AIClient,OAuthCredential,AIToolAudit,User,Tenant
 from app.services.oauth import digest
 from app.services import mcp_reads
+from app.services.ai_connections import PUBLISHED_SCOPES
 from app.utils import auth_utils
 from test_security_boundaries import crm
 from test_oauth import oauth as oauth_fixture,Flow,RESOURCE
@@ -270,7 +271,7 @@ def test_metadata_and_configuration_fail_closed(oauth,monkeypatch):
         response=await oauth.app.test_client().get('/.well-known/oauth-protected-resource/mcp',scheme='https')
         return response.status_code,await response.get_json()
     status,value=oauth.runner.run(read())
-    assert status==200 and value['resource']==RESOURCE and value['scopes_supported']==['clients:read','contacts:read','interactions:read','leads:create','leads:read','projects:read']
+    assert status==200 and value['resource']==RESOURCE and value['scopes_supported']==sorted(PUBLISHED_SCOPES)
     assert rpc(oauth,'bad')[0]==401
     monkeypatch.setenv('MCP_RESOURCE_URI',RESOURCE+'/wrong')
     assert oauth.runner.run(read())[0]==503 and rpc(oauth,'bad')[0]==503

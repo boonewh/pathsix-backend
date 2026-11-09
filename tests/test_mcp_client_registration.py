@@ -15,7 +15,7 @@ from app.services.ai_connections import PUBLISHED_SCOPES
 from app.services.client_metadata import ClientMetadataError, is_metadata_client_id, parse, public_address
 from app.services.oauth import digest
 from app.utils.rate_limiter import reset_rate_limit
-from migrations.versions.mcp_published_scopes_v2 import PUBLISHED as MIGRATION_PUBLISHED
+from migrations.versions.mcp_record_creation import PUBLISHED as MIGRATION_PUBLISHED
 from test_security_boundaries import crm
 from test_oauth import oauth as oauth_fixture, RESOURCE, BASE
 from test_mcp_reads import oauth, rpc

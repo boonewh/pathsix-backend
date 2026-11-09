@@ -186,7 +186,8 @@ class AIWriteAction(Base):
             ['ai_connections.tenant_id', 'ai_connections.user_id', 'ai_connections.id'],
             name='fk_ai_write_actions_owner_grant'),
         UniqueConstraint('connection_id', 'request_key', name='uq_ai_write_actions_request'),
-        CheckConstraint("kind = 'create_lead'", name='ck_ai_write_actions_kind'),
+        CheckConstraint("kind IN ('create_lead','create_contact','create_project','create_interaction')",
+                        name='ck_ai_write_actions_kind'),
         CheckConstraint("status IN ('pending','cancelled','committed')", name='ck_ai_write_actions_status'),
         CheckConstraint("(status = 'committed' AND result_id IS NOT NULL AND decided_at IS NOT NULL) OR "
                         "(status = 'cancelled' AND result_id IS NULL AND decided_at IS NOT NULL) OR "
