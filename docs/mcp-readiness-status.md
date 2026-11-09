@@ -1680,6 +1680,55 @@ repeating host trials.
     Add a custom connector, not Connectors as on the phone. `/connect` is
     updated in `aac5927`.
 
+### Phase 3: more to read — November 9, 2026 (source; deploy recorded below)
+
+- **Time-zone check (resolved, no setting needed).** The web app sends
+  interaction dates as `YYYY-MM-DDTHH:MM:00` with no offset
+  (`InteractionsForm.tsx` and `CompleteInteractionModal.tsx`
+  `combineDateTime`). The backend stores them naive, so stored values are the
+  user's local wall-clock times.
+  - **Rule:** interaction dates are local wall-clock times. The schedule
+    compares them with the user's own calendar dates, which the AI app
+    supplies, and never with server UTC. No stored time zone is needed.
+  - **Finding (not fixed; needs a decision):** some backend code compares
+    these local times with `datetime.utcnow()`. For example,
+    `ReportService.follow_up_report` computes overdue status that can be off by
+    the user's UTC offset (up to six hours in Texas). Reports are outside the
+    MVP.
+- **New and changed read tools** (`app/mcp_record_tools.py`,
+  `app/services/mcp_records.py`):
+
+  | Tool | Reads | Scope |
+  | --- | --- | --- |
+  | `get_client` | Full detail, replacing the old summary | `clients:read` |
+  | `list_contacts`, `get_contact` | Contacts on accessible clients and leads; name/email search | new `contacts:read` |
+  | `list_projects`, `get_project` | Projects; name search, status filter | `projects:read` |
+  | `list_interactions` | Interactions for one client, lead or project | `interactions:read` |
+  | `get_schedule` | Open follow-ups and contacts in a 1–31 day local range, plus overdue open follow-ups; 100 per group with a `truncated` flag | `interactions:read` |
+
+  - Everything uses the existing access filters, excludes deleted and
+    archived records, and truncates text at the database.
+  - A parent's name is shown only when the caller can access that parent.
+- **Scopes:** `PUBLISHED_SCOPES` adds `contacts:read`, `projects:read` and
+  `interactions:read`.
+  - Migration `mcp_published_scopes_v2` replaces `crm_register_ai_client` with
+    the new list and widens existing CIMD/DCR clients' `allowed_scopes`.
+    Operator rows are unchanged; the trusted ChatGPT row is updated with
+    `scripts/trust_ai_client.py`, and a test keeps its scopes equal to the
+    published set.
+  - Existing grants keep their approved scopes. Calling a new tool returns
+    the `insufficient_scope` challenge; ChatGPT prompts for consent, and
+    Claude may need a reconnect.
+- **Tests:** `tests/test_mcp_record_reads.py` (10). It covers parent-inherited
+  contact access, other tenants, unassigned ordinary users, assignment, hidden
+  archived projects, withheld inaccessible parent names, one-parent
+  interactions, the schedule's local-day boundaries (23:30 today included,
+  00:00 tomorrow excluded, completed excluded, overdue listed), invalid ranges
+  and the scope challenge.
+  - Plus `tests/test_mcp_published_scopes_migration.py`.
+  - Two existing tests changed intentionally: `get_client` now returns detail,
+    while lists stay summaries; the published scope list has six entries.
+
 The external review page remains a fallback. Staging now uses an inline review
 card; its remaining acceptance gates are summarized in the current security
 reconciliation above. This approach is supported by the

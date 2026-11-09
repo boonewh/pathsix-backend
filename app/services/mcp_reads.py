@@ -9,11 +9,15 @@ from app.services.ai_connections import resource_uri, scope_set
 from app.services.clients import ClientService
 from app.services.errors import RecordNotFound
 from app.services.leads import LeadService
+from app.services.mcp_records import RecordReads
 from app.services.ai_actions import AIActionService, ActionConflict, REQUIRED_SCOPES
 from app.utils.lead_options import tenant_lead_config, configured_options
 
 TOOL_SCOPES = {
     'list_clients': ['clients:read'], 'get_client': ['clients:read'],
+    'list_contacts': ['contacts:read'], 'get_contact': ['contacts:read'],
+    'list_projects': ['projects:read'], 'get_project': ['projects:read'],
+    'list_interactions': ['interactions:read'], 'get_schedule': ['interactions:read'],
     'list_leads': ['leads:read'], 'get_lead': ['leads:read'], 'get_lead_options': ['leads:read'],
     'prepare_lead_creation': REQUIRED_SCOPES, 'get_lead_creation': REQUIRED_SCOPES,
     'decide_lead_creation': REQUIRED_SCOPES,
@@ -89,7 +93,8 @@ def execute(factory, raw, name, arguments, *, review=None):
             grant = db.query(AIConnection).filter_by(id=identity.connection_id,
                 tenant_id=principal.tenant_id,user_id=principal.user_id).with_for_update().one()
             validate_access(db,principal,raw,resource_uri())
-        count = 0 if result is None else len(result.get('clients', result.get('leads', [result])))
+        lists = [value for value in (result or {}).values() if isinstance(value, list)]
+        count = 0 if result is None else sum(map(len, lists)) if lists else 1
         db.add(AIToolAudit(id=str(uuid4()),tenant_id=principal.tenant_id,user_id=principal.user_id,
             connection_id=grant.id,tool=name if name in TOOLS else 'unknown',outcome=outcome,
             result_count=count,created_at=now))
@@ -104,8 +109,27 @@ def dispatch(db, principal, connection_id, name, args, *, review=None):
         if set(args)-{'after_id','limit'}: raise ValueError()
         return ClientService(db,principal).summaries(**args)
     if name == 'get_client':
-        if set(args) != {'client_id'} or args['client_id'] is None: raise ValueError()
-        return {'client':ClientService(db,principal).summaries(client_id=args['client_id'],limit=1)['clients'][0]}
+        if set(args) != {'client_id'}: raise ValueError()
+        return RecordReads(db,principal).client_detail(args['client_id'])
+    reads = RecordReads(db,principal)
+    if name == 'list_contacts':
+        if set(args)-{'query','client_id','lead_id','after_id','limit'}: raise ValueError()
+        return reads.contacts(**args)
+    if name == 'get_contact':
+        if set(args) != {'contact_id'}: raise ValueError()
+        return {'contact':reads.contacts(contact_id=args['contact_id'],limit=1)['contacts'][0]}
+    if name == 'list_projects':
+        if set(args)-{'query','status','after_id','limit'}: raise ValueError()
+        return reads.projects(**args)
+    if name == 'get_project':
+        if set(args) != {'project_id'}: raise ValueError()
+        return {'project':reads.projects(project_id=args['project_id'],limit=1)['projects'][0]}
+    if name == 'list_interactions':
+        if set(args)-{'client_id','lead_id','project_id','after_id','limit'}: raise ValueError()
+        return reads.interactions(**args)
+    if name == 'get_schedule':
+        if set(args) != {'start_date','end_date'}: raise ValueError()
+        return reads.schedule(**args)
     if name == 'list_leads':
         if set(args)-{'after_id','limit','query'}: raise ValueError()
         return LeadService(db,principal).summaries(**args)

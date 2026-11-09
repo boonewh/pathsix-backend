@@ -14,21 +14,26 @@ MAX_DCR_PER_HOUR = 200
 def secure(connection, schema, runtime_role):
     if connection.dialect.name != 'postgresql' or not runtime_role:
         raise RuntimeError('PostgreSQL and explicit runtime role required')
-    q = connection.dialect.identifier_preparer.quote
-    table = f'{q(schema)}.{q("ai_clients")}'
-    connections = f'{q(schema)}.{q("ai_connections")}'
     operator = connection.execute(text('SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname=current_user')).scalar_one()
     unsafe = connection.execute(text('SELECT rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb FROM pg_roles WHERE rolname=:role'), {'role':runtime_role}).scalar_one()
     if not operator or unsafe:
         raise RuntimeError('Expected operator and restricted runtime role')
     if connection.execute(text(f"SELECT has_table_privilege(:role,'{schema}.ai_clients','INSERT') OR has_table_privilege(:role,'{schema}.ai_clients','UPDATE')"), {'role':runtime_role}).scalar_one():
         raise RuntimeError('Runtime client catalog write access requires review')
-    published = ','.join(f"'{s}'" for s in PUBLISHED)
+    create_register_function(connection, schema, runtime_role, PUBLISHED)
+
+
+def create_register_function(connection, schema, runtime_role, published_scopes, replace=False):
+    """Create the definer function limiting self-registration to published scopes."""
+    q = connection.dialect.identifier_preparer.quote
+    table = f'{q(schema)}.{q("ai_clients")}'
+    connections = f'{q(schema)}.{q("ai_connections")}'
+    published = ','.join(f"'{s}'" for s in published_scopes)
     function = f'{q(schema)}.crm_register_ai_client'
     # The runtime keeps read-only catalog access. This definer function can only
     # create or refresh self-registered public clients limited to published
     # scopes; operator rows, trust flags and other clients' types never change.
-    connection.execute(text(f'''CREATE FUNCTION {function}(p_id text, p_name text, p_redirects json,
+    connection.execute(text(f'''CREATE {'OR REPLACE ' if replace else ''}FUNCTION {function}(p_id text, p_name text, p_redirects json,
             p_registration text, p_scopes json)
         RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $fn$
         DECLARE existing text;
