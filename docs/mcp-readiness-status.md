@@ -1728,6 +1728,25 @@ repeating host trials.
   - Plus `tests/test_mcp_published_scopes_migration.py`.
   - Two existing tests changed intentionally: `get_client` now returns detail,
     while lists stay summaries; the published scope list has six entries.
+- **Deployed:** `ba8a7e8` after [CI 42552994548](https://github.com/boonewh/pathsix-backend/actions/runs/42552994548)
+  (800 backend and 16 component tests passed), from a clean checkout.
+  - `mcp_published_scopes_v2` was rehearsed (rolled back) and then applied,
+    as separate reviewed steps. The 11 bounded table counts were unchanged.
+  - `scripts/trust_ai_client.py` was previewed and then applied, giving the
+    trusted ChatGPT row the six published scopes. Claude's CIMD row and the DCR
+    rows were widened by the migration.
+- **Agent-run live check (pass):** a temporary DCR client "PathSix agent read
+  check" with a read-only grant for the staging admin discovered all 13 tools.
+  - It read contact Melissa Drager (Delta Logistics), five projects, client 1
+    detail, and the week of 2026-11-09: 3 open follow-ups (for example,
+    11:00 "Schedule the intake walkthrough", Marigold Wellness Group) and 3
+    overdue (for example, 2026-11-05 "Send the pilot estimate", Red Mesa
+    Fabrication). A 61-day range was refused.
+  - After revocation, `tools/list` returned 401. Grant
+    `8eabf538-c0d6-4088-b819-f6ce363f850b` remains, revoked.
+- **Per-release manual check (pending):** in ChatGPT and Claude, ask "What do
+  I have scheduled this week?" and look up a contact. Existing connections
+  must first approve the new read permissions.
 
 The external review page remains a fallback. Staging now uses an inline review
 card; its remaining acceptance gates are summarized in the current security
