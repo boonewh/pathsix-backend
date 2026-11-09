@@ -1901,6 +1901,27 @@ repeating host trials.
     (interactions 11 and 16). Claude asked the user which one, and the user
     chose 16. This matches the "ask when several match" instruction.
 
+### Limited tester accounts — November 9, 2026
+
+- At the user's request, four **ordinary** (non-admin) tester accounts were added
+  to Staging Demo Co (user IDs 6–9) with `scripts/seed_staging_testers.py`. The
+  script ran on staging through the CRM services and the restricted runtime
+  login. Tester identities are not recorded in this public repository.
+  - Each tester owns two clients (each with an account and a contact), three
+    leads (new, contacted and qualified, each with a contact), two projects and
+    four pending follow-ups in local time (today, tomorrow, later this week and
+    one overdue).
+  - Verified per tester: exactly 2 clients, 3 leads, 2 projects and 4
+    interactions are visible, no admin role, and a real `/api/login` succeeds.
+  - Passwords were generated locally, sent only over SSH stdin, and kept in a
+    private local file outside the repository.
+- **Bug found (not yet fixed):** `UserService.create` stores email addresses as
+  typed, but login lowercases the typed email and matches exactly. A user
+  added with any capital letter could never log in. Testers were created
+  lowercase. The small fix is to normalize emails to lowercase in
+  `UserService` (and its duplicate check). It affects the production web
+  CRM's add-user screen, so its production rollout needs the user's decision.
+
 The external review page remains a fallback. Staging now uses an inline review
 card; its remaining acceptance gates are summarized in the current security
 reconciliation above. This approach is supported by the
