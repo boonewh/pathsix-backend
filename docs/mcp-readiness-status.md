@@ -1297,7 +1297,10 @@ evidenced, not the security, data-integrity or customer-experience requirements.
 Where older text in this document asks for a separate live trial per case, this
 policy supersedes it.
 
-1. **Automated tests (required for every increment).** Backend and
+1. **Automated tests (required for every increment).** Tiers since November 9
+   (see AGENTS.md): CI runs the full suite on every push. Locally, run the
+   changed files and `pytest -m core`, adding `isolation`, `crm`, `migration` or
+   `ops` only when touched. Backend and
    PostgreSQL/RLS CI cover scopes, revocation, tenant and record access, invalid
    input, parents/assignees, duplicates and concurrency, stale updates, rollback
    and audit failures, and receipt recovery. Server-side denials are proven here,

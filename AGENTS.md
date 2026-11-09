@@ -10,6 +10,25 @@
 - Local PostgreSQL for the full test suite: `G:\Projects\tools\pathsix-test-db.sh
   start`, then `eval "$(bash G:/Projects/tools/pathsix-test-db.sh env)"`.
 
+## Testing tiers (keep local runs small; CI runs everything)
+
+Tests are tagged by file in `tests/conftest.py`. GitHub CI runs the full suite
+on every push and is the single full check, so do not also run the full suite
+locally.
+
+- `pytest -m core`: always run. Covers the AI connector (MCP, OAuth,
+  reviewed actions); about 300 tests.
+- `pytest -m isolation`: when shared services, access rules, models or routes
+  change.
+- `pytest -m crm`: when web CRM routes or services change.
+- `pytest -m migration`: when a migration changes, and before a production
+  rollout.
+- `pytest -m ops`: when the operational scripts they cover change.
+
+While iterating, run only the test files for the code you changed, then the
+`core` tier (plus any tier above that your change touches) before pushing. Let
+CI confirm everything else.
+
 ## Active MVP scope lock
 
 Read `docs/mcp-readiness-status.md` before planning or changing this project. Its
