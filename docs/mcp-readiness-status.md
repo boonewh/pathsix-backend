@@ -1888,9 +1888,18 @@ repeating host trials.
     was refused.
   - Lead 18 was unchanged. After revocation, calls returned 401. Grant
     `7d9fe0bb-3e0b-4bd4-b771-1370d4ae5dcc` remains, revoked.
-- **Per-release manual check (pending):** in ChatGPT (card) and Claude (review
-  link), add a note to a lead, mark a follow-up completed and reassign a lead.
-  Each existing connection approves the update permissions once.
+- **Per-release manual check (pass, November 8 local):** each change was
+  committed exactly once (read-only check).
+  - ChatGPT card: a lead 18 note was **appended**; the existing text was kept,
+    followed by "Wants a quote by Friday (November 13, 2026)." ChatGPT supplied
+    the date itself, visible to the user on the card.
+  - Claude review link: interaction 16's follow-up changed from pending to
+    completed.
+  - ChatGPT card: lead 19 (Red Mesa Fabrication) was reassigned from the admin
+    to mvp-user@staging.test.
+  - Observation: Marigold has two open follow-ups (interaction 11 and 16).
+    Claude completed 16 for "my follow-up with Marigold"; whether it should
+    have asked is pending the user's view.
 
 The external review page remains a fallback. Staging now uses an inline review
 card; its remaining acceptance gates are summarized in the current security
