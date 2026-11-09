@@ -36,6 +36,13 @@ schedule view. Users can ask "what do I have scheduled today?" or "what do I
 have this week?" and get the follow-ups and contacts (interactions) due in that
 period. See the "See what's scheduled" row in the locked capability table.
 
+**Scope change approved by the user on November 9, 2026:** the web CRM's
+Settings page links to the AI connection instructions (`/connect`) and the
+connection management page (`/oauth/connections`), so employees can find
+them. This is a minimal frontend change on `staging`
+(`pathsixdesigns-crm` `e59b9b1`). Friendly production domains for these pages
+and the MCP URL belong to the Phase 7 rollout.
+
 - Work toward completing this MVP. Make routine implementation choices and the
   supporting code, schema, test and UI changes necessary for its listed workflows.
   Prefer the smallest adequate solution using existing services. Do not add
