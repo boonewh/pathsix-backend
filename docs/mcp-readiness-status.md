@@ -1574,7 +1574,25 @@ staging**, and no live client has connected yet.
   prefers it, and it would keep working if OpenAI dropped public mode. It needs
   schema changes, JWKS fetching and assertion-replay protection.
 
-Remaining in this increment: connect/read/create checks for ChatGPT, Gemini,
+#### ChatGPT connection check — November 8, 2026: pass
+
+- The user added "PathSix CRM2" on chatgpt.com from `/connect`; ChatGPT holds
+  deleted app names for a while. ChatGPT registered as CIMD client
+  `https://chatgpt.com/oauth/client.json`, named "ChatGPT".
+- An abandoned first sign-in at 00:57 UTC got a code, but ChatGPT never
+  exchanged it; ChatGPT showed "Missing OAuth callback data". The 00:58
+  sign-in completed: code exchange and refreshes succeeded, and the plugin page
+  shows the account connected. The unused 00:57 grant expires on its own.
+- Reads: 11 leads returned. Reviewed creation: lead 27 `MVP-MULTI-CHATGPT`
+  saved exactly once, and the new "Lead created" screen displayed. The empty
+  focus outline under that screen was fixed in `29af8b5`.
+- `/connect` corrections from the trial: ChatGPT connections are added on
+  chatgpt.com from a computer, not the phone app, and its button is **Add** at
+  the top right.
+- ChatGPT connected this way uses the review link, not the inline card. Giving
+  it the card needs the user's trust decision.
+
+Remaining in this increment: connect/read/create checks for Gemini,
 Claude Code and VS Code. ChatGPT added through `/connect` self-registers, so it
 gets the review link rather than the inline card. Decide how ChatGPT's own
 registration earns inline trust once its trial shows the client ID it uses.
