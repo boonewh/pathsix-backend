@@ -1897,9 +1897,9 @@ repeating host trials.
     completed.
   - ChatGPT card: lead 19 (Red Mesa Fabrication) was reassigned from the admin
     to mvp-user@staging.test.
-  - Observation: Marigold has two open follow-ups (interaction 11 and 16).
-    Claude completed 16 for "my follow-up with Marigold"; whether it should
-    have asked is pending the user's view.
+  - Ambiguity handled correctly: Marigold had two open follow-ups
+    (interactions 11 and 16). Claude asked the user which one, and the user
+    chose 16. This matches the "ask when several match" instruction.
 
 The external review page remains a fallback. Staging now uses an inline review
 card; its remaining acceptance gates are summarized in the current security
