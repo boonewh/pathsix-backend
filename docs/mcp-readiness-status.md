@@ -1662,6 +1662,13 @@ repeating host trials.
   - Rerun it each release.
 - **Still pending:** the instruction-like CRM text step joins the per-release
   manual check, as the verification policy describes.
+- **Deployed:** `bdaf5d2` after [CI 42547591976](https://github.com/boonewh/pathsix-backend/actions/runs/42547591976)
+  (788 backend and 16 component tests passed). Deployed from a clean checkout
+  of the commit. After deploy: health 200, the review page serves the
+  registry-driven script, the live ChatGPT and Claude client documents are
+  accepted, and the existing Claude connection read leads without
+  reconnecting. Awaiting the per-release manual check: one ChatGPT card save
+  and one Claude review-link save.
 
 The external review page remains a fallback. Staging now uses an inline review
 card; its remaining acceptance gates are summarized in the current security
