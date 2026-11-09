@@ -1796,6 +1796,31 @@ repeating host trials.
   - Plus `tests/test_mcp_record_creation_migration.py`.
   - The published-scope assertion in `test_mcp_reads` now compares with
     `PUBLISHED_SCOPES`.
+- **Deployed:** code `01ef0a3` after [CI 42557196788](https://github.com/boonewh/pathsix-backend/actions/runs/42557196788),
+  from a clean checkout.
+  - `mcp_record_creation` was rehearsed (rolled back) and then applied in
+    separate reviewed steps. Head is `mcp_record_creation`, and the 11 bounded
+    table counts were unchanged.
+  - The trust script was previewed and then applied, so the trusted ChatGPT
+    row has the nine published scopes. Claude and the DCR rows were widened by
+    the migration. The legacy `pathsix-chatgpt-staging` operator row is
+    unchanged.
+- **Agent-run live check (pass):** a temporary DCR client "PathSix agent create
+  check" received the create tools without any decide tools.
+  - Contact, project and interaction proposals were each created as pending,
+    the contact with a review link, and nothing was saved.
+  - An offset time was refused, and `get_project_creation` refused a contact
+    action while `get_contact_creation` read it.
+  - After revocation, calls returned 401. Grant
+    `6e20ac16-bb9b-4ffc-84c2-4d06dc62a87a` remains, revoked, and its pending
+    proposals expire unapproved.
+- **Fix from the check:** the time-zone refusal reached the model only as the
+  generic "Invalid tool arguments". It now raises `ActionConflict`, so the
+  guidance text reaches the AI, and a test asserts this.
+- **Per-release manual check (pending):** in ChatGPT (card) and Claude (review
+  link), add a contact to a lead and log an interaction with a follow-up, then
+  confirm both on the schedule. Existing connections must approve the new
+  create permissions once.
 
 The external review page remains a fallback. Staging now uses an inline review
 card; its remaining acceptance gates are summarized in the current security

@@ -135,7 +135,8 @@ def _checked(schema, model, value, excluded=()):
     for key, field in validated.model_dump().items():
         if isinstance(field, datetime) and field.tzinfo is not None:
             # CRM dates are the user's local wall-clock times (see mcp_records).
-            raise ValueError('Give dates as local times without a time zone, like 2026-11-10T10:00')
+            # ActionConflict text reaches the model, so it can correct the call.
+            raise ActionConflict('Give dates as local times without a time zone, like 2026-11-10T10:00')
         column = model.__table__.c.get(key)
         bound = getattr(getattr(column, 'type', None), 'length', None)
         if bound and isinstance(field, str) and len(field) > bound:

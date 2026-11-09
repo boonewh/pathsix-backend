@@ -107,6 +107,12 @@ def test_interaction_rejects_time_zones_status_and_bad_parents(writer, fields):
     assert prepare(writer, token(writer), 'interaction', fields)['isError']
 
 
+def test_time_zone_refusal_tells_the_ai_how_to_fix_it(writer):
+    result = prepare(writer, token(writer), 'interaction',
+                     {'client_id': 1, 'summary': 'x', 'contact_date': '2026-11-10T10:00:00Z'})
+    assert result['isError'] and 'local times without a time zone' in result['content'][0]['text']
+
+
 def test_each_kinds_tools_only_handle_their_own_proposals(writer):
     raw = token(writer)
     contact = prepare(writer, raw, 'contact', {'first_name': 'Adam', 'client_id': 1})
