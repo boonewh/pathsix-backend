@@ -248,3 +248,20 @@ def test_user_and_preference_reads_are_not_cached(crm):
             response = await app.test_client().get(path,headers={'Authorization':'Bearer '+token})
             assert response.status_code == 200 and response.headers['Cache-Control'] == 'no-store'
     asyncio.run(exercise())
+
+
+def test_mixed_case_emails_are_stored_lowercase_and_can_log_in(crm):
+    call, factory, _ = crm
+    status, body = call('POST','/api/users', {'email':'  New.Person@Example.TEST ','password':'test-password','roles':[]})
+    assert status in (200, 201), body
+    with factory() as db:
+        assert db.query(User).filter_by(email='new.person@example.test').count() == 1
+    # Login lowercases what is typed; any capitalization now finds the account.
+    for typed in ('New.Person@Example.TEST', 'new.person@example.test'):
+        status, body = call('POST','/api/login', {'email':typed,'password':'test-password'}, user=None)
+        assert status == 200, body
+    # An address differing only in case is the same account and stays unavailable.
+    assert call('POST','/api/users', {'email':'A@EXAMPLE.TEST','password':'x','roles':[]})[0] == 400
+    assert call('PUT','/api/users/3', {'email':'Changed@Example.Test'})[0] == 200
+    with factory() as db:
+        assert db.get(User, 3).email == 'changed@example.test'

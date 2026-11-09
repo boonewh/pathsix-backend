@@ -1,4 +1,5 @@
 """Tenant-bound user administration; adapters own commits and email delivery."""
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
@@ -26,7 +27,9 @@ class UserService(TenantService):
                 or any(c.isspace() for c in value.strip())
                 or not all(value.strip().split('@'))):
             raise ValueError('A valid email is required')
-        return value.strip()
+        # Login and password reset lowercase the typed email and match exactly,
+        # so a stored capital letter would make the account impossible to use.
+        return value.strip().lower()
 
     def _roles(self, names):
         if (not isinstance(names, list)
@@ -58,7 +61,8 @@ class UserService(TenantService):
                 self._query(User).options(joinedload(User.roles)).all()]
 
     def _check_email(self, email, exclude_id=None):
-        query = self._query(User).filter(User.email == email)
+        # Case-insensitive, so an older mixed-case address still counts as taken.
+        query = self._query(User).filter(func.lower(User.email) == email)
         if exclude_id is not None:
             query = query.filter(User.id != exclude_id)
         if query.first() is not None:

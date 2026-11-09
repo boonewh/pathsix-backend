@@ -6,6 +6,7 @@ from zipfile import ZipFile
 
 from openpyxl import load_workbook
 from pydantic import ValidationError
+from sqlalchemy import func
 from sqlalchemy.exc import DataError, IntegrityError
 
 from app.constants import PHONE_LABELS
@@ -126,7 +127,7 @@ class ImportService(TenantService):
     def submit(self, upload, mappings, assigned_email):
         if not isinstance(assigned_email, str) or not assigned_email.strip():
             raise ValueError('Assigned user not found or inactive')
-        assignee = self._query(User).filter(User.email == assigned_email.strip(),
+        assignee = self._query(User).filter(func.lower(User.email) == assigned_email.strip().lower(),
                                            User.is_active.is_(True)).first()
         if assignee is None:
             raise ValueError('Assigned user not found or inactive')

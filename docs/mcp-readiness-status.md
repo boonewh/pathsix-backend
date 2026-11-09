@@ -1915,12 +1915,19 @@ repeating host trials.
     interactions are visible, no admin role, and a real `/api/login` succeeds.
   - Passwords were generated locally, sent only over SSH stdin, and kept in a
     private local file outside the repository.
-- **Bug found (not yet fixed):** `UserService.create` stores email addresses as
-  typed, but login lowercases the typed email and matches exactly. A user
-  added with any capital letter could never log in. Testers were created
-  lowercase. The small fix is to normalize emails to lowercase in
-  `UserService` (and its duplicate check). It affects the production web
-  CRM's add-user screen, so its production rollout needs the user's decision.
+- **Bug fixed (user approved, November 9; staging):** `UserService` stored
+  email addresses as typed, but login and password reset lowercase the typed
+  email and match exactly. A user added with any capital letter could never
+  log in.
+  - The fix: `UserService` now lowercases emails on create and on email
+    change, and the duplicate check is case-insensitive. The CSV import's
+    "assign to" email lookup is also case-insensitive.
+  - Test: `test_mixed_case_emails_are_stored_lowercase_and_can_log_in`
+    creates `New.Person@Example.TEST` and logs in with both capitalizations.
+  - Staging data check: 0 of 6 users have mixed-case emails and there are no
+    case duplicates, so no data change was needed.
+  - Production has the same bug in `main`. Shipping the fix there, and
+    checking production data, needs the user's decision.
 
 The external review page remains a fallback. Staging now uses an inline review
 card; its remaining acceptance gates are summarized in the current security
