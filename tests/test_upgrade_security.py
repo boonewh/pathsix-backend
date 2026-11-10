@@ -70,6 +70,9 @@ def test_mail_goes_to_resend_over_verified_tls(monkeypatch):
                      'to':['visitor@example.test'],'subject':'Test subject','text':'Test body'}
     assert seen['context'].check_hostname and seen['context'].verify_mode==ssl.CERT_REQUIRED
     assert seen['timeout']==15
+    monkeypatch.setattr(email_utils,'MAIL_REPLY_TO','owner@example.test')
+    asyncio.run(email_utils.send_email('Test subject','visitor@example.test','Test body'))
+    assert json.loads(seen['request'].data)['reply_to']==['owner@example.test']
 
 
 def test_mail_without_a_resend_key_fails_clearly(monkeypatch):

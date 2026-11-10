@@ -50,6 +50,8 @@ MCP_INLINE_REVIEW = _bool("MCP_INLINE_REVIEW", False)
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 MAIL_FROM_NAME = os.getenv("MAIL_FROM_NAME", "PathSix CRM")
 MAIL_FROM_EMAIL = os.getenv("MAIL_FROM_EMAIL", "support@pathsixdesigns.com")
+# Resend only sends; replies go to this real mailbox when it is set.
+MAIL_REPLY_TO = os.getenv("MAIL_REPLY_TO", "")
 
 
 # --- Error Reporting ---------------------------------------------------------

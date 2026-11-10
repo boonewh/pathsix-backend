@@ -22,7 +22,7 @@ import sys
 import urllib.error
 import urllib.request
 
-BASE = 'https://pathsixsolutions-backend-staging.fly.dev'
+BASE = 'https://api-staging.pathsix.app'
 APP = 'pathsixsolutions-backend-staging'
 ADMIN_URL_HELPER = os.getenv('PATHSIX_STAGING_ADMIN_URL_HELPER', '')
 CLIENT_NAME = 'PathSix agent access check'

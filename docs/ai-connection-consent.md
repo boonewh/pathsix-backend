@@ -117,7 +117,7 @@ Application `3770a2d6fb1df2d8f5ec92c8e866435f3dae51b6`, built from a clean Git a
 runs as **staging v37** with image digest
 `sha256:0977cd1d48145491bf5923c7c968e4713f1e4d4c291ba47625fbd8d7528f9156`.
 Both existing machines passed health checks, with unchanged capacity/services/mounts.
-`MCP_RESOURCE_URI` is `https://pathsixsolutions-backend-staging.fly.dev/mcp`; this
+`MCP_RESOURCE_URI` is `https://api-staging.pathsix.app/mcp`; this
 binds consent and does not expose that endpoint. All 21 original dirty files and
 three original checkout revisions were preserved. The final documentation update
 does not change verified application, test, migration or operations source.

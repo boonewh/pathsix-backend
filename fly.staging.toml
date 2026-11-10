@@ -10,7 +10,7 @@ primary_region = "iad"
 [env]
   OAUTH_STAGING = "true"
   MCP_INLINE_REVIEW = "true" # Controlled staging verification; disabled by default elsewhere.
-  MCP_RESOURCE_URI = "https://pathsixsolutions-backend-staging.fly.dev/mcp"
+  MCP_RESOURCE_URI = "https://api-staging.pathsix.app/mcp"
   MCP_CLIENT_REGISTRATION = "1" # Lets standards-based AI clients self-register (CIMD/DCR); off elsewhere.
 
 [processes]

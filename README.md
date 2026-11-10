@@ -80,7 +80,8 @@ BACKUP_RETENTION_DAYS=30
 # Email (Resend; pathsixdesigns.com must be verified in Resend)
 RESEND_API_KEY=re_your_key
 MAIL_FROM_NAME=PathSix CRM
-MAIL_FROM_EMAIL=support@pathsixdesigns.com
+MAIL_FROM_EMAIL=no-reply@pathsix.app
+MAIL_REPLY_TO=you@example.com
 
 # Monitoring
 SENTRY_DSN=your_sentry_dsn_here

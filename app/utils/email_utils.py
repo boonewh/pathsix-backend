@@ -8,7 +8,7 @@ import urllib.request
 
 import certifi
 from quart import current_app
-from app.config import MAIL_FROM_NAME, MAIL_FROM_EMAIL, RESEND_API_KEY
+from app.config import MAIL_FROM_NAME, MAIL_FROM_EMAIL, MAIL_REPLY_TO, RESEND_API_KEY
 from app.utils.auth_utils import generate_reset_token
 
 RESEND_URL = "https://api.resend.com/emails"
@@ -52,6 +52,8 @@ async def send_email(subject: str, recipient: str, body: str):
         "subject": subject,
         "text": body,
     }
+    if MAIL_REPLY_TO:
+        payload["reply_to"] = [MAIL_REPLY_TO]
     try:
         return await asyncio.to_thread(_post_to_resend, payload)
     except EmailDeliveryError as error:
