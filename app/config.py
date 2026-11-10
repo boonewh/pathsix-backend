@@ -45,12 +45,9 @@ OAUTH_STAGING = _bool("OAUTH_STAGING", False)
 # Controlled rollout: requires a host that isolates app-only tools and component metadata.
 MCP_INLINE_REVIEW = _bool("MCP_INLINE_REVIEW", False)
 
-# --- Mail (SMTP) ------------------------------------------------------------
-MAIL_SERVER = os.getenv("MAIL_SERVER", "mail.gandi.net")
-MAIL_PORT = _int("MAIL_PORT", 587)
-MAIL_USERNAME = os.getenv("MAIL_USERNAME", "support@pathsixdesigns.com")
-MAIL_PASSWORD = os.getenv("MAIL_PASSWORD", "")
-MAIL_USE_TLS = _bool("MAIL_USE_TLS", True)
+# --- Mail (Resend) ----------------------------------------------------------
+# Email goes through Resend (https://resend.com); the sender domain must be verified there.
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 MAIL_FROM_NAME = os.getenv("MAIL_FROM_NAME", "PathSix CRM")
 MAIL_FROM_EMAIL = os.getenv("MAIL_FROM_EMAIL", "support@pathsixdesigns.com")
 

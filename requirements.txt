@@ -6,10 +6,6 @@ aiofiles==24.1.0 \
     # via
     #   -r pathsix-backend-mvp/requirements.in
     #   quart
-aiosmtplib==5.1.3 \
-    --hash=sha256:ac2b418d3260ba62d9cfd0fe7359726e9dc009a4e8e8d9909fdfae332f522a7c \
-    --hash=sha256:f7d76ce3d4995a65a178c1f11e1bd1607706b921d00cb768e7a2c7f7ef5517a8
-    # via -r pathsix-backend-mvp/requirements.in
 alembic==1.14.1 \
     --hash=sha256:1acdd7a3a478e208b0503cd73614d5e4c6efafa4e73518bb60e4f2846a37b1c5 \
     --hash=sha256:496e888245a53adf1498fcab31713a469c65836f8de76e01399aa1c3e90dd213

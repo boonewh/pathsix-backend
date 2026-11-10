@@ -2,6 +2,7 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import io
 import json
 import logging
 import ssl
@@ -49,17 +50,43 @@ def test_legacy_tokens_current_tokens_passwords_and_reset_roundtrip():
     asyncio.run(run())
 
 
-def test_mail_keeps_verified_tls_and_existing_envelope(monkeypatch):
-    send=AsyncMock()
-    monkeypatch.setattr(email_utils.aiosmtplib,'send',send)
-    asyncio.run(email_utils.send_email('Test subject','visitor@example.test','Test body'))
-    args=send.call_args
-    assert args.args[0]['To']=='visitor@example.test'
-    assert args.kwargs['hostname']==email_utils.MAIL_SERVER
-    assert args.kwargs['start_tls']==email_utils.MAIL_USE_TLS
-    assert args.kwargs['validate_certs'] is True
-    assert args.kwargs['tls_context'].check_hostname
-    assert args.kwargs['tls_context'].verify_mode==ssl.CERT_REQUIRED
-    assert args.kwargs['timeout']==15
+def test_mail_goes_to_resend_over_verified_tls(monkeypatch):
+    seen={}
+    class Reply:
+        def __enter__(self): return self
+        def __exit__(self,*a): return False
+        def read(self): return b'{"id":"email-1"}'
+    def urlopen(request,timeout,context):
+        seen.update(request=request,timeout=timeout,context=context)
+        return Reply()
+    monkeypatch.setattr(email_utils,'RESEND_API_KEY','re_test_key')
+    monkeypatch.setattr(email_utils.urllib.request,'urlopen',urlopen)
+    assert asyncio.run(email_utils.send_email('Test subject','visitor@example.test','Test body'))=='email-1'
+    request=seen['request']
+    assert request.full_url=='https://api.resend.com/emails' and request.get_method()=='POST'
+    assert request.get_header('Authorization')=='Bearer re_test_key'
+    payload=json.loads(request.data)
+    assert payload=={'from':f'{email_utils.MAIL_FROM_NAME} <{email_utils.MAIL_FROM_EMAIL}>',
+                     'to':['visitor@example.test'],'subject':'Test subject','text':'Test body'}
+    assert seen['context'].check_hostname and seen['context'].verify_mode==ssl.CERT_REQUIRED
+    assert seen['timeout']==15
+
+
+def test_mail_without_a_resend_key_fails_clearly(monkeypatch):
+    monkeypatch.setattr(email_utils,'RESEND_API_KEY','')
+    with pytest.raises(email_utils.EmailDeliveryError,match='RESEND_API_KEY'):
+        asyncio.run(email_utils.send_email('s','visitor@example.test','b'))
+
+
+def test_resend_refusal_is_reported_without_the_key(monkeypatch):
+    def urlopen(request,timeout,context):
+        raise email_utils.urllib.error.HTTPError(request.full_url,403,'Forbidden',{},
+            io.BytesIO(b'{"message":"The pathsixdesigns.com domain is not verified"}'))
+    monkeypatch.setattr(email_utils,'RESEND_API_KEY','re_secret_key')
+    monkeypatch.setattr(email_utils.urllib.request,'urlopen',urlopen)
+    with pytest.raises(email_utils.EmailDeliveryError) as refused:
+        asyncio.run(email_utils.send_email('s','visitor@example.test','b'))
+    assert '403' in str(refused.value) and 'not verified' in str(refused.value)
+    assert 're_secret_key' not in str(refused.value)
 
 

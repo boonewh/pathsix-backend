@@ -77,12 +77,10 @@ BACKUP_S3_SECRET_ACCESS_KEY=your_secret
 BACKUP_GPG_PASSPHRASE=your-secure-passphrase
 BACKUP_RETENTION_DAYS=30
 
-# Email (SMTP)
-MAIL_SERVER=mail.gandi.net
-MAIL_PORT=587
-MAIL_USERNAME=support@pathsixdesigns.com
-MAIL_PASSWORD=your_password
-MAIL_USE_TLS=true
+# Email (Resend; pathsixdesigns.com must be verified in Resend)
+RESEND_API_KEY=re_your_key
+MAIL_FROM_NAME=PathSix CRM
+MAIL_FROM_EMAIL=support@pathsixdesigns.com
 
 # Monitoring
 SENTRY_DSN=your_sentry_dsn_here
