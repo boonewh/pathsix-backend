@@ -292,6 +292,7 @@ def test_connect_page_gives_one_url_for_any_ai_app(oauth, monkeypatch):
     for app in ('Claude', 'ChatGPT', 'Gemini', 'Claude Code', 'VS Code'):
         assert f'<h3>{app}</h3>' in body
     assert 'client ID or secret' in body and '90 days without use' in body and '<script' not in body
+    assert '<strong>allow pop-ups</strong>' in body  # A blocked sign-in window stalls Connect.
     monkeypatch.setenv('MCP_RESOURCE_URI', 'http://insecure.test/mcp')
     assert oauth.request('GET', '/connect')[0] == 503
 
