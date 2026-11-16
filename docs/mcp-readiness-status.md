@@ -1949,6 +1949,49 @@ confirmation boundary before its replacement passes the security and live-flow
 checks. See the [server guidance](https://developers.openai.com/plugins/build/mcp-server)
 and [authentication guidance](https://developers.openai.com/plugins/build/auth).
 
+### Phase 6: operational safeguards — November 15, 2026 (source `7b10e81`, deployed to staging)
+
+Production's `main` history was first merged into staging in both repositories
+(backend `b59164f`, frontend `43db494`); every production change already existed
+on staging, and the admin whole-database backup endpoint stays unregistered.
+A follow-up (`f772a57`) keeps recipients out of logs when Resend refuses an email.
+
+- **Abuse limits.** Per-address limits counted Fly's proxy, so every visitor
+  shared one bucket (five failed logins locked out everyone; also true on
+  production). On Fly they now use `Fly-Client-IP`. `/mcp` limits failed
+  sign-ins per address before any database work (30/min) and signed-in use per
+  AI connection (120/min), because AI hosts share a few addresses. Per-address
+  and per-connection counters live in each machine's memory (up to 2x with two
+  machines); proposals, token exchanges and self-registration keep their shared
+  database limits. Staging check: faked `Fly-Client-IP`/`X-Forwarded-For`
+  headers did not escape the login limit.
+- **Privacy-preserving monitoring.** Sentry reports no longer include local
+  variable values (its default), request data or user identity; connector and
+  sign-in errors also drop exception messages (`app/utils/sentry_privacy.py`).
+  Existing Sentry high-priority issue alerts cover the backend. An uptime
+  monitor for the backend health endpoint is not created yet: it changes the
+  Sentry account and belongs on the final production address, so it waits for
+  the owner's approval at rollout.
+- **Retention.** `scripts/prune_ai_records.py` (dry run by default, admin login
+  must target the app's own database and bypass row security) deletes
+  connections ended over 90 days ago with their credentials, audits and
+  receipts, and credentials expired over 30 days ago. Staging dry run: 107
+  expired credentials, no long-ended connections; not applied.
+- **Runbook.** `docs/ai-connector-runbook.md`: logs and status meanings, limits,
+  revocation, kill switch, rollback, backups/restore, retention, incident list.
+  The kill switch was rehearsed on staging (`MCP_RESOURCE_URI=off`: connector
+  503, CRM login unaffected; unset restored it).
+- **Backups found during this work.** The scheduled backup app in
+  `fly.scheduled-backup.toml` is not deployed. Production relies on Fly's daily
+  database volume snapshots (14 kept; newest 7 hours old on November 15).
+- **Tests.** New/updated: `test_rate_limiter.py`, `test_mcp_reads.py` limits,
+  `test_sentry_privacy.py`, `test_prune_ai_records.py`, transport diagnostics.
+  `core` + `crm` passed locally (627); CI passed on `7b10e81`.
+
+Remaining before production (Phase 7): rehearse the release and the 14 database
+migrations on a restored copy of production, the production domains and
+settings, the email-case data check, the uptime monitor decision, then rollout.
+
 ### Implementation sequence
 
 1. Build one complete lead-creation workflow in staging: find relevant records,
@@ -2068,3 +2111,5 @@ moving it into the build.
 | CI action/runtime maintenance | [Lead-creation CI](https://github.com/boonewh/pathsix-backend/actions/runs/37543228687) warns that checkout/setup-python target deprecated Node 20 and that ubuntu-latest is scheduled to change | CI passed; record for later maintenance, not an expansion of this milestone |
 | Inline card for Claude | Claude supports MCP Apps, so a trusted Claude could approve in chat instead of through the review link. Requires confirming Claude keeps result `_meta` from the model and honors app-only visibility | Needs evidence, then the user's trust decision (as with ChatGPT) |
 | Pre-release check of `/connect` steps against vendor help pages | Vendor menus change often (ChatGPT "+" became "Add"; Claude web differs from phone), and catching changes before customers do avoids confusion | Suggested November 8; needs a scope decision after the MVP |
+| Shared (cross-machine) rate-limit counters | Per-address and per-connection limits are per machine; with two machines a visitor can get up to twice the limit | Acceptable at current scale (Phase 6); revisit with more machines or abuse evidence |
+| Scheduled backup job and automatic retention | `fly.scheduled-backup.toml` is not deployed; retention runs monthly by hand | Fly volume snapshots cover recovery; automating needs a scope decision |
