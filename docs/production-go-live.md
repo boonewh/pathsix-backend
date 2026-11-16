@@ -21,6 +21,8 @@ or piped between commands.
 - [ ] Backend and frontend release pull requests (`staging` -> `main`) open with CI passing.
 - [ ] Release image built and pushed without deploying:
       `flyctl deploy --build-only --push --image-label release-<sha> --config fly.toml --app pathsixsolutions-backend`.
+- [ ] `crm.pathsix.app` added to Vercel's **production** project (`pathsix-crm`) and its CNAME in Gandi.
+      `CORS_ALLOWED_ORIGINS=https://crm.pathsix.app` is already staged on the backend.
 - [ ] Downtime email sent.
 
 ## At 7:00 PM
@@ -56,7 +58,9 @@ or piped between commands.
     the owner logs in on the web.
 11. **Remove the ops machine:** delete the handoff file, then `flyctl machine destroy <ops id> --force`.
 12. **Web app:** in Vercel's production project set `VITE_API_BASE_URL=https://api.pathsix.app/api`,
-    then merge the frontend pull request; check the live site logs in and loads records.
+    then merge the frontend pull request; check the live site logs in and loads records at both
+    `crm.pathsix.app` and `pathsix-crm.vercel.app`. Then point reset links at the new address:
+    `flyctl secrets set FRONTEND_URL=https://crm.pathsix.app --app pathsixsolutions-backend`.
 13. **After:** move the Sentry uptime monitor to `https://api.pathsix.app/api/health`; unset the old
     `MAIL_SERVER`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_USE_TLS` secrets; announce.
 
