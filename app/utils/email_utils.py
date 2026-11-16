@@ -19,6 +19,14 @@ class EmailDeliveryError(RuntimeError):
     """Resend refused or could not be reached; the message holds no secrets."""
 
 
+def _error_name(error) -> str:
+    try:
+        name = json.loads(error.read(2000) or b"{}").get("name", "")
+    except (ValueError, AttributeError, OSError):
+        return "unknown_error"
+    return name if isinstance(name, str) and name.replace("_", "").isalnum() and len(name) <= 60 else "unknown_error"
+
+
 def _post_to_resend(payload: dict) -> str:
     request = urllib.request.Request(
         RESEND_URL,
@@ -35,9 +43,9 @@ def _post_to_resend(payload: dict) -> str:
         with urllib.request.urlopen(request, timeout=15, context=context) as response:
             return json.loads(response.read() or b"{}").get("id", "")
     except urllib.error.HTTPError as error:
-        # Resend explains refusals (unverified domain, bad key) in the body.
-        detail = error.read(300).decode(errors="replace")
-        raise EmailDeliveryError(f"Resend refused the email ({error.code}): {detail}") from None
+        # Keep only Resend's fixed error code (e.g. validation_error). Its message
+        # text can repeat the recipient, and this error reaches logs and Sentry.
+        raise EmailDeliveryError(f"Resend refused the email ({error.code} {_error_name(error)})") from None
     except (urllib.error.URLError, TimeoutError) as error:
         raise EmailDeliveryError(f"Resend could not be reached ({type(error).__name__})") from None
 
