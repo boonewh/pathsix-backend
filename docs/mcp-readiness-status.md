@@ -1968,15 +1968,16 @@ A follow-up (`f772a57`) keeps recipients out of logs when Resend refuses an emai
 - **Privacy-preserving monitoring.** Sentry reports no longer include local
   variable values (its default), request data or user identity; connector and
   sign-in errors also drop exception messages (`app/utils/sentry_privacy.py`).
-  Existing Sentry high-priority issue alerts cover the backend. An uptime
-  monitor for the backend health endpoint is not created yet: it changes the
-  Sentry account and belongs on the final production address, so it waits for
-  the owner's approval at rollout.
+  Existing Sentry high-priority issue alerts cover the backend. With the
+  owner's approval, Sentry uptime monitor `10967636` checks production's
+  `/api/health` every minute (down after 3 failures); move it to
+  `api.pathsix.app` at rollout.
 - **Retention.** `scripts/prune_ai_records.py` (dry run by default, admin login
   must target the app's own database and bypass row security) deletes
   connections ended over 90 days ago with their credentials, audits and
-  receipts, and credentials expired over 30 days ago. Staging dry run: 107
-  expired credentials, no long-ended connections; not applied.
+  receipts, and credentials expired over 30 days ago. Applied on staging with
+  the owner's approval: 107 expired credentials removed, a following dry run
+  found none.
 - **Runbook.** `docs/ai-connector-runbook.md`: logs and status meanings, limits,
   revocation, kill switch, rollback, backups/restore, retention, incident list.
   The kill switch was rehearsed on staging (`MCP_RESOURCE_URI=off`: connector
@@ -1987,6 +1988,16 @@ A follow-up (`f772a57`) keeps recipients out of logs when Resend refuses an emai
 - **Tests.** New/updated: `test_rate_limiter.py`, `test_mcp_reads.py` limits,
   `test_sentry_privacy.py`, `test_prune_ai_records.py`, transport diagnostics.
   `core` + `crm` passed locally (627); CI passed on `7b10e81`.
+
+**Follow-ups, November 15 (`ba7a116`, deployed to staging).** The instructions
+sent to AI hosts on connect described lead creation only and pointed every
+recovery at `get_lead_creation`; they now name every create and update kind,
+and a test fails if one is missing. Production's own limiter was worse than
+staging's: it trusted `X-Forwarded-For` (unlimited password guessing with fake
+addresses) and shared counters across endpoints. Pull request
+[#33](https://github.com/boonewh/pathsix-backend/pull/33) brings staging's
+limiter and the Sentry privacy settings to `main` alone; production's suite
+passes (74). It is not merged or deployed: both wait for the owner.
 
 Remaining before production (Phase 7): rehearse the release and the 14 database
 migrations on a restored copy of production, the production domains and
