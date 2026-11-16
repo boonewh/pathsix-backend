@@ -1,4 +1,12 @@
-"""Provision a separate staging runtime login; never print connection secrets."""
+"""Provision a separate restricted runtime login; never print connection secrets.
+
+    python scripts/staging_database_role.py                     # staging (DATABASE_URL)
+    <admin-url> | python scripts/staging_database_role.py --target rehearsal|production
+
+Targets are fixed in database_targets.py. The runtime URL is handed off in a
+mode-0600 file on the machine, never printed.
+"""
+import argparse
 import json
 import os
 import secrets
@@ -8,12 +16,15 @@ from sqlalchemy import create_engine, text, inspect
 from sqlalchemy.engine import make_url
 from psycopg2 import sql
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from database_targets import checked_admin_url, target  # noqa: E402
+
 ROLE = 'pathsix_crm_staging_runtime'
 WRITABLE_TABLES = ('accounts', 'activity_logs', 'clients', 'contacts', 'files',
     'interactions', 'leads', 'projects', 'subscriptions', 'user_preferences',
     'user_roles', 'users')
 READ_ONLY_TABLES = ('tenants', 'roles')
-CREDENTIAL_PATH = '/tmp/pathsix-staging-runtime-credentials.json'
+CREDENTIAL_PATH = '/tmp/pathsix-{target}-runtime-credentials.json'
 
 
 def grant_runtime_access(connection, role, schema='public'):
@@ -44,9 +55,17 @@ def staging_url():
     return url
 
 
-def provision():
-    url = staging_url()
-    if Path(CREDENTIAL_PATH).exists():
+def target_url(name):
+    if name == 'staging':
+        return staging_url()
+    return checked_admin_url(name, sys.stdin.readline(), os.getenv('FLY_APP_NAME'))
+
+
+def provision(name='staging'):
+    ROLE = target(name)['runtime_role']
+    credential_path = CREDENTIAL_PATH.format(target=name)
+    url = target_url(name)
+    if Path(credential_path).exists():
         raise RuntimeError('Credential handoff already exists; do not overwrite')
     engine = create_engine(url, hide_parameters=True)
     password = secrets.token_urlsafe(48)
@@ -78,7 +97,7 @@ def provision():
                 raise RuntimeError('Unexpected platform table privilege')
         print('Restricted login connection and privilege preflight passed')
     runtime.dispose()
-    fd = os.open(CREDENTIAL_PATH, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    fd = os.open(credential_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, 'w') as output:
         json.dump({'previous_url': url.render_as_string(hide_password=False),
                    'runtime_url': runtime_url.render_as_string(hide_password=False)}, output)
@@ -87,9 +106,11 @@ def provision():
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--target', choices=['staging', 'rehearsal', 'production'], default='staging')
     try:
-        provision()
+        provision(parser.parse_args().target)
     except Exception as exc:
         # Never expose a connection URL or credential-bearing SQL in tracebacks.
-        print('Staging role provisioning failed: ' + type(exc).__name__, file=sys.stderr)
+        print('Runtime role provisioning failed: ' + type(exc).__name__, file=sys.stderr)
         raise SystemExit(1)
