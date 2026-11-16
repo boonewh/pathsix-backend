@@ -98,7 +98,34 @@ application VMs have 1024 MB each, but its separate database machine
 - One-time follow-up automation verify-production-database-stays-awake is scheduled
   in this thread. It must inspect machine state before any database query, after
   17:20 UTC, and pause itself after reporting. Until then, staying awake beyond the
-  old one-hour boundary remains pending, not proven.
+  old one-hour boundary was pending until the follow-up below.
+
+## Completed scheduled follow-up — September 16
+
+The follow-up queried Fly's control plane before making any database connection;
+no database connections, wakes, restarts, deployments, or production data changes
+were performed by this check.
+
+- Machine 185925b476e108 remained started. Its latest recorded start remained
+  16:14:49.460 UTC, with no subsequent stop/start in the returned lifecycle events.
+- FLY_SCALE_TO_ZERO remained absent. Fly reported pg, role, and vm checks passing.
+  Check output timestamps remained the earlier status updates; their numeric
+  resource measurements should not be treated as newly sampled measurements.
+- Retained database logs spanned 16:14:51 through 18:20:43 UTC and showed repeated
+  normal-primary monitoring beyond both the one-hour and two-hour boundaries.
+  The 18:20:43 normal-state entry is over two hours after the repair's start.
+- The application log tail covered 17:58:20–18:21:16 UTC. No error/warning matches
+  were returned from that tail; its latest entry was a successful HTTP 200 health
+  check. This short retained tail does not establish every earlier request's status.
+- Fresh Sentry searches in python-quart and pathsix-frontend using
+  environment:production lastSeen:>2026-09-16T16:14:49 returned no matching issues.
+  This means no newly reported or recurring issues were found in that window,
+  not proof that every possible error was captured.
+- The one-time follow-up is complete and its automation is paused.
+
+The old one-hour shutdown did not recur in the observed interval. This validates
+the intended always-on behavior so far; it does not guarantee all future requests
+or establish that every historical production stutter had this cause.
 
 ### Rollback and follow-up
 
