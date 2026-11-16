@@ -2003,6 +2003,45 @@ Remaining before production (Phase 7): rehearse the release and the 14 database
 migrations on a restored copy of production, the production domains and
 settings, the email-case data check, the uptime monitor decision, then rollout.
 
+### Phase 7: production rehearsal — November 16, 2026 (owner approved; copy deleted)
+
+The operator scripts gained `--target staging|rehearsal|production`
+(`scripts/database_targets.py`, `983e4f0`): each target fixes the Fly app,
+database hosts, database, admin user and runtime role, and the admin login must
+match all of them. Production read-only facts: database `pathsixsolutions_backend`
+on `pathsixsolutions-db.flycast`, superuser admin `pathsixsolutions_backend`,
+PostgreSQL 17.2, no runtime role yet, the three legacy migration heads.
+
+A private copy (`pathsixsolutions-db-rehearsal`, postgres-flex 17.2) was restored
+from production snapshot `vs_njQ1kLbyjVYmfpk2OmMkKkOB`. Its admin password was
+replaced on the copy only and kept DPAPI-protected; production's password was
+never read. From staging machine `82549ec7079218`:
+
+- **Restricted login:** `pathsix_crm_runtime` created; privilege preflight passed.
+- **Migrations:** all 14, each as a rolled-back trial then applied, 3–8 s each
+  (about 3 minutes in total). Data: 2 tenants, 14 users, 217 clients, 518 leads,
+  286 projects, 542 interactions.
+- **Blocking data, found by `parent_link_rules`:** 3 projects (5, 6, 330) linked to
+  both a client and a lead (6 converted from its lead; 5 same name as its client
+  with the lead still at proposal; 330 deleted), and 3 interactions (829, 948,
+  1092; July 2025–January 2026, two with pending follow-ups) with no parent. On
+  the copy only, the lead links were cleared and the three interactions deleted
+  so the rehearsal could finish. **Production repair needs the owner's decision.**
+- **App check:** the real app, as `pathsix_crm_runtime` with RLS, for every user:
+  login lookup works for all active users; each list endpoint and the admin
+  "all" endpoints returned exactly the database's counts; tenants stayed
+  separate. No problems.
+- **Mixed-case email:** user 34 is the only one and is inactive, so no active
+  user is locked out.
+- The copy, its credentials on staging and the workstation, were deleted.
+
+**Go-live order this implies:** fresh production snapshot; owner-approved data
+repair; a short maintenance window; on a one-off machine in the production app
+running the new image with `CRM_RLS_ENABLED=1`, create `pathsix_crm_runtime` and
+run the 14 migrations; set production `DATABASE_URL` to the runtime login (from
+the machine's mode-0600 handoff, never printed) with `CRM_RLS_ENABLED=1` and the
+production MCP settings; deploy the new code; verify; then domains and email.
+
 ### Implementation sequence
 
 1. Build one complete lead-creation workflow in staging: find relevant records,
