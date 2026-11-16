@@ -17,7 +17,7 @@ or piped between commands.
 - [ ] `api.pathsix.app` CNAME in Gandi; `flyctl certs check api.pathsix.app --app pathsixsolutions-backend` shows issued.
 - [ ] Production Resend key staged: `flyctl secrets set --stage RESEND_API_KEY=... --app pathsixsolutions-backend`.
       `MAIL_FROM_EMAIL=no-reply@pathsix.app` and `MAIL_REPLY_TO` are already staged.
-- [ ] Owner decision on the 6 rule-breaking records (projects 5, 6, 330; interactions 829, 948, 1092).
+- [x] Owner decision on the 6 rule-breaking records (approved November 16: clear the lead link on projects 5, 6, 330; delete interactions 829, 948, 1092).
 - [ ] Backend and frontend release pull requests (`staging` -> `main`) open with CI passing.
 - [ ] Release image built and pushed without deploying:
       `flyctl deploy --build-only --push --image-label release-<sha> --config fly.toml --app pathsixsolutions-backend`.
