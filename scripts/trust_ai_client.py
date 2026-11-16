@@ -28,6 +28,7 @@ SCOPES = ['clients:read', 'clients:update', 'contacts:create', 'contacts:read', 
           'leads:update', 'projects:create', 'projects:read', 'projects:update']
 TARGETS = {
     'pathsixsolutions-backend-staging': ('pathsixsolutions-db-staging', 'pathsixsolutions_backend_staging'),
+    'pathsixsolutions-backend': ('pathsixsolutions-db', 'pathsixsolutions_backend'),
 }
 
 

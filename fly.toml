@@ -8,6 +8,15 @@ primary_region = "ord"   # co-located with the prod DB (pathsixsolutions-db) in 
 
 [build]
 
+[env]
+  # Tenant row security: the app runs as the restricted pathsix_crm_runtime login
+  # (DATABASE_URL secret) and sets each request's tenant and user in the database.
+  CRM_RLS_ENABLED = "1"
+  # AI connector (MCP + OAuth) at its permanent address. Unset or invalid = off (503).
+  MCP_RESOURCE_URI = "https://api.pathsix.app/mcp"
+  MCP_CLIENT_REGISTRATION = "1" # Standards-based AI clients self-register (CIMD/DCR).
+  MCP_INLINE_REVIEW = "true"    # In-chat approval card, only for operator-trusted clients.
+
 [processes]
   app = "hypercorn asgi:app --bind 0.0.0.0:8000 --keep-alive 600"
 
