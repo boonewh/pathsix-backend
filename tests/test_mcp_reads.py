@@ -346,3 +346,19 @@ def test_signed_in_mcp_use_is_limited_per_connection(oauth,monkeypatch):
     assert rpc(oauth,busy)[0]==200 and rpc(oauth,busy)[0]==200
     assert rpc(oauth,busy)[0]==429
     assert rpc(oauth,quiet)[0]==200  # another connection from the same host is unaffected
+
+
+def test_connect_instructions_cover_every_action_kind(oauth):
+    # Hosts show these to the model on connect; stale text once described lead
+    # creation only and pointed every recovery at get_lead_creation.
+    from app.services.ai_action_kinds import KINDS
+    token=oauth.tokens()['access_token']
+    status,body,_=rpc(oauth,token,'initialize',{'protocolVersion':'2025-11-25','capabilities':{},'clientInfo':{'name':'proof','version':'1'}})
+    text=body['result']['instructions']
+    assert status==200 and body['result']['serverInfo']['version']=='1.3.0'
+    create,update=text.split('; create ')[1].split('; update ')
+    for kind in KINDS.values():
+        verb,noun=kind.name.split('_',1)
+        assert (noun+'s') in (create if verb=='create' else update), kind.name
+    assert 'get_<record>_creation' in text and 'get_<record>_update' in text and 'local times' in text
+    assert 'lead creation' not in text

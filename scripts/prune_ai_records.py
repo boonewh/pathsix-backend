@@ -21,7 +21,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
@@ -79,7 +79,7 @@ def main():
             'SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user')).scalar()
         if not role:
             raise SystemExit('The administrator role must bypass row security; nothing was deleted.')
-        counts = prune(connection, datetime.utcnow(), args.apply)
+        counts = prune(connection, datetime.now(timezone.utc).replace(tzinfo=None), args.apply)
     print(json.dumps({'app': os.getenv('FLY_APP_NAME'), 'applied': args.apply,
                       'ended_days': ENDED_DAYS, 'expired_credential_days': EXPIRED_CREDENTIAL_DAYS,
                       'rows': counts}))
