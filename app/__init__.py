@@ -6,6 +6,7 @@ from sqlalchemy import text
 import asyncio
 import sentry_sdk
 from sentry_sdk.integrations.quart import QuartIntegration
+from app.utils.sentry_privacy import SENTRY_PRIVACY_OPTIONS, scrub_event
 from app.utils.logging_utils import logger, log_endpoint
 import time
 import os
@@ -61,9 +62,10 @@ def create_app():
             integrations=[
                 QuartIntegration(),
             ],
-            # Sample performance without collecting request bodies or default PII.
-            send_default_pii=False,
-            max_request_body_size="never",
+            # No request bodies, default PII or local variable values; see
+            # app/utils/sentry_privacy.py for what each report keeps.
+            **SENTRY_PRIVACY_OPTIONS,
+            before_send=scrub_event,
             traces_sample_rate=0.1,
 
             profiles_sample_rate=0.0,

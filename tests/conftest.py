@@ -44,7 +44,7 @@ CORE_FILES = {
     'test_ai_action_kinds.py', 'test_ai_connections.py', 'test_mcp_client_registration.py',
     'test_mcp_connection_discovery.py', 'test_mcp_inline_review.py', 'test_mcp_lead_creation.py', 'test_mcp_reads.py',
     'test_mcp_record_creation.py', 'test_mcp_record_reads.py', 'test_mcp_transport_diagnostics.py', 'test_oauth.py',
-    'test_rate_limiter.py',
+    'test_rate_limiter.py', 'test_sentry_privacy.py', 'test_prune_ai_records.py',
 }
 ISOLATION_FILES = {'test_isolation_proof.py', 'test_security_boundaries.py'}
 OPS_FILES = {'test_staging_lead_verification.py', 'test_upgrade_security.py', 'test_test_harness.py'}
@@ -72,3 +72,12 @@ def pytest_configure(config):
 def pytest_collection_modifyitems(config, items):
     for item in items:
         item.add_marker(getattr(pytest.mark, tier(item.path.name)))
+
+
+@pytest.fixture(autouse=True)
+def _fresh_rate_limits():
+    # Limits live in process memory; each test starts with empty counters so
+    # deliberate failures in one test cannot throttle the next.
+    from app.utils.rate_limiter import reset_rate_limit
+    reset_rate_limit()
+    yield

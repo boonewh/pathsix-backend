@@ -4,6 +4,8 @@ Simple in-memory rate limiter for authentication endpoints.
 For production with multiple server instances, consider Redis-backed rate limiting.
 This implementation uses a sliding window counter approach.
 """
+import ipaddress
+import os
 import time
 from collections import defaultdict
 from functools import wraps
@@ -18,12 +20,29 @@ _cleanup_threshold = 100
 
 
 def _get_client_ip():
-    """Use the socket peer; arbitrary forwarded headers are client-controlled.
+    """Identify the visitor without trusting client-controlled headers.
 
-    A shared proxy bucket is conservative until trusted ingress is configured.
+    On Fly, every request arrives from Fly's proxy, so the socket peer is the
+    same proxy address for everyone and would put all visitors in one bucket.
+    Fly's proxy sets Fly-Client-IP to the address it accepted the connection
+    from, replacing any value a client sends. X-Forwarded-For and similar
+    headers stay untrusted. Off Fly, the socket peer is used as before.
     """
-    return request.remote_addr or 'unknown'
+    return client_ip(request.headers, request.remote_addr)
 
+
+def client_ip(headers, remote_addr):
+    if os.getenv('FLY_APP_NAME'):
+        # Quart headers are case-insensitive multi-dicts; the MCP gateway passes
+        # a plain dict with lowercase names and refuses duplicates itself.
+        values = (headers.getlist('Fly-Client-IP') if hasattr(headers, 'getlist')
+                  else [headers.get('fly-client-ip')])
+        if len(values) == 1 and values[0]:
+            try:
+                return str(ipaddress.ip_address(values[0].strip()))
+            except ValueError:
+                pass
+    return remote_addr or 'unknown'
 
 
 def _cleanup_old_entries():
@@ -51,6 +70,38 @@ def _cleanup_old_entries():
         _cleanup_counter = 0
 
 
+def _valid_attempts(bucket_key, window_seconds, current_time):
+    cutoff_time = current_time - window_seconds
+    return [(timestamp, count) for timestamp, count in _rate_limit_store.get(bucket_key, [])
+            if timestamp > cutoff_time]
+
+
+def retry_after(bucket_key, max_attempts: int, window_seconds: int):
+    """Seconds until bucket_key may try again, or None while under the limit."""
+    current_time = time.time()
+    valid_attempts = _valid_attempts(bucket_key, window_seconds, current_time)
+    if sum(count for _, count in valid_attempts) < max_attempts:
+        return None
+    oldest_timestamp = min(timestamp for timestamp, _ in valid_attempts)
+    return int(window_seconds - (current_time - oldest_timestamp)) + 1
+
+
+def record_attempt(bucket_key, window_seconds: int):
+    current_time = time.time()
+    valid_attempts = _valid_attempts(bucket_key, window_seconds, current_time)
+    valid_attempts.append((current_time, 1))
+    _rate_limit_store[bucket_key] = valid_attempts
+    _cleanup_old_entries()
+
+
+def hit(bucket_key, max_attempts: int, window_seconds: int):
+    """Count one request; return seconds to wait if it is over the limit."""
+    wait = retry_after(bucket_key, max_attempts, window_seconds)
+    if wait is None:
+        record_attempt(bucket_key, window_seconds)
+    return wait
+
+
 def rate_limit(max_attempts: int, window_seconds: int):
     """
     Rate limiting decorator using sliding window.
@@ -73,44 +124,17 @@ def rate_limit(max_attempts: int, window_seconds: int):
             
             client_ip = _get_client_ip()
             bucket_key = (request.endpoint or request.path, client_ip)
-            current_time = time.time()
             
             # Keep each endpoint independent so login failures do not consume the
             # password-reset allowance (or vice versa) for the same client IP.
-            attempts = _rate_limit_store[bucket_key]
-            
-            # Remove expired attempts (outside the window)
-            cutoff_time = current_time - window_seconds
-            valid_attempts = [
-                (timestamp, count) for timestamp, count in attempts
-                if timestamp > cutoff_time
-            ]
-            
-            # Count total attempts in the window
-            total_attempts = sum(count for _, count in valid_attempts)
-            
-            # Check if limit exceeded
-            if total_attempts >= max_attempts:
-                # Find oldest attempt to calculate retry time
-                if valid_attempts:
-                    oldest_timestamp = min(timestamp for timestamp, _ in valid_attempts)
-                    retry_after = int(window_seconds - (current_time - oldest_timestamp)) + 1
-                else:
-                    retry_after = window_seconds
-                
+            wait = hit(bucket_key, max_attempts, window_seconds)
+            if wait is not None:
                 return jsonify({
                     "error": "Rate limit exceeded",
-                    "message": f"Too many attempts. Please try again in {retry_after} seconds.",
-                    "retry_after": retry_after
+                    "message": f"Too many attempts. Please try again in {wait} seconds.",
+                    "retry_after": wait
                 }), 429
-            
-            # Record this attempt
-            valid_attempts.append((current_time, 1))
-            _rate_limit_store[bucket_key] = valid_attempts
-            
-            # Periodic cleanup
-            _cleanup_old_entries()
-            
+
             # Proceed with the request
             return await fn(*args, **kwargs)
         

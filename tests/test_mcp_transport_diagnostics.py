@@ -1,5 +1,6 @@
 """Timing evidence must not expose credentials, CRM payloads or exception text."""
 import asyncio
+from types import SimpleNamespace
 import json
 import logging
 
@@ -16,6 +17,7 @@ def test_transport_diagnostics_are_bounded_and_private(monkeypatch, caplog, outc
     def authenticate(*args):
         if outcome == 'denied':
             raise InvalidGrantError(description=secret)
+        return None, SimpleNamespace(connection_id='connection-1')
     monkeypatch.setattr(mcp_server.mcp_reads, 'authenticate', authenticate)
     messages = []
     async def sdk(scope, receive, send):

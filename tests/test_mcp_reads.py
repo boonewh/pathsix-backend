@@ -324,3 +324,25 @@ def test_audit_cannot_claim_another_owners_grant(oauth):
         db.add(AIToolAudit(id=str(uuid4()),tenant_id=1,user_id=3,connection_id=ident,
             tool='list_clients',outcome='success',result_count=0))
         with pytest.raises(DBAPIError): db.flush()
+
+
+def test_failed_mcp_sign_ins_are_limited_before_the_database(oauth,monkeypatch):
+    from app import mcp_server
+    monkeypatch.setattr(mcp_server,'MCP_AUTH_FAILURES_PER_MINUTE',2)
+    looked_up=[]
+    real=mcp_server.mcp_reads.authenticate
+    monkeypatch.setattr(mcp_server.mcp_reads,'authenticate',lambda *a:(looked_up.append(1),real(*a))[1])
+    assert rpc(oauth,'not-a-real-token')[0]==401 and rpc(oauth,'still-not-real')[0]==401
+    status,body,headers=rpc(oauth,'third-bad-token')
+    assert status==429 and body=={'error':'rate_limited'} and int(headers['Retry-After'])>0
+    assert len(looked_up)==2  # the limited request never reached the token lookup
+
+
+def test_signed_in_mcp_use_is_limited_per_connection(oauth,monkeypatch):
+    from app import mcp_server
+    monkeypatch.setattr(mcp_server,'MCP_REQUESTS_PER_CONNECTION_PER_MINUTE',2)
+    busy,_=token_for(oauth)
+    quiet,_=token_for(oauth)
+    assert rpc(oauth,busy)[0]==200 and rpc(oauth,busy)[0]==200
+    assert rpc(oauth,busy)[0]==429
+    assert rpc(oauth,quiet)[0]==200  # another connection from the same host is unaffected

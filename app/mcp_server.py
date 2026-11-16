@@ -17,11 +17,17 @@ from app.database import SessionLocal
 from app.services.ai_connections import AIConfigurationError, PUBLISHED_SCOPES, resource_uri
 from app.services.oauth import issuer
 from app.services import mcp_reads
+from app.utils import rate_limiter
 
 # Protocol errors are returned to the client. Never emit request payloads via SDK debug logs.
 logging.getLogger('mcp').setLevel(logging.CRITICAL)
 diagnostics = logging.getLogger('pathsix.mcp_transport')
 MAX_BODY = 8192
+# AI hosts call /mcp from their own servers, so many users share one address.
+# Failed sign-ins are limited per address before any database work; signed-in
+# use is limited per AI connection so one runaway chat cannot slow others.
+MCP_AUTH_FAILURES_PER_MINUTE = 30
+MCP_REQUESTS_PER_CONNECTION_PER_MINUTE = 120
 COMMON_HEADERS = {'Cache-Control':'no-store','Pragma':'no-cache','X-Content-Type-Options':'nosniff'}
 metadata_bp = Blueprint('mcp_metadata',__name__)
 
@@ -193,16 +199,26 @@ class Gateway:
             return await respond(403,'invalid_origin')
         if scope.get('query_string') or 'mcp-session-id' in headers:
             return await respond(400,'invalid_request')
+        if sum(key.lower()==b'fly-client-ip' for key,_ in pairs)>1: return await respond(400,'invalid_request')
+        client=scope.get('client') or (None,None)
+        failures=('mcp_auth_failures',rate_limiter.client_ip(headers,client[0]))
+        wait=rate_limiter.retry_after(failures,MCP_AUTH_FAILURES_PER_MINUTE,60)
+        if wait is not None:
+            return await respond(429,'rate_limited',{'Retry-After':str(wait)})
         auth_started = perf_counter()
         try:
-            mcp_reads.authenticate(SessionLocal,bearer(headers))
+            _,identity=mcp_reads.authenticate(SessionLocal,bearer(headers))
         except (InvalidGrantError,InvalidScopeError,PermissionError):
+            rate_limiter.record_attempt(failures,60)
             return await respond(401,'invalid_token',{'WWW-Authenticate':f'Bearer resource_metadata="{metadata_url()}"'})
         except SQLAlchemyError:
             return await respond(503,'temporarily_unavailable')
         finally:
             state['auth_ms'] = round((perf_counter()-auth_started)*1000,2)
         state['phase'] = 'request_validation'
+        wait=rate_limiter.hit(('mcp_connection',identity.connection_id),MCP_REQUESTS_PER_CONNECTION_PER_MINUTE,60)
+        if wait is not None:
+            return await respond(429,'rate_limited',{'Retry-After':str(wait)})
         if scope['method']!='POST': return await respond(405,'method_not_allowed',{'Allow':'POST'})
         if headers.get('content-type','').split(';')[0].strip()!='application/json':
             return await respond(415,'unsupported_media_type')
