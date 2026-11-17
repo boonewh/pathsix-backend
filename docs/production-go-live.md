@@ -14,23 +14,26 @@ or piped between commands.
 
 ## Before 7:00 PM
 
-- [ ] `api.pathsix.app` CNAME in Gandi; `flyctl certs check api.pathsix.app --app pathsixsolutions-backend` shows issued.
-- [ ] Production Resend key staged: `flyctl secrets set --stage RESEND_API_KEY=... --app pathsixsolutions-backend`.
+- [x] `api.pathsix.app` CNAME in Gandi; `flyctl certs check api.pathsix.app --app pathsixsolutions-backend` shows issued.
+- [x] Production Resend key staged: `flyctl secrets set --stage RESEND_API_KEY=... --app pathsixsolutions-backend`.
       `MAIL_FROM_EMAIL=no-reply@pathsix.app` and `MAIL_REPLY_TO` are already staged.
 - [x] Owner decision on the 6 rule-breaking records (approved November 16: clear the lead link on projects 5, 6, 330; delete interactions 829, 948, 1092).
-- [ ] Backend and frontend release pull requests (`staging` -> `main`) open with CI passing.
-- [ ] Release image built and pushed without deploying:
+- [x] Backend and frontend release pull requests (`staging` -> `main`) open with CI passing.
+- [x] Release image built and pushed without deploying:
       `flyctl deploy --build-only --push --image-label release-<sha> --config fly.toml --app pathsixsolutions-backend`.
-- [ ] `crm.pathsix.app` added to Vercel's **production** project (`pathsix-crm`) and its CNAME in Gandi.
+- [x] `crm.pathsix.app` added to Vercel's **production** project (`pathsix-crm`) and its CNAME in Gandi.
       `CORS_ALLOWED_ORIGINS=https://crm.pathsix.app` is already staged on the backend.
-- [ ] Downtime email sent.
+- [x] Downtime email sent.
 
 ## At 7:00 PM
 
 1. **Snapshot:** `flyctl volumes snapshots create vol_vx2jzeg776zonzjr --app pathsixsolutions-db`; confirm it is listed.
 2. **Stop the old version** and keep it from waking up:
    `flyctl machine stop d894111b636938 --app pathsixsolutions-backend`, then
-   `flyctl machine update d894111b636938 --app pathsixsolutions-backend --autostart=false --skip-start --yes`.
+   `flyctl machine update d894111b636938 --app pathsixsolutions-backend --autostart=false --skip-start --yes`,
+   then `flyctl machine cordon d894111b636938 --app pathsixsolutions-backend` and stop it again.
+   On go-live night the proxy restarted the machine 6 seconds after the autostart change
+   (`min_machines_running = 1`); only the cordon kept it down. Confirm health stops answering.
 3. **Temporary operations machine** (new image, no web services, admin login in its env):
    `flyctl machine run <release image> sleep 3600 --app pathsixsolutions-backend --region ord --name golive-ops --env CRM_RLS_ENABLED=1 --vm-memory 512 --restart no`.
    Every step below runs on it: `flyctl ssh console --app pathsixsolutions-backend --machine <ops id> -C "sh -c '...'"`.
@@ -52,7 +55,8 @@ or piped between commands.
    - admin login to the operator workstation: pipe `previous_url` to
      `G:\Projects\tools\pathsix-prod-admin-store.ps1` (DPAPI). It is no longer in the app's settings.
 9. **Deploy:** `flyctl deploy --config fly.toml --app pathsixsolutions-backend --image <release image>`
-   (restores automatic start from `fly.toml`).
+   (restores automatic start from `fly.toml`). The deploy leaves a stopped machine stopped and
+   cordoned: run `flyctl machine uncordon d894111b636938` and `flyctl machine start d894111b636938`.
 10. **Verify:** health on both addresses; on the new app machine,
     `<admin-url helper> | python /app/scripts/verify_tenant_access.py --target production` reports no problems;
     the owner logs in on the web.
@@ -63,6 +67,18 @@ or piped between commands.
     `flyctl secrets set FRONTEND_URL=https://crm.pathsix.app --app pathsixsolutions-backend`.
 13. **After:** move the Sentry uptime monitor to `https://api.pathsix.app/api/health`; unset the old
     `MAIL_SERVER`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_USE_TLS` secrets; announce.
+
+## Result (November 16, 2026)
+
+Completed. The CRM was offline 7:01 to 7:10 PM Central. Snapshot `vs_ByngVpejy5KaHePjJwOkRKm1`.
+Repair changed 3 project links and deleted 3 interactions; the 14 migrations applied with record
+counts unchanged; ChatGPT trusted. Release `release-94ffe3c` runs as `pathsix_crm_runtime`;
+`verify_tenant_access.py` reported no problems for all 14 users and both companies stayed
+separate. The administrator login is stored DPAPI-protected on the operator workstation. The ops
+machine and handoff file were removed. Web app released (frontend PR 34) at `crm.pathsix.app`
+and `pathsix-crm.vercel.app`, both using `api.pathsix.app`; `FRONTEND_URL` points at
+`crm.pathsix.app`. Sentry uptime monitor moved to `api.pathsix.app`; old `MAIL_*` SMTP secrets
+removed; backend PR 34 merged to `main` (no deploy from the merge).
 
 ## If something goes wrong
 
