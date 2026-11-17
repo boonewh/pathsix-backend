@@ -1,5 +1,13 @@
 # Security dependency/runtime upgrade — October 29, 2026
 
+**MVP backport:** this copy applies only the dependency/runtime/trust and mail
+transport fixes to `codex/mvp-lead-creation` at c545d9a. Its existing identity
+service already owns reset delivery; production's older reset handler was not
+copied here. Additional MCP2.2.0 is retained. It is not a production promotion or
+completion of any open MVP acceptance gate. Active unpublished work is preserved
+in the original integrated checkout. The production-baseline notes below explain
+the common security change; this lineage is separately verified before staging.
+
 Production baseline: main531f603, separate from the unfinished MCP MVP on staging.
 No database migrations, model changes, signing-key changes, new features or
 customer-record edits are part of this maintenance release.

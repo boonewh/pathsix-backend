@@ -2,13 +2,16 @@
 from datetime import datetime
 from quart import has_request_context, request
 from sqlalchemy import event, inspect
+from sqlalchemy.orm import object_session
 from app.models import ActivityLog, ActivityType, Lead, Client, Project, Interaction, Contact, Account, Subscription, File
 
 
 def record_change(mapper, connection, target, action):
-    if not has_request_context():
-        return
-    actor = getattr(request, "user", None)
+    session = object_session(target)
+    principal = session.info.get('principal') if session is not None else None
+    if principal is None and has_request_context():
+        principal = getattr(request, 'principal', None)
+    actor = principal or (getattr(request, "user", None) if has_request_context() else None)
     if actor is None or actor.tenant_id != target.tenant_id:
         return
     if action == ActivityType.edited and not any(
@@ -19,7 +22,7 @@ def record_change(mapper, connection, target, action):
                  ("name", "project_name", "account_name", "plan_name", "filename", "summary", "first_name")
                  if getattr(target, key, None)), None)
     connection.execute(ActivityLog.__table__.insert().values(
-        tenant_id=actor.tenant_id, user_id=actor.id, action=action,
+        tenant_id=actor.tenant_id, user_id=principal.user_id if principal else actor.id, action=action,
         entity_type=mapper.class_.__name__.lower(), entity_id=target.id,
         timestamp=datetime.utcnow(), description=name or f"{mapper.class_.__name__} #{target.id}",
     ))

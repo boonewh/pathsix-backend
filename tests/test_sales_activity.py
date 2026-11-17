@@ -13,23 +13,38 @@ from app.database import Base
 from app.models import User, Lead, Client, Project, Interaction, ActivityLog, ActivityType
 from app.utils.sales_activity_report import build_report, date_bounds
 from app.utils.sales_audit import register_sales_audit, log_bulk_deletion
+from test_security_boundaries import crm
+from app.models import Tenant
+from app.services.principal import Principal
+from app.services.database_context import bind_principal
+from app.utils import auth_utils
 
 
 @pytest.fixture
-def session():
-    engine = create_engine("sqlite://")
-    Base.metadata.create_all(engine)
-    with sessionmaker(bind=engine)() as db:
+def admin_session(crm):
+    _, factory, _ = crm
+    with factory() as db:
+        for table in reversed(Base.metadata.sorted_tables):
+            db.execute(table.delete())
+        db.add_all([Tenant(id=1, name='A', slug='a'), Tenant(id=2, name='B', slug='b')])
+        db.flush()
         db.add_all([User(id=1, tenant_id=1, email="seller@test", password_hash="x", is_active=False),
                     User(id=2, tenant_id=1, email="owner@test", password_hash="x"),
                     User(id=3, tenant_id=2, email="other@test", password_hash="x")])
         db.commit()
         yield db
-    engine.dispose()
 
 
-def test_creation_dates_actor_inactive_users_and_tenant_boundary(session):
-    session.add_all([
+@pytest.fixture
+def session(admin_session):
+    # The application side always uses the same restricted-role factory as HTTP.
+    with auth_utils.SessionLocal() as db:
+        bind_principal(db, Principal(2, 1, frozenset({'admin'})))
+        yield db
+
+
+def test_creation_dates_actor_inactive_users_and_tenant_boundary(session, admin_session):
+    admin_session.add_all([
         Lead(tenant_id=1, created_by=1, assigned_to=2, name="Last second", created_at=datetime(2026,9,9,23,59,59)),
         Lead(tenant_id=1, created_by=1, name="Next day", created_at=datetime(2026,9,10)),
         Client(tenant_id=1, created_by=1, assigned_to=2, name="Created client", created_at=datetime(2026,9,3)),
@@ -37,7 +52,7 @@ def test_creation_dates_actor_inactive_users_and_tenant_boundary(session):
         Lead(tenant_id=2, created_by=3, name="Other company", created_at=datetime(2026,9,5)),
         Interaction(tenant_id=1, summary="Legacy call", contact_date=datetime(2026,9,6)),
     ])
-    session.commit()
+    admin_session.commit()
     report = build_report(session, 1, "2026-09-03", "2026-09-09")
     seller = next(u for u in report["users"] if u["user_id"] == 1)
     assert seller["leads_created"] == seller["clients_created"] == seller["projects_created"] == 1
@@ -61,6 +76,7 @@ def test_transactional_actor_audit_dedup_pagination_and_rollback(session):
     async def exercise():
         async with app.test_request_context("/api/interactions", method="POST"):
             request.user = SimpleNamespace(id=2, tenant_id=1)
+            request.principal = session.info['principal']
             lead = Lead(tenant_id=1, created_by=2, assigned_to=1, name="New lead")
             interaction = Interaction(tenant_id=1, summary="New call")
             session.add_all([lead, interaction])
@@ -94,6 +110,7 @@ def test_soft_delete_and_restore_are_recorded_once(session):
     async def exercise():
         async with app.test_request_context("/api/leads/1", method="DELETE"):
             request.user = SimpleNamespace(id=2, tenant_id=1)
+            request.principal = session.info['principal']
             lead = Lead(tenant_id=1, created_by=2, name="Soft delete")
             session.add(lead)
             session.commit()
@@ -109,15 +126,11 @@ def test_soft_delete_and_restore_are_recorded_once(session):
     asyncio.run(exercise())
 
 
-def test_report_http_requires_auth_and_current_admin_role(session, monkeypatch):
-    import app.routes.reports as reports
+def test_report_http_requires_auth_and_current_admin_role(crm, monkeypatch):
     import app.utils.auth_utils as auth
-    app = Quart(__name__)
-    app.register_blueprint(reports.reports_bp)
-    monkeypatch.setattr(auth, "SessionLocal", lambda: session)
-    monkeypatch.setattr(reports, "SessionLocal", lambda: session)
+    _, _, app = crm
     # A stale admin claim cannot promote a user with no current admin role.
-    monkeypatch.setattr(auth, "decode_token", lambda _: {"sub": 2, "roles": ["admin"]})
+    monkeypatch.setattr(auth, "decode_token", lambda _: {"sub": 3, "roles": ["admin"]})
     async def exercise():
         client = app.test_client()
         assert (await client.get("/api/reports/sales-activity")).status_code == 401

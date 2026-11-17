@@ -2,6 +2,7 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import io
 import json
 import logging
 import ssl
@@ -12,9 +13,9 @@ from unittest.mock import AsyncMock
 import pytest
 from authlib.jose import JoseError
 from quart import Quart
-from purge_fixture import crm
 from app.utils.auth_utils import decode_token, create_token, generate_reset_token, verify_reset_token, hash_password, verify_password
 from app.utils import email_utils
+from test_security_boundaries import crm
 
 
 def signed_legacy_token(subject, key, expiry=None):
@@ -50,30 +51,64 @@ def test_legacy_tokens_current_tokens_passwords_and_reset_roundtrip():
     asyncio.run(run())
 
 
-def test_mail_keeps_verified_tls_and_existing_envelope(monkeypatch):
-    send=AsyncMock()
-    monkeypatch.setattr(email_utils.aiosmtplib,'send',send)
+def test_mail_goes_to_resend_over_verified_tls(monkeypatch):
+    seen={}
+    class Reply:
+        def __enter__(self): return self
+        def __exit__(self,*a): return False
+        def read(self): return b'{"id":"email-1"}'
+    def urlopen(request,timeout,context):
+        seen.update(request=request,timeout=timeout,context=context)
+        return Reply()
+    monkeypatch.setattr(email_utils,'RESEND_API_KEY','re_test_key')
+    monkeypatch.setattr(email_utils.urllib.request,'urlopen',urlopen)
+    assert asyncio.run(email_utils.send_email('Test subject','visitor@example.test','Test body'))=='email-1'
+    request=seen['request']
+    assert request.full_url=='https://api.resend.com/emails' and request.get_method()=='POST'
+    assert request.get_header('Authorization')=='Bearer re_test_key'
+    payload=json.loads(request.data)
+    assert payload=={'from':f'{email_utils.MAIL_FROM_NAME} <{email_utils.MAIL_FROM_EMAIL}>',
+                     'to':['visitor@example.test'],'subject':'Test subject','text':'Test body'}
+    assert seen['context'].check_hostname and seen['context'].verify_mode==ssl.CERT_REQUIRED
+    assert seen['timeout']==15
+    monkeypatch.setattr(email_utils,'MAIL_REPLY_TO','owner@example.test')
     asyncio.run(email_utils.send_email('Test subject','visitor@example.test','Test body'))
-    args=send.call_args
-    assert args.args[0]['To']=='visitor@example.test'
-    assert args.kwargs['hostname']==email_utils.MAIL_SERVER
-    assert args.kwargs['start_tls']==email_utils.MAIL_USE_TLS
-    assert args.kwargs['validate_certs'] is True
-    assert args.kwargs['tls_context'].check_hostname
-    assert args.kwargs['tls_context'].verify_mode==ssl.CERT_REQUIRED
-    assert args.kwargs['timeout']==15
+    assert json.loads(seen['request'].data)['reply_to']==['owner@example.test']
 
 
-def test_password_reset_does_not_log_link_or_recipient(crm,monkeypatch,caplog,capsys):
+def test_mail_without_a_resend_key_fails_clearly(monkeypatch):
+    monkeypatch.setattr(email_utils,'RESEND_API_KEY','')
+    with pytest.raises(email_utils.EmailDeliveryError,match='RESEND_API_KEY'):
+        asyncio.run(email_utils.send_email('s','visitor@example.test','b'))
+
+
+def test_resend_refusal_keeps_only_the_error_code(monkeypatch):
+    body=b'{"statusCode":422,"name":"validation_error","message":"Invalid `to` field: private@example.test"}'
+    def urlopen(request,timeout,context):
+        raise email_utils.urllib.error.HTTPError(request.full_url,422,'Unprocessable',{},io.BytesIO(body))
+    monkeypatch.setattr(email_utils,'RESEND_API_KEY','re_secret_key')
+    monkeypatch.setattr(email_utils.urllib.request,'urlopen',urlopen)
+    with pytest.raises(email_utils.EmailDeliveryError) as refused:
+        asyncio.run(email_utils.send_email('s','private@example.test','b'))
+    assert str(refused.value)=='Resend refused the email (422 validation_error)'
+    assert 're_secret_key' not in str(refused.value) and 'private@' not in str(refused.value)
+
+
+def test_password_reset_failure_logs_no_link_recipient_or_key(crm,monkeypatch,caplog,capsys):
+    # Ported from production's test for the Resend path: a refused reset email
+    # must not put the reset link, the recipient or the key into logs.
     call,_,app=crm
     app.config['FRONTEND_URL']='https://crm.example.test'
-    from app.routes import auth
-    monkeypatch.setattr(auth,'generate_reset_token',lambda email:'private-reset-token-sentinel')
-    monkeypatch.setattr(auth,'send_email',AsyncMock(side_effect=RuntimeError('private mail failure')))
-    with caplog.at_level(logging.WARNING):
-        status,body=call('POST','/api/forgot-password',{'email':'a@example.test'},user=0)
-    assert status==200 and 'If that account exists' in body
-    captured=capsys.readouterr()
-    logs=caplog.text+captured.out+captured.err
-    for private in ('private-reset-token-sentinel','a@example.test','private mail failure','Reset link:'):
+    monkeypatch.setattr(email_utils,'generate_reset_token',lambda email:'private-reset-token-sentinel')
+    monkeypatch.setattr(email_utils,'RESEND_API_KEY','re_private_key_sentinel')
+    body=b'{"name":"validation_error","message":"Invalid `to` field: ordinary@example.test"}'
+    def urlopen(request,timeout,context):
+        raise email_utils.urllib.error.HTTPError(request.full_url,422,'Unprocessable',{},io.BytesIO(body))
+    monkeypatch.setattr(email_utils.urllib.request,'urlopen',urlopen)
+    with caplog.at_level(logging.DEBUG):
+        status,_=call('POST','/api/forgot-password',{'email':'ordinary@example.test'},user=0)
+    assert status==503
+    logs=caplog.text+''.join(capsys.readouterr())
+    assert 'validation_error' in logs
+    for private in ('private-reset-token-sentinel','ordinary@example.test','re_private_key_sentinel','reset-password/'):
         assert private not in logs

@@ -1,0 +1,193 @@
+"""Verified delegated tool boundary; capability-bound UI confirmation."""
+from datetime import datetime, timedelta
+from uuid import uuid4
+from authlib.oauth2.rfc6749.errors import InvalidScopeError
+from app.models import AIClient, AIConnection, AIToolAudit
+from app.services.oauth import lookup_principal, validate_access
+from app.services.database_context import bind_principal
+from app.services.ai_connections import resource_uri, scope_set
+from app.services.clients import ClientService
+from app.services.errors import RecordNotFound
+from app.services.leads import LeadService
+from app.services.mcp_records import RecordReads
+from app.services.ai_actions import AIActionService, ActionConflict
+from app.services.ai_action_kinds import KINDS
+from app.services.ai_update_kinds import pending_notifications
+from app.utils.lead_options import tenant_lead_config, configured_options
+
+# Each reviewed action kind has a prepare, status and (app-only) decide tool.
+ACTION_TOOLS = {tool: (kind, role) for kind in KINDS.values()
+                for tool, role in ((kind.prepare_tool, 'prepare'), (kind.status_tool, 'status'), (kind.decide_tool, 'decide'))}
+TOOL_SCOPES = {
+    'list_clients': ['clients:read'], 'get_client': ['clients:read'],
+    'list_contacts': ['contacts:read'], 'get_contact': ['contacts:read'],
+    'list_projects': ['projects:read'], 'get_project': ['projects:read'],
+    'list_interactions': ['interactions:read'], 'get_schedule': ['interactions:read'],
+    'list_assignees': ['leads:read'],
+    'list_leads': ['leads:read'], 'get_lead': ['leads:read'], 'get_lead_options': ['leads:read'],
+    **{tool: list(kind.scopes) for tool, (kind, _) in ACTION_TOOLS.items()},
+}
+TOOLS = tuple(TOOL_SCOPES)
+MAX_CALLS_PER_MINUTE = 60
+
+
+def authenticate(factory, raw):
+    principal = lookup_principal(factory,raw)
+    with factory() as db:
+        identity = validate_access(db,principal,raw,resource_uri())
+    return principal,identity
+
+
+def discoverable_tools(factory, raw):
+    """Advertise client capabilities so a host can request missing user consent.
+
+    Discovery returns static definitions, not records or permission to execute.
+    Filtering by the token's scopes prevents a read-only connection from ever
+    discovering the write scopes it needs to request during reconnection.
+    Returns the tool names and whether this client may use the inline review.
+    """
+    principal = lookup_principal(factory, raw)
+    with factory() as db:
+        identity = validate_access(db, principal, raw, resource_uri())
+        client = db.query(AIClient).filter_by(id=identity.client_id,
+            is_active=True, oauth_enabled=True).one()
+        allowed = scope_set(client.allowed_scopes)
+        names = {name for name, required in TOOL_SCOPES.items() if set(required) <= allowed}
+        if not client.inline_review:
+            names -= {kind.decide_tool for kind in KINDS.values()}
+        return names, client.inline_review
+
+
+def execute(factory, raw, name, arguments, *, review=None):
+    # No request-supplied owner, tenant, role, scope or Principal is accepted.
+    principal,identity = authenticate(factory,raw)
+    with factory() as db:
+        # The card's signed capability is private result metadata; only operator
+        # clients whose host keeps it from the model may receive or redeem it.
+        # Other clients get the signed-in review link instead.
+        if not db.query(AIClient.inline_review).filter_by(id=identity.client_id).scalar():
+            review = None
+        bind_principal(db,principal)
+        grant = db.query(AIConnection).filter_by(id=identity.connection_id,
+            tenant_id=principal.tenant_id,user_id=principal.user_id).with_for_update().one()
+        validate_access(db,principal,raw,resource_uri())  # Recheck after waiting for revocation's lock.
+        now = datetime.utcnow()
+        recent = db.query(AIToolAudit).filter_by(connection_id=grant.id,
+            tenant_id=principal.tenant_id,user_id=principal.user_id).filter(
+                AIToolAudit.created_at > now-timedelta(minutes=1)).count()
+        if recent >= MAX_CALLS_PER_MINUTE:
+            return None,'Too many tool calls. Try again later.'
+        result, error, outcome = None,None,'success'
+        try:
+            if name not in TOOLS:
+                outcome,error = 'unknown_tool','Unknown tool'
+            else:
+                validate_access(db,principal,raw,resource_uri(),TOOL_SCOPES[name])
+                if not isinstance(arguments,dict): raise ValueError()
+                result = dispatch(db, principal, identity.connection_id, name, arguments, review=review)
+        except (InvalidScopeError,PermissionError):
+            outcome,error = 'forbidden','Required permission is not available'
+        except ActionConflict as conflict:
+            outcome,error = 'invalid_arguments',str(conflict)
+        except ValueError:
+            outcome,error = 'invalid_arguments','Invalid tool arguments'
+        except RecordNotFound:
+            outcome,error = 'not_found','Client not found' if name in ('get_client','list_clients') else 'Record or action not found'
+        if error:
+            db.rollback()
+            grant = db.query(AIConnection).filter_by(id=identity.connection_id,
+                tenant_id=principal.tenant_id,user_id=principal.user_id).with_for_update().one()
+            validate_access(db,principal,raw,resource_uri())
+        lists = [value for value in (result or {}).values() if isinstance(value, list)]
+        count = 0 if result is None else sum(map(len, lists)) if lists else 1
+        db.add(AIToolAudit(id=str(uuid4()),tenant_id=principal.tenant_id,user_id=principal.user_id,
+            connection_id=grant.id,tool=name if name in TOOLS else 'unknown',outcome=outcome,
+            result_count=count,created_at=now))
+        if outcome == 'success': grant.last_used_at = now
+        # Audit and last-use must persist before any CRM data is returned.
+        db.commit()
+        deliver_after_commit(pending_notifications(db))
+        return result,error
+
+
+def dispatch(db, principal, connection_id, name, args, *, review=None):
+    if name == 'list_clients':
+        if set(args)-{'after_id','limit'}: raise ValueError()
+        return ClientService(db,principal).summaries(**args)
+    if name == 'get_client':
+        if set(args) != {'client_id'}: raise ValueError()
+        return RecordReads(db,principal).client_detail(args['client_id'])
+    reads = RecordReads(db,principal)
+    if name == 'list_contacts':
+        if set(args)-{'query','client_id','lead_id','after_id','limit'}: raise ValueError()
+        return reads.contacts(**args)
+    if name == 'get_contact':
+        if set(args) != {'contact_id'}: raise ValueError()
+        return {'contact':reads.contacts(contact_id=args['contact_id'],limit=1)['contacts'][0]}
+    if name == 'list_projects':
+        if set(args)-{'query','status','after_id','limit'}: raise ValueError()
+        return reads.projects(**args)
+    if name == 'get_project':
+        if set(args) != {'project_id'}: raise ValueError()
+        return {'project':reads.projects(project_id=args['project_id'],limit=1)['projects'][0]}
+    if name == 'list_interactions':
+        if set(args)-{'client_id','lead_id','project_id','after_id','limit'}: raise ValueError()
+        return reads.interactions(**args)
+    if name == 'list_assignees':
+        if args: raise ValueError()
+        return reads.assignees()
+    if name == 'get_schedule':
+        if set(args) != {'start_date','end_date'}: raise ValueError()
+        return reads.schedule(**args)
+    if name == 'list_leads':
+        if set(args)-{'after_id','limit','query'}: raise ValueError()
+        return LeadService(db,principal).summaries(**args)
+    if name == 'get_lead':
+        if set(args) != {'lead_id'} or args['lead_id'] is None: raise ValueError()
+        return {'lead':LeadService(db,principal).summaries(lead_id=args['lead_id'],limit=1)['leads'][0]}
+    if name == 'get_lead_options':
+        if args: raise ValueError()
+        config = tenant_lead_config(db, principal.tenant_id)
+        leads = config.get('leads')
+        statuses = configured_options(leads.get('statuses')) if isinstance(leads,dict) else []
+        return {'statuses':[v[:100] for v in statuses[:50]],
+                'business_types':[v[:100] for v in configured_options(config.get('businessTypes'))[:50]],
+                'default_status':(statuses[0] if statuses else 'open')[:100]}
+    service = AIActionService(db,principal)
+    kind, role = ACTION_TOOLS[name]
+    if role == 'prepare':
+        if set(args) != {'request_key', kind.input_key}: raise ValueError()
+        receipt = service.prepare(connection_id,args['request_key'],args[kind.input_key],kind=kind.name)
+        return review.present(service, connection_id, receipt) if review else receipt
+    if role == 'status':
+        if set(args) != {'action_id'}: raise ValueError()
+        row = service.action(args['action_id'],connection_id=connection_id)
+        if row.kind != kind.name: raise RecordNotFound('Action unavailable')
+        receipt = service.result(row)
+        return review.present(service, connection_id, receipt) if review else receipt
+    if review is None:
+        raise PermissionError('Component review is unavailable')
+    # Each kind's decide tool only decides its own kind of proposal.
+    if not isinstance(args.get('action_id'), str): raise ValueError()
+    if service.action(args['action_id'],connection_id=connection_id).kind != kind.name:
+        raise RecordNotFound('Action unavailable')
+    return review.decide(service, connection_id, args)
+
+
+def deliver_after_commit(notifications):
+    """Send assignment notifications without blocking or failing the saved action."""
+    if not notifications:
+        return
+    import asyncio
+    from app.utils.email_utils import send_assignment_notification
+    async def send(notification):
+        try:
+            await send_assignment_notification(**notification)
+        except Exception:
+            pass  # Matches the web adapter: mail failure never undoes a committed change.
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    for notification in notifications:
+        loop.create_task(send(notification))

@@ -1,0 +1,348 @@
+"""Lead operations with explicit tenant context and caller-owned transactions.
+
+Methods never commit. Adapters commit once after a successful operation; failures
+must roll back. Detail reads are pure; web activity logging is a separate method.
+"""
+from app.services.purge import PurgeService
+from app.utils.lead_options import normalize_lead_options, tenant_lead_config
+from datetime import datetime
+from app.models import Lead, Contact, ActivityLog, ActivityType, User
+from sqlalchemy import or_, and_, func
+from app.schemas.leads import LeadCreateSchema, LeadUpdateSchema, LeadAssignSchema
+from app.services.principal import Principal
+from app.services.access import owned_record_filter
+from app.utils.phone_utils import clean_phone_number
+from app.services.errors import RecordNotFound
+
+
+class LeadService:
+    def __init__(self, session, principal: Principal):
+        if not isinstance(principal, Principal):
+            raise TypeError("An authenticated principal is required")
+        self.session = session
+        self.principal = principal
+        from app.services.database_context import bind_principal
+        bind_principal(session, principal)
+
+    def summaries(self, *, query='', after_id=0, limit=20, lead_id=None):
+        """Bounded delegated reads with the same current record permissions."""
+        from sqlalchemy import func
+        if (not isinstance(query, str) or len(query) > 100 or type(after_id) is not int
+                or not 0 <= after_id <= 2147483647 or type(limit) is not int or not 1 <= limit <= 50
+                or (lead_id is not None and (type(lead_id) is not int or not 1 <= lead_id <= 2147483647))):
+            raise ValueError('Invalid lead selection')
+        rows = self.session.query(Lead).filter(owned_record_filter(Lead, self.principal))
+        if lead_id is not None:
+            rows = rows.filter(Lead.id == lead_id)
+        else:
+            rows = rows.filter(Lead.id > after_id)
+        if query.strip():
+            literal = query.strip().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+            rows = rows.filter(Lead.name.ilike('%'+literal+'%', escape='\\'))
+        fields = {'name':100, 'lead_status':100, 'type':100, 'city':100, 'state':100}
+        if lead_id is not None:
+            fields.update(contact_person=100, email=254, phone=20, notes=4000)
+        result = rows.with_entities(Lead.id, *[func.substr(getattr(Lead, key), 1, bound).label(key)
+            for key, bound in fields.items()]).order_by(Lead.id).limit(limit+1).all()
+        if lead_id is not None and not result:
+            raise RecordNotFound('Lead not found')
+        return {'leads':[dict(row._mapping) for row in result[:limit]],
+                'next_after_id':result[limit-1].id if len(result)>limit else None}
+
+    def _get(self, lead_id, *, include_deleted=False):
+        lead = self.session.query(Lead).filter(
+            Lead.id == lead_id,
+            owned_record_filter(Lead, self.principal, include_deleted=include_deleted),
+        ).first()
+        if lead is None:
+            raise RecordNotFound("Lead not found")
+        return lead
+
+    def creation_fields(self, data: LeadCreateSchema):
+        if not isinstance(data, LeadCreateSchema):
+            raise TypeError("Validated lead data required")
+        fields = normalize_lead_options(data.model_dump(), tenant_lead_config(self.session, self.principal.tenant_id), creating=True)
+        for field in ('phone', 'secondary_phone'):
+            fields[field] = clean_phone_number(fields[field]) if fields[field] else None
+        fields['email'] = str(data.email) if data.email else None
+        return fields
+
+    def create(self, data: LeadCreateSchema, *, assigned_to=None):
+        fields = self.creation_fields(data)
+        if assigned_to is not None:
+            self._require_admin()
+            if self.session.query(User).filter(
+                User.id == assigned_to, User.tenant_id == self.principal.tenant_id,
+                User.is_active.is_(True),
+            ).first() is None:
+                raise ValueError("Assigned user not found or not active")
+            fields['assigned_to'] = assigned_to
+        lead = Lead(**fields, tenant_id=self.principal.tenant_id,
+                        created_by=self.principal.user_id)
+        self.session.add(lead)
+        self.session.flush()
+        return lead.id
+
+    def update(self, lead_id, data: LeadUpdateSchema):
+        if not isinstance(data, LeadUpdateSchema):
+            raise TypeError("Validated lead data required")
+        lead = self._get(lead_id)
+        fields = normalize_lead_options(data.model_dump(exclude_unset=True), tenant_lead_config(self.session, self.principal.tenant_id))
+        if 'name' in fields and fields['name'] is None:
+            raise ValueError("Lead name cannot be null")
+        for field, value in fields.items():
+            if field in ('phone', 'secondary_phone'):
+                value = clean_phone_number(value) if value else None
+            elif field == 'email':
+                value = str(value) if value else None
+            if field == "lead_status" and value == "won" and lead.lead_status != "won":
+                lead.converted_on = datetime.utcnow()
+            setattr(lead, field, value)
+        lead.updated_by = self.principal.user_id
+        lead.updated_at = datetime.utcnow()
+        self.session.flush()
+        return lead.id
+
+    def delete(self, lead_id):
+        lead = self._get(lead_id, include_deleted=True)
+        if lead.deleted_at is not None:
+            return False
+        lead.deleted_at = datetime.utcnow()
+        lead.deleted_by = self.principal.user_id
+        self.session.flush()
+        return True
+
+    def restore(self, lead_id):
+        lead = self._get(lead_id, include_deleted=True)
+        if lead.deleted_at is None:
+            raise RecordNotFound("Lead not found or not authorized to restore")
+        lead.deleted_at = None
+        lead.deleted_by = None
+        self.session.flush()
+
+    def detail(self, lead_id):
+        lead = self._get(lead_id)
+        contacts = self.session.query(Contact).filter(
+            Contact.tenant_id == self.principal.tenant_id,
+            Contact.lead_id == lead.id, Contact.client_id.is_(None),
+        ).order_by(Contact.id).all()
+        fields = ('id', 'name', 'email', 'phone', 'phone_label', 'secondary_phone',
+                  'secondary_phone_label', 'address', 'contact_person', 'contact_title',
+                  'city', 'state', 'zip', 'notes', 'type', 'lead_status', 'lead_source')
+        result = {field: getattr(lead, field) for field in fields}
+        result.update(created_at=lead.created_at.isoformat() + 'Z',
+                      converted_on=lead.converted_on.isoformat() + 'Z' if lead.converted_on else None,
+                      contacts=[c.to_dict() for c in contacts])
+        return result
+
+    def record_view(self, lead_id):
+        lead = self._get(lead_id)
+        self.session.add(ActivityLog(tenant_id=self.principal.tenant_id,
+            user_id=self.principal.user_id, action=ActivityType.viewed,
+            entity_type='lead', entity_id=lead.id,
+            description=f"Viewed lead '{lead.name}'"))
+
+    def list_mine(self, page=1, per_page=20, sort_order="newest", status=None):
+        if type(page) is not int or type(per_page) is not int or page < 1 or not 1 <= per_page <= 200:
+            raise ValueError("Invalid pagination: page must be positive and per_page between 1 and 200")
+        # Validate sort order
+        if sort_order not in ["newest", "oldest", "alphabetical"]:
+            sort_order = "newest"
+
+        query = self.session.query(Lead).filter(
+            Lead.tenant_id == self.principal.tenant_id,
+            Lead.deleted_at == None,
+            or_(
+                Lead.assigned_to == self.principal.user_id,
+                and_(
+                    Lead.assigned_to == None,
+                    Lead.created_by == self.principal.user_id
+                )
+            )
+        )
+
+        # Count per status over the same visible leads, ignoring the status
+        # filter and paging, so the Leads page can show real totals.
+        status_counts = {
+            lead_status: count
+            for lead_status, count in query.with_entities(Lead.lead_status, func.count(Lead.id))
+            .group_by(Lead.lead_status).all()
+            if lead_status
+        }
+
+        # Optional status filter, applied before counting and paging.
+        status = status.strip() if isinstance(status, str) else None
+        if status:
+            query = query.filter(Lead.lead_status == status)
+
+        # Apply sorting
+        if sort_order == "newest":
+            query = query.order_by(Lead.created_at.desc())
+        elif sort_order == "oldest":
+            query = query.order_by(Lead.created_at.asc())
+        elif sort_order == "alphabetical":
+            query = query.order_by(Lead.name.asc())
+
+        total = query.count()
+        leads = query.offset((page - 1) * per_page).limit(per_page).all()
+
+        response = ({
+            "leads": self._list_rows(leads, names=True),
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "sort_order": sort_order,
+            "status": status or None,
+            "status_counts": status_counts,
+        })
+        return response
+
+    def list_all(self, page=1, per_page=20, sort_order="newest", user_email=None):
+        self._require_admin()
+        if type(page) is not int or type(per_page) is not int or page < 1 or not 1 <= per_page <= 200:
+            raise ValueError("Invalid pagination: page must be positive and per_page between 1 and 200")
+        # Get pagination parameters
+        # Validate sort order
+        if sort_order not in ["newest", "oldest", "alphabetical"]:
+            sort_order = "newest"
+
+        query = self.session.query(Lead).filter(
+            Lead.tenant_id == self.principal.tenant_id,
+            Lead.deleted_at == None
+        )
+
+        # Filter by user if specified
+        if user_email:
+            query = query.filter(
+                or_(
+                    Lead.assigned_user.has(and_(User.email == user_email, User.tenant_id == self.principal.tenant_id)),
+                    Lead.created_by_user.has(and_(User.email == user_email, User.tenant_id == self.principal.tenant_id))
+                )
+            )
+
+        # Apply sorting
+        if sort_order == "newest":
+            query = query.order_by(Lead.created_at.desc())
+        elif sort_order == "oldest":
+            query = query.order_by(Lead.created_at.asc())
+        elif sort_order == "alphabetical":
+            query = query.order_by(Lead.name.asc())
+
+        total = query.count()
+        leads = query.offset((page - 1) * per_page).limit(per_page).all()
+
+        response_data = {
+            "leads": self._list_rows(leads, names=True, creator=True),
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "sort_order": sort_order,
+            "user_email": user_email
+        }
+
+        response = (response_data)
+        return response
+
+    def list_assigned(self):
+        self._require_admin()
+        leads = self.session.query(Lead).filter(
+            Lead.tenant_id == self.principal.tenant_id,
+            Lead.deleted_at == None,
+            Lead.assigned_to != None
+        ).all()
+
+        return self._list_rows(leads)
+
+    def list_trash(self):
+        if not self.principal.is_admin:
+            trashed = self.session.query(Lead).filter(
+                Lead.tenant_id == self.principal.tenant_id,
+                Lead.deleted_at != None,
+                or_(
+                    Lead.created_by == self.principal.user_id,
+                    Lead.assigned_to == self.principal.user_id
+                )
+            ).order_by(Lead.deleted_at.desc()).all()
+        else:
+            trashed = self.session.query(Lead).filter(
+                Lead.tenant_id == self.principal.tenant_id,
+                Lead.deleted_at != None
+            ).order_by(Lead.deleted_at.desc()).all()
+
+        return ([
+            {
+                "id": l.id,
+                "name": l.name,
+                "deleted_at": l.deleted_at.isoformat() + "Z",
+                "deleted_by": l.deleted_by
+            } for l in trashed
+        ])
+
+    def bulk_delete(self, lead_ids):
+        self._require_admin()
+        if not isinstance(lead_ids, list) or not lead_ids or any(type(i) is not int or i < 1 for i in lead_ids):
+            raise ValueError("Positive integer lead IDs are required")
+        # Soft delete only leads that belong to this tenant and haven't already been deleted
+        from app.utils.sales_audit import log_bulk_deletion
+        log_bulk_deletion(self.session, self.session.query(Lead).filter(
+            Lead.tenant_id == self.principal.tenant_id, Lead.id.in_(lead_ids), Lead.deleted_at.is_(None)))
+        updated_count = self.session.query(Lead).filter(
+            Lead.tenant_id == self.principal.tenant_id,
+            Lead.id.in_(lead_ids),
+            Lead.deleted_at == None
+        ).update(
+            {Lead.deleted_at: datetime.utcnow(), Lead.deleted_by: self.principal.user_id},
+            synchronize_session=False
+        )
+        return updated_count
+
+    def bulk_purge(self, lead_ids):
+        return len(PurgeService(self.session, self.principal).purge("leads", lead_ids)["deleted_ids"])
+
+    def purge(self, lead_id):
+        PurgeService(self.session, self.principal).purge("leads", [lead_id], single=True)
+
+    def _require_admin(self):
+        if not self.principal.is_admin:
+            raise PermissionError("Administrator access required")
+
+    def _list_rows(self, leads, *, names=False, creator=False):
+        users = {}
+        if (names or creator) and leads:
+            user_ids = {i for lead in leads for i in (lead.assigned_to, lead.created_by) if i is not None}
+            users = {u.id: u.email for u in self.session.query(User).filter(
+                User.tenant_id == self.principal.tenant_id, User.id.in_(user_ids))}
+        fields = ('id', 'name', 'contact_person', 'contact_title', 'email', 'phone',
+                  'phone_label', 'secondary_phone', 'secondary_phone_label', 'address',
+                  'city', 'state', 'zip', 'notes', 'assigned_to', 'lead_status',
+                  'lead_source', 'type')
+        rows = []
+        for lead in leads:
+            row = {field: getattr(lead, field) for field in fields}
+            row['created_at'] = lead.created_at.isoformat() + 'Z'
+            row['converted_on'] = lead.converted_on.isoformat() + 'Z' if lead.converted_on else None
+            if names:
+                row['assigned_to_name'] = users.get(lead.assigned_to) or users.get(lead.created_by)
+            if creator:
+                row['created_by_name'] = users.get(lead.created_by)
+            rows.append(row)
+        return rows
+
+    def assign(self, lead_id, data: LeadAssignSchema):
+        """Flush the assignment; caller commits before delivering the notification."""
+        self._require_admin()
+        if not isinstance(data, LeadAssignSchema):
+            raise TypeError("Validated assignment data required")
+        lead = self._get(lead_id)
+        assigned_user = self.session.query(User).filter(
+            User.id == data.assigned_to,
+            User.tenant_id == self.principal.tenant_id,
+            User.is_active.is_(True),
+        ).first()
+        if assigned_user is None:
+            raise ValueError("Assigned user not found or not active")
+        lead.assigned_to = assigned_user.id
+        lead.updated_by = self.principal.user_id
+        lead.updated_at = datetime.utcnow()
+        self.session.flush()
+        return {'to_email': assigned_user.email, 'entity_type': 'lead', 'entity_name': lead.name}

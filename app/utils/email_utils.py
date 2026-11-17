@@ -1,35 +1,83 @@
 # app/utils/email_utils.py
-import aiosmtplib
+import asyncio
+import json
+import logging
 import ssl
+import urllib.error
+import urllib.request
+
 import certifi
-from email.message import EmailMessage
-from app.config import (
-    MAIL_SERVER,
-    MAIL_PORT,
-    MAIL_USERNAME,
-    MAIL_PASSWORD,
-    MAIL_USE_TLS,
-    MAIL_FROM_NAME,
-    MAIL_FROM_EMAIL,
-)
+from quart import current_app
+from app.config import MAIL_FROM_NAME, MAIL_FROM_EMAIL, MAIL_REPLY_TO, RESEND_API_KEY
+from app.utils.auth_utils import generate_reset_token
+
+RESEND_URL = "https://api.resend.com/emails"
+log = logging.getLogger(__name__)
+
+
+class EmailDeliveryError(RuntimeError):
+    """Resend refused or could not be reached; the message holds no secrets."""
+
+
+def _error_name(error) -> str:
+    try:
+        name = json.loads(error.read(2000) or b"{}").get("name", "")
+    except (ValueError, AttributeError, OSError):
+        return "unknown_error"
+    return name if isinstance(name, str) and name.replace("_", "").isalnum() and len(name) <= 60 else "unknown_error"
+
+
+def _post_to_resend(payload: dict) -> str:
+    request = urllib.request.Request(
+        RESEND_URL,
+        data=json.dumps(payload).encode(),
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "Content-Type": "application/json",
+            "User-Agent": "pathsix-crm",
+        },
+    )
+    context = ssl.create_default_context(cafile=certifi.where())
+    try:
+        with urllib.request.urlopen(request, timeout=15, context=context) as response:
+            return json.loads(response.read() or b"{}").get("id", "")
+    except urllib.error.HTTPError as error:
+        # Keep only Resend's fixed error code (e.g. validation_error). Its message
+        # text can repeat the recipient, and this error reaches logs and Sentry.
+        raise EmailDeliveryError(f"Resend refused the email ({error.code} {_error_name(error)})") from None
+    except (urllib.error.URLError, TimeoutError) as error:
+        raise EmailDeliveryError(f"Resend could not be reached ({type(error).__name__})") from None
+
 
 async def send_email(subject: str, recipient: str, body: str):
-    message = EmailMessage()
-    message["From"] = f"{MAIL_FROM_NAME} <{MAIL_FROM_EMAIL}>"
-    message["To"] = recipient
-    message["Subject"] = subject
-    message.set_content(body)
+    """Send a plain-text email through Resend's HTTP API."""
+    if not RESEND_API_KEY:
+        raise EmailDeliveryError("RESEND_API_KEY is not set")
+    payload = {
+        "from": f"{MAIL_FROM_NAME} <{MAIL_FROM_EMAIL}>",
+        "to": [recipient],
+        "subject": subject,
+        "text": body,
+    }
+    if MAIL_REPLY_TO:
+        payload["reply_to"] = [MAIL_REPLY_TO]
+    try:
+        return await asyncio.to_thread(_post_to_resend, payload)
+    except EmailDeliveryError as error:
+        log.warning("Email delivery failed: %s", error)
+        raise
 
-    await aiosmtplib.send(
-        message,
-        hostname=MAIL_SERVER,
-        port=MAIL_PORT,
-        username=MAIL_USERNAME,
-        password=MAIL_PASSWORD,
-        start_tls=MAIL_USE_TLS,
-        validate_certs=True,
-        tls_context=ssl.create_default_context(cafile=certifi.where()),
-        timeout=15,
+
+async def send_password_reset_email(recipient: str):
+    """Create and deliver a password-reset link for an existing user."""
+    token = generate_reset_token(recipient)
+    reset_link = f"{current_app.config['FRONTEND_URL']}/reset-password/{token}"
+
+    await send_email(
+        subject="Password Reset Request",
+        recipient=recipient,
+        body=f"Click to reset your password: {reset_link}",
     )
 
 async def send_assignment_notification(to_email: str, entity_type: str, entity_name: str, assigned_by: str):
@@ -42,5 +90,4 @@ async def send_assignment_notification(to_email: str, entity_type: str, entity_n
     try:
         await send_email(subject, to_email, body)
     except Exception as e:
-        # Optional: log the error so it's not silent
-        print(f"Failed to send assignment notification: {e}")
+        log.warning("Failed to send assignment notification (%s)", type(e).__name__)

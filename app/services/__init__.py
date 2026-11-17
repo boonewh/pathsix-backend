@@ -1,1 +1,1 @@
-"""Application services with caller-owned transactions."""
+"""Tenant-bound business services shared by application adapters."""

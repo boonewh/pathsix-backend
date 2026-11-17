@@ -156,7 +156,8 @@ def test_admin_cannot_take_over_owner_or_read_backups(archive):
                           ('/api/users/4/roles', {'roles': ['admin']}),
                           ('/api/users/4/toggle-active', {})]:
         assert call('PUT', path, payload, user=1)[0] == 403
-    assert call('GET', '/api/admin/backups', user=1)[0] == 403
+    # Staging removes whole-database routes entirely.
+    assert call('GET', '/api/admin/backups', user=1)[0] in (403, 404)
 
 
 def test_bulk_writes_and_relationship_changes_cannot_bypass_archive(archive):

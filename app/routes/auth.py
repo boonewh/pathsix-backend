@@ -1,17 +1,18 @@
 from quart import Blueprint, request, jsonify, current_app
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload
-from app.models import User, Tenant
+from app.models import User
 from app.database import SessionLocal
+from app.services.database_context import auth_lookup
+from app.services.identity import IdentityService
 from app.utils.auth_utils import (
     verify_password,
     create_token,
     hash_password,
-    generate_reset_token,
     verify_reset_token
 )
 from app.utils.auth_utils import requires_auth
-from app.utils.email_utils import send_email
+from app.utils.email_utils import send_password_reset_email
 from app.utils.rate_limiter import rate_limit
 
 
@@ -30,12 +31,13 @@ async def login():
 
     session = SessionLocal()
     try:
+        auth_lookup(session, email=email)
         # Load user with tenant relationship for config
         user = session.query(User)\
             .options(joinedload(User.tenant), joinedload(User.roles))\
             .filter_by(email=email)\
             .first()
-        if not user or not verify_password(password, user.password_hash):
+        if not user or not user.is_active or not user.tenant or not user.tenant.is_active or not verify_password(password, user.password_hash):
             return jsonify({"error": "Invalid credentials"}), 401
 
         token = create_token(user)
@@ -77,7 +79,7 @@ async def login():
         session.close()
 
 @auth_bp.route("/forgot-password", methods=["POST"])
-@rate_limit(max_attempts=3, window_seconds=300)  # 3 password reset attempts per 5 minutes per IP
+@rate_limit(max_attempts=6, window_seconds=300)  # 6 password reset attempts per 5 minutes per IP
 async def forgot_password():
     data = await request.get_json()
     email = data.get("email", "").lower().strip()
@@ -86,22 +88,18 @@ async def forgot_password():
 
     session = SessionLocal()
     try:
+        auth_lookup(session, email=email)
         user = session.query(User).filter_by(email=email).first()
         if not user:
             return jsonify({"message": "If that account exists, an email was sent."})
 
-        token = generate_reset_token(email)
-        reset_link = f"{current_app.config['FRONTEND_URL']}/reset-password/{token}"
-
         try:
-            await send_email(
-                subject="Password Reset Request",
-                recipient=email,
-                body=f"Click to reset your password: {reset_link}"
-            )
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning("Password reset email delivery failed (%s)", type(e).__name__)
+            await send_password_reset_email(email)
+        except Exception:
+            current_app.logger.exception("Password reset email delivery failed")
+            return jsonify({
+                "error": "Unable to send a reset email right now. Please try again later."
+            }), 503
 
         return jsonify({"message": "If that account exists, a reset email was sent."})
     except SQLAlchemyError:
@@ -111,6 +109,7 @@ async def forgot_password():
         session.close()
 
 @auth_bp.route("/reset-password", methods=["POST"])
+@rate_limit(max_attempts=10, window_seconds=300)
 async def reset_password():
     data = await request.get_json()
     token = data.get("token")
@@ -125,6 +124,8 @@ async def reset_password():
 
     session = SessionLocal()
     try:
+        # Only reached after the signed reset token has been verified.
+        auth_lookup(session, email=email, password_reset=True)
         user = session.query(User).filter_by(email=email).first()
         if not user:
             return jsonify({"error": "User not found"}), 404
@@ -139,91 +140,42 @@ async def reset_password():
     finally:
         session.close()
 
-@auth_bp.route("/change-password", methods=["POST"])
+def _identity_response(operation, *, write=False):
+    with SessionLocal() as session:
+        try:
+            if write:
+                request.database_write_started = True
+            result = operation(IdentityService(session, request.principal))
+            if write:
+                session.commit()
+            response = jsonify(result)
+            response.headers['Cache-Control'] = 'no-store'
+            return response
+        except PermissionError as exc:
+            session.rollback()
+            return jsonify({'error': str(exc)}), 403
+        except ValueError as exc:
+            session.rollback()
+            return jsonify({'error': str(exc)}), 400
+        except SQLAlchemyError:
+            session.rollback()
+            raise
+
+
+@auth_bp.route('/change-password', methods=['POST'])
 @requires_auth()
 async def change_password():
     data = await request.get_json()
-    current_password = data.get("current_password")
-    new_password = data.get("new_password")
-    user = request.user
-
-    if not current_password or not new_password:
-        return jsonify({"error": "Missing required fields"}), 400
-
-    if not verify_password(current_password, user.password_hash):
-        return jsonify({"error": "Incorrect current password"}), 403
-
-    session = SessionLocal()
-    try:
-        user = session.get(User, user.id)
-        user.password_hash = hash_password(new_password)
-        session.commit()
-        return jsonify({"message": "Password changed successfully"})
-    except SQLAlchemyError:
-        session.rollback()
-        return jsonify({"error": "Server error"}), 500
-    finally:
-        session.close()
+    return _identity_response(lambda service: service.change_password(data), write=True)
 
 
-@auth_bp.route("/me", methods=["GET"])
+@auth_bp.route('/me', methods=['GET'])
 @requires_auth()
 async def get_me():
-    user = request.user
-    session = SessionLocal()
-    try:
-        # Reload user with tenant to get config
-        user = session.query(User)\
-            .options(joinedload(User.tenant), joinedload(User.roles))\
-            .filter_by(id=user.id)\
-            .first()
-
-        response_data = {
-            "id": user.id,
-            "email": user.email,
-            "roles": [r.name for r in user.roles],
-            "tenant_id": user.tenant_id,
-        }
-
-        if user.tenant:
-            response_data["tenant"] = {
-                "id": user.tenant.id,
-                "name": user.tenant.name,
-                "slug": user.tenant.slug,
-                "config": user.tenant.config
-            }
-
-        return jsonify(response_data)
-    finally:
-        session.close()
+    return _identity_response(lambda service: service.me())
 
 
-@auth_bp.route("/tenant/config", methods=["GET"])
+@auth_bp.route('/tenant/config', methods=['GET'])
 @requires_auth()
 async def get_tenant_config():
-    """
-    Get the current user's tenant configuration.
-
-    This endpoint returns the full CRM config for the user's tenant,
-    allowing the frontend to dynamically configure itself based on
-    the authenticated user's organization.
-    """
-    user = request.user
-    session = SessionLocal()
-    try:
-        tenant = session.query(Tenant).filter_by(id=user.tenant_id).first()
-
-        if not tenant:
-            return jsonify({"error": "Tenant not found"}), 404
-
-        if not tenant.is_active:
-            return jsonify({"error": "Tenant is inactive"}), 403
-
-        return jsonify({
-            "id": tenant.id,
-            "name": tenant.name,
-            "slug": tenant.slug,
-            "config": tenant.config
-        })
-    finally:
-        session.close()
+    return _identity_response(lambda service: service.tenant_config())

@@ -8,6 +8,16 @@ __pycache__/
 .git
 .venv
 .pytest_cache
-tests
+.pytest-work*
+app.db
+storage/
+agents/
+.codex/
+.claude/
+.pytest-harness*/
+
+tests/
 *.db
+temp/
+.codex-remote-attachments/
 password_changes.txt

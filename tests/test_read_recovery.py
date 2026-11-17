@@ -5,7 +5,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///recovery-test-unused.db")
 import asyncio
 from types import SimpleNamespace
 import pytest
-from quart import Quart
+from quart import Quart, request
 from sqlalchemy.exc import OperationalError
 from app.database import SessionLocal
 from app.utils import auth_utils
@@ -32,6 +32,7 @@ def exercise(monkeypatch, outcomes, method="GET", handler_error=None):
             if isinstance(self.outcome, Exception): raise self.outcome
             return self.outcome
         def close(self): self.closed = True
+        def rollback(self): pass
 
     async def sleep(delay):
         assert all(session.closed for session in sessions)
@@ -46,7 +47,9 @@ def exercise(monkeypatch, outcomes, method="GET", handler_error=None):
     async def handler():
         assert all(session.closed for session in sessions)
         calls.append(True)
-        if handler_error: raise handler_error
+        if handler_error:
+            request.database_write_started = True
+            raise handler_error
         return {"ok": True}
 
     async def run():
@@ -56,7 +59,7 @@ def exercise(monkeypatch, outcomes, method="GET", handler_error=None):
     return asyncio.run(run()), sessions, sleeps, calls
 
 
-USER = SimpleNamespace(id=1, roles=[])
+USER = SimpleNamespace(id=1, tenant_id=1, tenant=SimpleNamespace(is_active=True), roles=[])
 
 
 def test_session_factory_never_shares_sessions_on_same_thread():
@@ -97,9 +100,9 @@ def test_mutations_are_not_retried(monkeypatch, method):
     assert len(sessions) == 1 and not sleeps and not calls
 
 
-def test_route_handler_is_never_replayed_even_for_get(monkeypatch):
+def test_route_handler_is_never_replayed_after_write_even_for_get(monkeypatch):
     response, sessions, sleeps, calls = exercise(monkeypatch, [USER], handler_error=failure())
-    assert response[0] == 500 and len(calls) == 1
+    assert response[0] == 503 and response[1]['retryable'] is False and len(calls) == 1
     assert len(sessions) == 1 and not sleeps
 
 

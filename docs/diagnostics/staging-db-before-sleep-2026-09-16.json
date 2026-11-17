@@ -1,0 +1,97 @@
+{
+  "env": {
+    "PRIMARY_REGION": "iad"
+  },
+  "init": {},
+  "guest": {
+    "cpu_kind": "shared",
+    "cpus": 1,
+    "memory_mb": 256
+  },
+  "metadata": {
+    "fly-managed-postgres": "true",
+    "fly_flyctl_version": "0.4.77",
+    "fly_platform_version": "v2",
+    "managed-by-fly-deploy": "true"
+  },
+  "mounts": [
+    {
+      "encrypted": true,
+      "path": "/data",
+      "size_gb": 1,
+      "volume": "vol_4y8do0qxqn8z753r",
+      "name": "pg_data"
+    }
+  ],
+  "services": [
+    {
+      "protocol": "tcp",
+      "internal_port": 5432,
+      "autostart": false,
+      "ports": [
+        {
+          "port": 5432,
+          "handlers": [
+            "pg_tls"
+          ]
+        }
+      ],
+      "concurrency": {
+        "type": "connections",
+        "hard_limit": 1000,
+        "soft_limit": 1000
+      },
+      "force_instance_key": null
+    },
+    {
+      "protocol": "tcp",
+      "internal_port": 5433,
+      "autostart": false,
+      "ports": [
+        {
+          "port": 5433,
+          "handlers": [
+            "pg_tls"
+          ]
+        }
+      ],
+      "concurrency": {
+        "type": "connections",
+        "hard_limit": 1000,
+        "soft_limit": 1000
+      },
+      "force_instance_key": null
+    }
+  ],
+  "metrics": {
+    "port": 9187,
+    "path": "/metrics"
+  },
+  "checks": {
+    "pg": {
+      "port": 5500,
+      "type": "http",
+      "interval": "15s",
+      "timeout": "10s",
+      "path": "/flycheck/pg"
+    },
+    "role": {
+      "port": 5500,
+      "type": "http",
+      "interval": "15s",
+      "timeout": "10s",
+      "path": "/flycheck/role"
+    },
+    "vm": {
+      "port": 5500,
+      "type": "http",
+      "interval": "15s",
+      "timeout": "10s",
+      "path": "/flycheck/vm"
+    }
+  },
+  "image": "flyio/postgres-flex:18.1@sha256:3ee77b58d1dab10bb33298600e3b9f709b8fdb1f421a5b2e8b2bd679f364e809",
+  "restart": {
+    "policy": "always"
+  }
+}

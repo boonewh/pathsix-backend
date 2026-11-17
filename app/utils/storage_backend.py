@@ -1,7 +1,7 @@
 # app/utils/storage_backend.py
 from __future__ import annotations
 import os
-import io
+from pathlib import Path, PurePosixPath
 import asyncio
 from typing import Optional, Tuple
 from quart import current_app
@@ -23,16 +23,24 @@ class StorageBackend:
 
 class LocalStorageBackend(StorageBackend):
     def __init__(self, root: str):
-        self.root = root
+        self.root = Path(root).resolve()
 
     def _abs(self, key: str) -> str:
-        path = os.path.join(self.root, key)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        return path
+        # Keys are relative POSIX paths, even on Windows. Reads never create dirs.
+        if (not isinstance(key, str) or not key or '\\' in key or ':' in key
+                or '\x00' in key or PurePosixPath(key).is_absolute()
+                or any(part in ('', '.', '..') for part in key.split('/'))):
+            raise ValueError('Invalid storage key')
+        path = self.root.joinpath(*key.split('/'))
+        # Reject links/junctions into another tenant, including targets inside root.
+        if os.path.normcase(str(path.resolve())) != os.path.normcase(str(path)):
+            raise ValueError('Linked storage paths are not permitted')
+        return str(path)
 
     async def put_bytes(self, key: str, data: bytes, content_type: str) -> None:
         abs_path = self._abs(key)
         def _write():
+            os.makedirs(os.path.dirname(abs_path), exist_ok=True)
             with open(abs_path, "wb") as f:
                 f.write(data)
         await asyncio.to_thread(_write)
@@ -49,8 +57,10 @@ class LocalStorageBackend(StorageBackend):
     async def delete(self, key: str) -> None:
         abs_path = self._abs(key)
         def _delete():
-            if os.path.exists(abs_path):
+            try:
                 os.remove(abs_path)
+            except FileNotFoundError:
+                pass
         await asyncio.to_thread(_delete)
 
     async def local_path_for(self, key: str) -> Optional[str]:
@@ -86,8 +96,14 @@ class S3StorageBackend(StorageBackend):
         )
 
     async def get_bytes(self, key: str) -> Tuple[bytes, str]:
-        obj = await asyncio.to_thread(self.client.get_object, Bucket=self.bucket, Key=key)
-        data = await asyncio.to_thread(obj["Body"].read)
+        try:
+            obj = await asyncio.to_thread(self.client.get_object, Bucket=self.bucket, Key=key)
+        except self.client.exceptions.NoSuchKey as exc:
+            raise FileNotFoundError('Object not found') from exc
+        try:
+            data = await asyncio.to_thread(obj["Body"].read)
+        finally:
+            obj["Body"].close()
         ctype = obj.get("ContentType", "application/octet-stream")
         return data, ctype
 

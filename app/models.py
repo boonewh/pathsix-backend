@@ -1,8 +1,8 @@
 from sqlalchemy import Column, Integer, String, DateTime, Text, Float, ForeignKey, Table, Boolean
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 from datetime import datetime
 from app.database import Base
-from sqlalchemy import Enum, Index, UniqueConstraint, JSON
+from sqlalchemy import Enum, Index, UniqueConstraint, JSON, ForeignKeyConstraint, CheckConstraint
 import enum
 
 # Association table for many-to-many User ↔ Role
@@ -57,6 +57,7 @@ class Tenant(Base):
 
 class User(Base):
     __tablename__ = 'users'
+    __table_args__ = (UniqueConstraint('tenant_id', 'id', name='uq_users_tenant_id_id'),)
     id = Column(Integer, primary_key=True)
     tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     email = Column(String(120), unique=True, nullable=False, index=True)
@@ -82,10 +83,139 @@ class Role(Base):
         return f"<Role {self.name}>"
 
 
+class AIClient(Base):
+    """Client catalog: operator rows plus self-registered public clients.
+
+    The web runtime has read access only; self-registration goes through the
+    crm_register_ai_client database function. Only operator clients may use the
+    inline review card, whose host must keep result metadata from the model.
+    """
+    __tablename__ = 'ai_clients'
+    __table_args__ = (
+        CheckConstraint("registration IN ('operator','cimd','dcr')", name='ck_ai_clients_registration'),
+        CheckConstraint("NOT inline_review OR registration = 'operator'", name='ck_ai_clients_inline_operator'),
+        Index('ix_ai_clients_registration_created', 'registration', 'created_at'),
+    )
+    id = Column(String(200), primary_key=True)
+    name = Column(String(100), nullable=False)
+    is_active = Column(Boolean, nullable=False, default=False)
+    allowed_scopes = Column(JSON, nullable=False, default=list)
+    redirect_uris = Column(JSON, nullable=False, default=list)
+    oauth_enabled = Column(Boolean, nullable=False, default=False)
+    registration = Column(String(10), nullable=False, default='operator')
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    metadata_fetched_at = Column(DateTime)
+    inline_review = Column(Boolean, nullable=False, default=False)
+
+
+class AIConnection(Base):
+    """An owner's consent record, never a bearer credential or web identity."""
+    __tablename__ = 'ai_connections'
+    __table_args__ = (
+        UniqueConstraint('tenant_id', 'user_id', 'id', name='uq_ai_connections_owner_id'),
+        ForeignKeyConstraint(['tenant_id', 'user_id'], ['users.tenant_id', 'users.id'],
+                             name='fk_ai_connections_owner_same_tenant'),
+        CheckConstraint('expires_at > created_at', name='ck_ai_connections_expiry'),
+        CheckConstraint('active_until > created_at AND active_until <= expires_at', name='ck_ai_connections_active_until'),
+        Index('ix_ai_connections_owner_created', 'tenant_id', 'user_id', 'created_at', 'id'),
+    )
+    id = Column(String(36), primary_key=True)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
+    user_id = Column(Integer, nullable=False)
+    client_id = Column(String(200), ForeignKey('ai_clients.id'), nullable=False)
+    resource = Column(String(500), nullable=False)
+    scopes = Column(JSON, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    # expires_at is the immutable absolute limit; active_until slides forward
+    # with use (token exchange) and never passes expires_at.
+    expires_at = Column(DateTime, nullable=False)
+    active_until = Column(DateTime, nullable=False,
+                          default=lambda context: context.get_current_parameters()['expires_at'])
+    revoked_at = Column(DateTime)
+    last_used_at = Column(DateTime)
+
+
+class OAuthCredential(Base):
+    """Hashed, single-purpose credentials; raw secrets are returned only once."""
+    __tablename__ = 'oauth_credentials'
+    __table_args__ = (
+        ForeignKeyConstraint(['tenant_id', 'user_id', 'connection_id'],
+                             ['ai_connections.tenant_id', 'ai_connections.user_id', 'ai_connections.id'],
+                             name='fk_oauth_credentials_owner_grant'),
+        CheckConstraint("kind IN ('code','access','refresh')", name='ck_oauth_credential_kind'),
+        Index('ix_oauth_credentials_owner_grant', 'tenant_id', 'user_id', 'connection_id', 'created_at'),
+    )
+    token_hash = Column(String(64), primary_key=True)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
+    user_id = Column(Integer, nullable=False)
+    connection_id = Column(String(36), nullable=False)
+    kind = Column(String(10), nullable=False)
+    scopes = Column(JSON, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime)
+    redirect_uri = Column(String(1000))
+    code_challenge = Column(String(43))
+    intent_hash = Column(String(64), unique=True)
+
+
+class AIToolAudit(Base):
+    """Append-only invocation metadata; never stores arguments or CRM content."""
+    __tablename__ = 'ai_tool_audits'
+    __table_args__ = (
+        ForeignKeyConstraint(['tenant_id','user_id','connection_id'],
+            ['ai_connections.tenant_id','ai_connections.user_id','ai_connections.id'], name='fk_ai_tool_audits_owner_grant'),
+        CheckConstraint("outcome IN ('success','not_found','invalid_arguments','forbidden','unknown_tool')", name='ck_ai_tool_audits_outcome'),
+        Index('ix_ai_tool_audits_owner_created','tenant_id','user_id','connection_id','created_at'),
+    )
+    id = Column(String(36),primary_key=True)
+    tenant_id = Column(Integer,ForeignKey('tenants.id'),nullable=False)
+    user_id = Column(Integer,nullable=False)
+    connection_id = Column(String(36),nullable=False)
+    tool = Column(String(40),nullable=False)
+    outcome = Column(String(30),nullable=False)
+    result_count = Column(Integer,nullable=False)
+    created_at = Column(DateTime,nullable=False,default=datetime.utcnow)
+
+
+class AIWriteAction(Base):
+    """Immutable proposal and durable receipt; an ID alone never authorizes a write."""
+    __tablename__ = 'ai_write_actions'
+    __table_args__ = (
+        ForeignKeyConstraint(['tenant_id', 'user_id', 'connection_id'],
+            ['ai_connections.tenant_id', 'ai_connections.user_id', 'ai_connections.id'],
+            name='fk_ai_write_actions_owner_grant'),
+        UniqueConstraint('connection_id', 'request_key', name='uq_ai_write_actions_request'),
+        CheckConstraint("kind IN ('create_lead','create_contact','create_project','create_interaction','update_lead',"
+                        "'update_client','update_contact','update_project','update_interaction')",
+                        name='ck_ai_write_actions_kind'),
+        CheckConstraint("status IN ('pending','cancelled','committed')", name='ck_ai_write_actions_status'),
+        CheckConstraint("(status = 'committed' AND result_id IS NOT NULL AND decided_at IS NOT NULL) OR "
+                        "(status = 'cancelled' AND result_id IS NULL AND decided_at IS NOT NULL) OR "
+                        "(status = 'pending' AND result_id IS NULL AND decided_at IS NULL)",
+                        name='ck_ai_write_actions_result'),
+        CheckConstraint('expires_at > created_at', name='ck_ai_write_actions_expiry'),
+        Index('ix_ai_write_actions_owner_created', 'tenant_id', 'user_id', 'created_at'),
+    )
+    id = Column(String(36), primary_key=True)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
+    user_id = Column(Integer, nullable=False)
+    connection_id = Column(String(36), nullable=False)
+    request_key = Column(String(64), nullable=False)
+    input_hash = Column(String(64), nullable=False)
+    kind = Column(String(30), nullable=False)
+    payload = Column(JSON, nullable=False)
+    status = Column(String(12), nullable=False, default='pending')
+    result_id = Column(Integer)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    decided_at = Column(DateTime)
+
+
 class Client(Base):
     __tablename__ = 'clients'
     id = Column(Integer, primary_key=True, index=True)
-    tenant_id = Column(Integer, nullable=False)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     created_by = Column(Integer, ForeignKey('users.id'), nullable=False)
     updated_by = Column(Integer, ForeignKey('users.id'), nullable=True)
     updated_at = Column(DateTime, onupdate=datetime.utcnow)
@@ -124,7 +254,7 @@ class Account(Base):
 
     id = Column(Integer, primary_key=True)
     client_id = Column(Integer, ForeignKey('clients.id'), nullable=False)
-    tenant_id = Column(Integer, nullable=False)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     account_number = Column(String(100), nullable=False, unique=True)
     account_name = Column(String(255), nullable=True)
     status = Column(String(50), default="active")
@@ -140,7 +270,7 @@ class Account(Base):
 class Lead(Base):
     __tablename__ = 'leads'
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(Integer, nullable=False)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     created_by = Column(Integer, ForeignKey('users.id'), nullable=False)
     updated_by = Column(Integer, ForeignKey('users.id'), nullable=True)
     updated_at = Column(DateTime, onupdate=datetime.utcnow)
@@ -178,7 +308,7 @@ class Contact(Base):
     __tablename__ = 'contacts'
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(Integer, nullable=False, index=True)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
 
     client_id = Column(Integer, ForeignKey('clients.id'), nullable=True)
     lead_id = Column(Integer, ForeignKey('leads.id'), nullable=True)
@@ -217,7 +347,7 @@ class Project(Base):
     id = Column(Integer, primary_key=True)
     lead_id = Column(Integer, ForeignKey('leads.id'), nullable=True)
     client_id = Column(Integer, ForeignKey('clients.id'), nullable=True)
-    tenant_id = Column(Integer, nullable=False)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     project_name = Column(String(255), nullable=False)
     archived_at = Column(DateTime, nullable=True, index=True)
     archived_by = Column(Integer, nullable=True)
@@ -260,7 +390,7 @@ class Interaction(Base):
     lead_id = Column(Integer, ForeignKey('leads.id'), nullable=True)
     client_id = Column(Integer, ForeignKey('clients.id'), nullable=True)
     project_id = Column(Integer, ForeignKey('projects.id'), nullable=True)  # 🆕 NEW FIELD
-    tenant_id = Column(Integer, nullable=False)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     contact_person = Column(String)
     email = Column(String)
     phone = Column(String)
@@ -290,7 +420,7 @@ class ActivityLog(Base):
     __tablename__ = 'activity_logs'
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(Integer, nullable=False, index=True)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     action = Column(Enum(ActivityType), nullable=False)
     entity_type = Column(String(50), nullable=False)  # "client", "lead"
@@ -306,7 +436,7 @@ class ChatMessage(Base):
     __tablename__ = 'chat_messages'
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(Integer, nullable=False, index=True)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     sender_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     recipient_id = Column(Integer, ForeignKey('users.id'), nullable=True)  # null for room chats
     room = Column(String(100), nullable=True)  # null for direct messages
@@ -318,8 +448,9 @@ class ChatMessage(Base):
 
     sender = relationship("User", foreign_keys=[sender_id])
     recipient = relationship("User", foreign_keys=[recipient_id])
-    client = relationship("Client", backref="chat_messages")
-    lead = relationship("Lead", backref="chat_messages")
+    # Let the FK protect linked messages; purging an empty client must not query chat.
+    client = relationship("Client", backref=backref("chat_messages", passive_deletes="all"))
+    lead = relationship("Lead", backref=backref("chat_messages", passive_deletes="all"))
 
     def __repr__(self):
         target = self.room or self.recipient_id
@@ -354,7 +485,7 @@ class File(Base):
     __tablename__ = "files"
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(Integer, nullable=False, index=True)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
 
     # Original name the user uploaded (safe to show in UI / as download name)
@@ -447,7 +578,7 @@ class Subscription(Base):
     __tablename__ = 'subscriptions'
 
     id = Column(Integer, primary_key=True)
-    tenant_id = Column(Integer, nullable=False, index=True)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     client_id = Column(Integer, ForeignKey('clients.id'), nullable=False, index=True)
 
     plan_name = Column(String(255), nullable=False)

@@ -17,9 +17,8 @@ async def warmup_db():
     delay = 2
     while retries > 0:
         try:
-            session = SessionLocal()
-            session.execute(text("SELECT 1"))  # ✅ Wrap in text()
-            session.close()
+            with SessionLocal() as session:
+                session.execute(text("SELECT 1"))
             print("[Warmup] Postgres is ready.")
             return
         except Exception as e:
@@ -67,12 +66,9 @@ def create_app():
             # app/utils/sentry_privacy.py for what each report keeps.
             **SENTRY_PRIVACY_OPTIONS,
             before_send=scrub_event,
-            # Set traces_sample_rate to 1.0 to capture 100%
-            # of transactions for performance monitoring.
-            traces_sample_rate=1.0,
-            # Set profiles_sample_rate to 1.0 to profile 100%
-            # of sampled transactions.
-            profiles_sample_rate=1.0,
+            traces_sample_rate=0.1,
+
+            profiles_sample_rate=0.0,
         )
 
     register_blueprints(app)

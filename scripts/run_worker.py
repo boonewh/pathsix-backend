@@ -16,11 +16,13 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from rq import Worker
 from app.workers import redis_conn, backup_queue
+from app.workers.authorization import require_platform_worker
 from app.utils.logging_utils import logger
 
 
 def main():
     """Start the RQ worker for backup jobs."""
+    require_platform_worker()
     logger.info("Starting RQ worker for backup queue...")
 
     # Create worker and start listening

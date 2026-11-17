@@ -1,15 +1,28 @@
 import bcrypt
+import logging
+import sentry_sdk
 import time
 import asyncio
 from uuid import uuid4
-from authlib.jose import jwt, JoseError
+from authlib.jose import jwt, JoseError, JsonWebToken
 from quart import request, jsonify, current_app
 from functools import wraps
 from app.models import User
+from app.services.principal import Principal
+from app.services.database_context import auth_lookup
 from app.database import SessionLocal
 from itsdangerous import URLSafeTimedSerializer
-from sqlalchemy.exc import SQLAlchemyError, DBAPIError
+from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.orm import joinedload
+
+logger = logging.getLogger(__name__)
+
+
+def _rollback_quietly(session):
+    try:
+        session.rollback()
+    except SQLAlchemyError:
+        pass
 
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
@@ -28,12 +41,11 @@ def create_token(user: User) -> str:
     return jwt.encode(header, payload, current_app.config["SECRET_KEY"]).decode("utf-8")
 
 def decode_token(token: str):
-    from authlib.jose import JsonWebToken
-    claims = JsonWebToken(['HS256']).decode(token, current_app.config["SECRET_KEY"],
-        claims_options={'sub': {'essential': True}, 'exp': {'essential': True}})
+    claims = JsonWebToken(["HS256"]).decode(token, current_app.config["SECRET_KEY"],
+        claims_options={"sub": {"essential": True}, "exp": {"essential": True}})
     claims.validate()
-    if not isinstance(claims['sub'], (int, str)) or not str(claims['sub']).isdigit():
-        raise JoseError('Invalid subject')
+    if not isinstance(claims["sub"], (int, str)) or not str(claims["sub"]).isdigit():
+        raise JoseError("Invalid subject")
     return claims
 
 def requires_auth(roles: list = None):
@@ -52,39 +64,60 @@ def requires_auth(roles: list = None):
             except (JoseError, ValueError, TypeError):
                 return jsonify({"error": "Invalid token"}), 401
 
-            # Retry only the read-only authentication lookup, never a route
-            # handler: even GET handlers can have side effects (e.g. view logs).
-            attempts = 2 if request.method in {"GET", "HEAD"} else 1
-            for attempt in range(attempts):
-                session = SessionLocal()
+            # SQLAlchemy cannot transparently recover when PostgreSQL drops a
+            # connection mid-query. Retrying the whole transaction is safe for
+            # read-only requests, but not for writes that may already have committed.
+            max_attempts = 2 if request.method in {"GET", "HEAD"} else 1
+
+            for attempt in range(max_attempts):
                 retry = False
+                for attr in ('principal', 'user'):
+                    if hasattr(request, attr):
+                        delattr(request, attr)
+                session = SessionLocal()
                 try:
+                    auth_lookup(session, user_id=int(payload['sub']))
                     user = session.query(User)\
-                        .options(joinedload(User.roles))\
+                        .options(joinedload(User.roles), joinedload(User.tenant))\
                         .filter(User.id == payload["sub"], User.is_active == True)\
                         .first()
-                    break
+
+                    if not user:
+                        return jsonify({"error": "User not found"}), 401
+                    if not user.tenant or not user.tenant.is_active:
+                        return jsonify({"error": "Tenant is inactive"}), 403
+                    if roles and not any(role.name in roles for role in user.roles):
+                        return jsonify({"error": "Forbidden"}), 403
+
+                    request.principal = Principal(user.id, user.tenant_id, frozenset(role.name for role in user.roles))
+                    request.user = user
+                    from app.utils.project_archive_access import protected_request
+                    denied = protected_request(user)
+                    if denied is not None:
+                        return denied
+                    # Eagerly loaded identity remains usable after releasing the lookup connection.
+                    session.close()
+                    return await fn(*args, **kwargs)
+                except PermissionError:
+                    return jsonify({'error': 'This operation is not permitted'}), 403
                 except SQLAlchemyError as exc:
+                    _rollback_quietly(session)
+                    if (request.method == 'DELETE' or 'purge' in request.path) and getattr(getattr(exc, 'orig', None), 'pgcode', None) in {'23503', '23514'}:
+                        return jsonify({'error': 'Related records prevent permanent deletion. Remove or reassign them first.'}), 409
                     disconnected = isinstance(exc, DBAPIError) and exc.connection_invalidated
-                    retry = disconnected and attempt + 1 < attempts
+                    retry = bool(disconnected and attempt + 1 < max_attempts
+                                 and not getattr(request, "database_write_started", False))
                     incident = uuid4().hex
-                    # Do not log str(exc), SQL, parameters, tokens or user data.
                     original = getattr(exc, "orig", None)
                     diagnostics = {
-                        "incident": incident,
-                        "endpoint": request.endpoint,
-                        "method": request.method,
-                        "attempt": attempt + 1,
-                        "exception": type(exc).__name__,
-                        "driver": type(original).__name__,
+                        "incident": incident, "endpoint": request.endpoint,
+                        "method": request.method, "attempt": attempt + 1,
+                        "exception": type(exc).__name__, "driver": type(original).__name__,
                         "sqlstate": getattr(original, "sqlstate", None) or getattr(original, "pgcode", None),
-                        "disconnected": bool(disconnected),
-                        "retry": bool(retry),
+                        "disconnected": bool(disconnected), "retry": retry,
                     }
                     current_app.logger.log(
                         30 if retry else 40,
-                        # A stable rendered summary remains readable in Sentry
-                        # clients that display logentry.message without params.
                         f"Auth database failure: {diagnostics['exception']} "
                         f"(driver={diagnostics['driver']}, sqlstate={diagnostics['sqlstate']}, "
                         f"disconnected={diagnostics['disconnected']}, retry={diagnostics['retry']})",
@@ -93,29 +126,12 @@ def requires_auth(roles: list = None):
                     if not retry:
                         return jsonify({
                             "error": "Database temporarily unavailable. Please try again." if disconnected else "Database error",
-                            "request_id": incident,
-                            "retryable": bool(disconnected),
+                            "request_id": incident, "retryable": bool(disconnected and not getattr(request, "database_write_started", False)),
                         }), 503 if disconnected else 500
                 finally:
                     session.close()
                 if retry:
-                    # The broken session is closed before yielding the thread.
                     await asyncio.sleep(0.25)
-
-            if not user:
-                return jsonify({"error": "User not found"}), 401
-            if roles and not any(role.name in roles for role in user.roles):
-                return jsonify({"error": "Forbidden"}), 403
-
-            request.user = user
-            from app.utils.project_archive_access import protected_request
-            denied = protected_request(user)
-            if denied is not None:
-                return denied
-            try:
-                return await fn(*args, **kwargs)
-            except PermissionError:
-                return jsonify({'error': 'This operation is not permitted'}), 403
         return decorated
     return wrapper
 

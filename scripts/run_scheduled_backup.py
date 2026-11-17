@@ -56,11 +56,13 @@ from datetime import datetime
 from app.database import SessionLocal
 from app.models import Backup
 from app.workers.backup_jobs import run_backup_job
+from app.workers.authorization import require_platform_operation
 from app.utils.logging_utils import logger
 
 
 def main():
     """Create and execute a scheduled backup."""
+    require_platform_operation('backup')
     logger.info("[Scheduled] Starting scheduled backup job")
 
     session = SessionLocal()

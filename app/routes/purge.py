@@ -3,7 +3,6 @@ from quart import jsonify, request
 from sqlalchemy.exc import IntegrityError
 
 from app.services.errors import RecordNotFound
-from app.services.principal import Principal
 from app.services.purge import PurgeConflict, PurgeService, database_conflict_payload
 
 
@@ -15,11 +14,9 @@ async def purge_response(session_factory, resource, record_id=None):
         ids = raw.get(f"{resource[:-1]}_ids")
     else:
         ids = [record_id]
-    user = request.user
-    principal = Principal(user.id, user.tenant_id, frozenset(role.name for role in user.roles))
     with session_factory() as session:
         try:
-            result = PurgeService(session, principal).purge(
+            result = PurgeService(session, request.principal).purge(
                 resource, ids, single=record_id is not None
             )
             session.commit()

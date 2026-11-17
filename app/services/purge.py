@@ -6,7 +6,7 @@ deliberately outside runtime read permissions; its FK remains the final guard.
 from sqlalchemy import func
 
 from app.models import Account, Client, Contact, Interaction, Lead, Project, Subscription
-from app.services.principal import Principal
+from app.services.base import TenantService
 from app.services.errors import RecordNotFound
 
 
@@ -35,27 +35,7 @@ class PurgeConflict(Exception):
                 "deleted_ids": []}
 
 
-class PurgeService:
-    def __init__(self, session, principal):
-        if not isinstance(principal, Principal):
-            raise TypeError("An authenticated principal is required")
-        self.session = session
-        self.principal = principal
-
-    def _require_admin(self):
-        if not self.principal.is_admin:
-            raise PermissionError("Administrator access required")
-
-    @staticmethod
-    def _ids(ids):
-        if not isinstance(ids, list) or not ids or any(type(i) is not int or i < 1 for i in ids):
-            raise ValueError("Positive integer record IDs are required")
-
-    def _query(self, model):
-        # Production uses explicit tenant predicates. No relationship loads occur
-        # in this service; retain the current production authorization model.
-        return self.session.query(model).filter(model.tenant_id == self.principal.tenant_id)
-
+class PurgeService(TenantService):
     def purge(self, resource, ids, *, single=False):
         self._require_admin()
         self._ids(ids)
@@ -89,6 +69,9 @@ class PurgeService:
         ]
         if blocked:
             raise PurgeConflict(blocked)
+
+        from app.utils.sales_audit import log_bulk_deletion
+        log_bulk_deletion(self.session, self._query(model).filter(model.id.in_(selected_ids)))
 
         # Bulk SQL intentionally avoids ORM nulling of nullable child references.
         self._query(model).filter(model.id.in_(selected_ids), model.deleted_at.isnot(None)).delete(
