@@ -99,3 +99,43 @@ for a different database than the app's own. Dry run first, then apply:
 3. Find the cause in logs and Sentry; fix, test, deploy to staging, then production.
 4. Switch back on and confirm a read from a test account.
 5. Write down what happened, when, who was affected and what changed.
+
+## 9. Staging hibernation
+
+Staging is cordoned and stopped as of November 17, 2026. Cordoning removes a
+machine from the Fly proxy, so a request to `api-staging.pathsix.app` no longer
+starts it; the request simply times out. Stopping alone would not have been
+enough, because the app's service sets `autostart = true` and
+`min_machines_running = 1`.
+
+What is hibernated:
+
+| App | Machine | State |
+| --- | --- | --- |
+| `pathsixsolutions-backend-staging` | `82549ec7079218` | cordoned, stopped |
+| `pathsixsolutions-backend-staging` | `185777d6c554e8` | cordoned, stopped |
+| `pathsixsolutions-db-staging` | `830376c7157038` | cordoned, stopped |
+
+Nothing was destroyed. The database volume `vol_4y8do0qxqn8z753r` and its
+snapshots remain, so the staging rows cited as evidence in
+`docs/mcp-readiness-status.md` are intact. Secrets, certificates and the
+`api-staging.pathsix.app` certificate are untouched. Production
+(`pathsixsolutions-backend`, `pathsixsolutions-db`) was not touched and was
+confirmed still started and uncordoned.
+
+To bring staging back, start the database first so the app finds it ready:
+
+    flyctl machine uncordon 830376c7157038 --app pathsixsolutions-db-staging
+    flyctl machine start    830376c7157038 --app pathsixsolutions-db-staging
+    flyctl machine uncordon 82549ec7079218 --app pathsixsolutions-backend-staging
+    flyctl machine start    82549ec7079218 --app pathsixsolutions-backend-staging
+    curl -s https://api-staging.pathsix.app/api/health
+
+The second app machine (`185777d6c554e8`) is a spare; uncordon it only if a
+release needs two. A `flyctl deploy` to staging will uncordon and start machines
+on its own, so no deployment should be made to staging while it is meant to stay
+down.
+
+Mobile work does not go here. It gets its own app and database so that a
+production hotfix, which is cut from staging, never has to carry unfinished
+mobile schema changes with it.
