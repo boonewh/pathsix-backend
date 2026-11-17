@@ -5,6 +5,10 @@ touch, the administrator login and the restricted runtime role. The rehearsal
 target is a private copy restored from a production snapshot: it uses
 production's database, user and role names so the rehearsal matches the real
 run, and runs from the staging machine, which carries the new code.
+
+The mobile target is the separate development environment for the mobile app's
+backend work. It shares no host, database, login or role with any other target,
+so wiping and reseeding it cannot reach staging or production.
 """
 from sqlalchemy.engine import make_url
 
@@ -22,6 +26,13 @@ TARGETS = {
         'database': 'pathsixsolutions_backend',
         'admin_user': 'pathsixsolutions_backend',
         'runtime_role': 'pathsix_crm_runtime',
+    },
+    'mobile': {
+        'app': 'pathsixsolutions-backend-mobile',
+        'hosts': {'pathsixsolutions-db-mobile.flycast', 'pathsixsolutions-db-mobile.internal'},
+        'database': 'pathsixsolutions_backend_mobile',
+        'admin_user': 'pathsixsolutions_backend_mobile',
+        'runtime_role': 'pathsix_crm_mobile_runtime',
     },
     'production': {
         'app': 'pathsixsolutions-backend',

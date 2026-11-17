@@ -1,6 +1,7 @@
 """Provision a separate restricted runtime login; never print connection secrets.
 
     python scripts/staging_database_role.py                     # staging (DATABASE_URL)
+    python scripts/staging_database_role.py --target mobile     # mobile (DATABASE_URL)
     <admin-url> | python scripts/staging_database_role.py --target rehearsal|production
 
 Targets are fixed in database_targets.py. The runtime URL is handed off in a
@@ -46,18 +47,25 @@ def grant_runtime_access(connection, role, schema='public'):
                     connection.execute(text(f'GRANT USAGE, SELECT ON SEQUENCE {sequence} TO {role_sql}'))
 
 
-def staging_url():
+def env_url(name):
+    """The app's own DATABASE_URL, accepted only where it is that target's admin login."""
+    spec = target(name)
     url = make_url(os.environ['DATABASE_URL'].replace('postgres://', 'postgresql://', 1))
-    if (os.getenv('FLY_APP_NAME') != 'pathsixsolutions-backend-staging' or
-        url.host not in {'pathsixsolutions-db-staging.flycast', 'pathsixsolutions-db-staging.internal'} or
-        url.database != 'pathsixsolutions_backend_staging'):
-        raise RuntimeError('Refusing non-staging target')
+    if (os.getenv('FLY_APP_NAME') != spec['app'] or url.host not in spec['hosts'] or
+            url.database != spec['database'] or url.username != spec['admin_user']):
+        raise RuntimeError('Refusing a target other than ' + name)
     return url
 
 
+# Staging and mobile still hold an administrator DATABASE_URL at provisioning
+# time, so the login comes from the environment. Rehearsal and production run
+# as the restricted role already and take the administrator URL on stdin.
+FROM_ENVIRONMENT = ('staging', 'mobile')
+
+
 def target_url(name):
-    if name == 'staging':
-        return staging_url()
+    if name in FROM_ENVIRONMENT:
+        return env_url(name)
     return checked_admin_url(name, sys.stdin.readline(), os.getenv('FLY_APP_NAME'))
 
 
@@ -107,7 +115,7 @@ def provision(name='staging'):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--target', choices=['staging', 'rehearsal', 'production'], default='staging')
+    parser.add_argument('--target', choices=['staging', 'mobile', 'rehearsal', 'production'], default='staging')
     try:
         provision(parser.parse_args().target)
     except Exception as exc:

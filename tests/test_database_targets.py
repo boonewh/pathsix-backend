@@ -34,3 +34,25 @@ def test_rehearsal_mirrors_production_and_staging_is_unchanged():
         assert TARGETS['rehearsal'][key] == TARGETS['production'][key]
     assert TARGETS['staging']['runtime_role'] == 'pathsix_crm_staging_runtime'
     assert not TARGETS['rehearsal']['hosts'] & TARGETS['production']['hosts']
+
+
+def test_mobile_shares_nothing_with_staging_or_production():
+    """The mobile development box must not be reachable from another target's name."""
+    mobile = TARGETS['mobile']
+    for other in ('staging', 'rehearsal', 'production'):
+        spec = TARGETS[other]
+        assert not mobile['hosts'] & spec['hosts'], other
+        for key in ('app', 'database', 'admin_user', 'runtime_role'):
+            assert mobile[key] != spec[key], (other, key)
+    url = ('postgresql://pathsixsolutions_backend_mobile:x@'
+           'pathsixsolutions-db-mobile.flycast:5432/pathsixsolutions_backend_mobile')
+    assert checked_admin_url('mobile', url, mobile['app']).database == mobile['database']
+    refused = [
+        ('mobile', PROD, mobile['app']),                        # production is not the mobile box
+        ('production', url, 'pathsixsolutions-backend'),        # the mobile box is not production
+        ('staging', url, 'pathsixsolutions-backend-staging'),   # nor staging
+        ('mobile', url, 'pathsixsolutions-backend'),            # right database, wrong machine
+    ]
+    for name, candidate, app in refused:
+        with pytest.raises(RuntimeError):
+            checked_admin_url(name, candidate, app)
