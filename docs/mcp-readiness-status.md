@@ -1114,8 +1114,8 @@ correctly rejected; ChatGPT retried with valid arguments. Production is not enab
 | 3: adversarial isolation proof | Current web and limited client MCP proof implemented | Tests cover service, HTTP, file/object and platform boundaries plus session/cache reuse, all protected tables, aggregate secrecy and deliberate missing/weakened predicates/policies. Read-only policy attestation detects drift. The two client MCP tools add protocol, scope, revocation, ownership and audit-failure proofs. See isolation-proof.md and mcp-readonly-pilot.md; broader tools and operational durability remain separate gates. |
 | 4: delegated AI authorization | ChatGPT staging connection verified | Owner grants, browser S256 consent, discovery, hashed short resource-bound tokens, refresh rotation/replay revocation, current-state validation and mobile connection management are implemented. Real ChatGPT sign-in and exchange passed; automated client registration remains separate. Grant IDs and web JWTs cannot authenticate delegated access. |
 | 5: read-only MCP pilot | Real ChatGPT phone reads verified | Official SDK stateless transport; list_clients/get_client with clients:read, existing record permissions, bounded summaries, append-only owner audits and durable call limits. Both tools were called successfully from the user's phone. |
-| 6: write tools | In-chat lead review candidate deployed; live card/confirmation/recovery and normal permission recovery pending | [Lead creation](mcp-lead-creation.md) adds separate consent, browser confirmation, atomic receipts and replay/partial-failure tests; 149 implementation, 10 scope-recovery and 20 subsequent in-chat approval deployed checks passed. Contact/project creation, updates, assignments/status changes, notes/interactions and optimistic concurrency remain required before submission. |
-| 7: production MCP rollout | Not started | Threat model, external review, distributed limits, monitoring/runbooks and gradual opt-in pilot remain. |
+| 6: write tools | Complete and verified in production | [Lead creation](mcp-lead-creation.md) adds separate consent, browser confirmation, atomic receipts and replay/partial-failure tests. Contact, project and interaction creation, the update tools, notes and optimistic concurrency shipped in Phases 3-5. Phase 8 confirmed an approved and a cancelled write on production against synthetic records. ChatGPT and Claude both pass connect, read and reviewed creation. |
+| 7: production MCP rollout | Deployed and verified; submission and operational gaps remain | Released November 16, 2026 (`release-94ffe3c`) at `https://api.pathsix.app/mcp` with the restricted runtime login and tenant row security; abuse limits, privacy-preserving monitoring, retention and the runbook shipped in Phase 6, and Phase 8 verified the live connector end to end. Still open: the final manual walkthrough on desktop and phone, the Gemini and local developer client checks, production retention and restore drills, and the OpenAI submission package. |
 
 ## Service boundary inventory
 
@@ -2041,6 +2041,56 @@ running the new image with `CRM_RLS_ENABLED=1`, create `pathsix_crm_runtime` and
 run the 14 migrations; set production `DATABASE_URL` to the runtime login (from
 the machine's mode-0600 handoff, never printed) with `CRM_RLS_ENABLED=1` and the
 production MCP settings; deploy the new code; verify; then domains and email.
+
+### Phase 8: production connector verification — November 17, 2026 (agent-run, owner approved)
+
+The owner approved an isolated synthetic tenant on production and a scripted MCP
+client for this check (not the real-ChatGPT walkthrough, which stays the manual
+release check). `scripts/verify_production_connector.py --target staging|production`
+runs the whole cycle from the operator workstation: the administrator URL comes
+from the DPAPI helper and the generated password from stdin, so neither reaches a
+terminal or an argument list. Rehearsed twice on staging with `--remove-tenant`
+(clean pass, tenant removed) before production was touched, as the release was.
+
+Production tenant 3 `mcp-verify` ("PathSix Connector Verification") holds one
+ordinary user, one client, one lead and one pending follow-up. Customer tenants 1
+(ASFI) and 2 (PathSix Solutions) were untouched: 0 client, lead or project rows
+created or updated in the surrounding six hours, and totals of 219 clients, 518
+leads, 286 projects, 539 interactions and 14 users — the rehearsal's counts less
+the three interactions the go-live repair deleted.
+
+Two runs passed against `https://api.pathsix.app/mcp` on release `release-94ffe3c`:
+
+- **Discovery.** Protected-resource and authorization-server metadata agree on
+  the same 14 published scopes, so the earlier mismatch is closed in production.
+- **Fails closed.** An unauthenticated and a forged-token call return 401 with
+  `WWW-Authenticate` naming the resource metadata.
+- **Self-registration.** DCR created a public PKCE client and connected.
+- **Reads.** `list_clients` and `get_schedule` returned the synthetic client and
+  its follow-up; 30 tools were discoverable.
+- **No in-chat card for a self-registered client.** No `decide_*` tool was
+  advertised and no result `_meta` was returned; both proposals used the signed-in
+  review link.
+- **Scope boundary.** A read-only grant was refused on `prepare_lead_creation`
+  with `insufficient_scope` naming `leads:create`.
+- **Approved write.** A proposal was reviewed at `/oauth/actions/<id>`, previewed
+  and confirmed by the signed-in synthetic user, committed once (lead 3409 on the
+  first run, 3410 on the second), and `get_lead_creation` reported `committed`.
+- **Cancelled write.** A second proposal was cancelled; status `cancelled` and no
+  lead exists.
+- **Isolation.** The connection saw exactly one client, its own, while the
+  customer tenants hold 219.
+- **Revocation.** All four grants were revoked; every later `tools/list` and
+  `tools/call` returned 401, and no live connection remains in the tenant.
+
+Evidence and limits: `tests/test_verify_production_connector.py` (ops tier, 8
+tests) covers the target table, the remote step's database guard and that secrets
+travel on stdin. `pytest -m core` passed 302 with 13 skipped, and the ops tier 36
+with 1 skipped; `test_prune_ai_records.py` and `test_repair_parent_links.py` fail
+locally on SQLite (`LEAST`, `DROP CONSTRAINT`) because they need the local
+PostgreSQL, which is unrelated to this change and is covered by CI. This check
+does not close the manual release walkthrough, the remaining Gemini and local
+developer client checks, or the untested production retention and restore paths.
 
 ### Implementation sequence
 
