@@ -1,9 +1,9 @@
 name: CI
 on:
   pull_request:
-    branches: [main, staging, codex/mvp-lead-creation]
+    branches: [main, staging, mobile, codex/mvp-lead-creation]
   push:
-    branches: [main, staging, codex/mvp-lead-creation]
+    branches: [main, staging, mobile, codex/mvp-lead-creation]
 permissions:
   contents: read
 concurrency:

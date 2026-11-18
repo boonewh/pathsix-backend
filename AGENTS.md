@@ -7,6 +7,12 @@
   `pathsixsolutions-backend-staging`). The former `codex/mvp-lead-creation`
   branch was merged into it (PR 27) and is retired. Never merge or deploy MVP work to
   production without the user's explicit decision.
+- `mobile` is the mobile app's Phase 0 branch (Fly app
+  `pathsixsolutions-backend-mobile`). **Mobile work follows
+  `G:\Projects\pathsix-crm-mobile\FACTORY.md`**, which overrides the testing
+  instructions below for that work: only OpenCode runs tests and checks; other
+  agents write tests but never run them. Staging is not touched or woken for
+  mobile work.
 - Local PostgreSQL for the full test suite: `G:\Projects\tools\pathsix-test-db.sh
   start`, then `eval "$(bash G:/Projects/tools/pathsix-test-db.sh env)"`.
 

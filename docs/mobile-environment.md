@@ -122,9 +122,20 @@ Deploy:
 
     flyctl deploy --app pathsixsolutions-backend-mobile --config fly.mobile.toml
 
-Apply new migrations (the chain works from head; it just cannot build from zero):
+Apply new migrations (the chain works from head; it just cannot build from zero).
+The app's own `DATABASE_URL` is the restricted runtime role, which has no access
+to `alembic_version` and cannot alter tables, so migrations must run as the
+administrator. Its host is `.flycast`/`.internal`, reachable only from inside
+Fly, so pipe it to the app machine on stdin, the same way the retention script
+takes it (`docs/ai-connector-runbook.md`, section 7):
 
-    flyctl ssh console --app pathsixsolutions-backend-mobile -C "sh -c 'cd /app && alembic upgrade head'"
+    powershell -NoProfile -File G:/Projects/tools/pathsix-mobile-admin-url.ps1 | \
+      flyctl ssh console --app pathsixsolutions-backend-mobile \
+      -C "sh -c 'read -r DATABASE_URL; export DATABASE_URL; cd /app && alembic upgrade head'"
+
+Corrected November 18, 2026: the earlier one-line form ran as the runtime role
+and would fail after the role cutover. This form is not yet verified; the first
+Phase 0 migration deploy is its proof, and this note should be updated then.
 
 The restricted runtime role has already been provisioned and `DATABASE_URL` cut
 over to it. If the database is ever rebuilt, provision it again with:
