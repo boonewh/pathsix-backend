@@ -54,7 +54,7 @@ def build_report(session, tenant_id, start=None, end=None, user_id=None, page=1,
                                 literal("edited"), literal(kind), model.id, name).where(
                 model.tenant_id == tenant_id, updater.isnot(None), model.updated_at.isnot(None),
                 # mobile_change_tracking backfilled never-set updated_at to created_at; that is not an edit.
-                model.updated_at > model.created_at, ~logged_edit))
+                model.updated_at != model.created_at, ~logged_edit))
             logged_delete = exists(select(logs.id).where(
                 logs.tenant_id == tenant_id, logs.entity_type == kind,
                 logs.entity_id == model.id, logs.action == ActivityType.deleted))

@@ -37,8 +37,8 @@ ENTITY = {
     'leads': 'lead',
     'projects': 'project',
 }
-# The attribute sales_audit uses as each activity description; independent of
-# the migration's NAME map.
+# The attribute sales_audit uses as each activity description, so the seeded
+# entries look genuine; the migration must ignore them anyway.
 NAME_COLUMN = {
     'accounts': 'account_name',
     'clients': 'name',
@@ -184,7 +184,8 @@ def test_timestamp_columns_are_non_null_with_utc_defaults_and_creator_nullable(l
         assert interaction_columns['created_by']['default'] is None
 
 
-def test_backfill_preserves_existing_values_and_uses_earliest_same_tenant_activity(legacy):
+def test_backfill_preserves_existing_values_and_never_trusts_activity_logs(legacy):
+    """Missing times become the migration time, even where a matching activity entry exists."""
     engine, schema = legacy
     before = _utc_now()
     upgrade(engine, schema)
@@ -198,38 +199,31 @@ def test_backfill_preserves_existing_values_and_uses_earliest_same_tenant_activi
         for table in ('clients', 'leads', 'projects'):
             value = c.execute(text(f'SELECT updated_at FROM {table} WHERE id = 1')).scalar_one()
             assert value == OLD, table
+        # Contacts had created_at but no updated_at: it starts equal to created_at.
+        assert c.execute(text('SELECT updated_at FROM contacts WHERE id = 1')).scalar_one() == OLD
 
+        # id 2 has same-tenant, description-matching 'created' entries; ids 4 and 5 have none
+        # or a stale one. All of them get the migration time.
         for table in SYNCED:
-            created, updated = c.execute(
-                text(f'SELECT created_at, updated_at FROM {table} WHERE id = 2')).one()
-            assert created == EARLIEST, table
-            assert created != CROSS_TENANT and created != EDITED, table
-            assert updated == created, table
-
-        for table in SYNCED:
-            created, updated = c.execute(
-                text(f'SELECT created_at, updated_at FROM {table} WHERE id = 4')).one()
-            _assert_recent(created, before, after)
-            assert updated == created, table
-
-        # Same tenant and entity_id, but the activity description is stale.
+            for record_id in (2, 4):
+                created, updated = c.execute(text(
+                    f'SELECT created_at, updated_at FROM {table} WHERE id = :id'), {'id': record_id}).one()
+                _assert_recent(created, before, after)
+                assert created not in (EARLIEST, LATER, CROSS_TENANT, EDITED), (table, record_id)
+                assert updated == created, (table, record_id)
         created, updated = c.execute(text(
             'SELECT created_at, updated_at FROM interactions WHERE id = 5')).one()
         _assert_recent(created, before, after)
         assert updated == created
 
 
-def test_created_by_comes_only_from_earliest_same_tenant_activity(legacy):
+def test_legacy_interactions_keep_created_by_null(legacy):
     engine, schema = legacy
     upgrade(engine, schema)
     with engine.connect() as c:
         c.execute(text(f'SET LOCAL search_path="{schema}"'))
-        assert c.execute(text(
-            'SELECT created_by FROM interactions WHERE id = 2')).scalar_one() == 1
-        for record_id in (1, 3, 4, 5):  # no entry, other-tenant user, no entry, stale description
-            assert c.execute(text(
-                'SELECT created_by FROM interactions WHERE id = :id'),
-                {'id': record_id}).scalar_one() is None
+        values = c.execute(text('SELECT created_by FROM interactions ORDER BY id')).scalars().all()
+        assert values and all(value is None for value in values)
 
 
 def test_existing_created_by_column_refused_without_changing_history_or_rows(legacy):
