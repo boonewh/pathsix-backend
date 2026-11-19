@@ -57,6 +57,7 @@ LABEL = {
 }
 TENANT = "NULLIF(current_setting('crm.tenant_id', true), '')::integer"
 OLD = datetime(2000, 1, 1, 0, 0, 0)
+OLD_UPDATED = datetime(2001, 6, 1, 12, 0, 0)
 # PostgreSQL now() and the Python process clock differ by sub-milliseconds.
 CLOCK_SLOP = timedelta(seconds=2)
 EARLIEST = datetime(2020, 1, 1, 9, 0, 0)
@@ -103,7 +104,7 @@ def legacy(stable_ids_legacy):
         for table in ('clients', 'leads', 'projects', 'contacts'):
             c.execute(text(f'UPDATE {table} SET created_at = :at WHERE id = 1'), {'at': OLD})
         for table in ('clients', 'leads', 'projects'):
-            c.execute(text(f'UPDATE {table} SET updated_at = :at WHERE id = 1'), {'at': OLD})
+            c.execute(text(f'UPDATE {table} SET updated_at = :at WHERE id = 1'), {'at': OLD_UPDATED})
 
         rows = []
         row_id = 1
@@ -197,8 +198,9 @@ def test_backfill_preserves_existing_values_and_never_trusts_activity_logs(legac
             value = c.execute(text(f'SELECT created_at FROM {table} WHERE id = 1')).scalar_one()
             assert value == OLD, table
         for table in ('clients', 'leads', 'projects'):
+            # Distinct from created_at, so overwriting it with created_at would fail here.
             value = c.execute(text(f'SELECT updated_at FROM {table} WHERE id = 1')).scalar_one()
-            assert value == OLD, table
+            assert value == OLD_UPDATED, table
         # Contacts had created_at but no updated_at: it starts equal to created_at.
         assert c.execute(text('SELECT updated_at FROM contacts WHERE id = 1')).scalar_one() == OLD
 
@@ -281,9 +283,7 @@ def test_existing_grants_and_rls_accept_rows_without_new_columns(legacy):
         c.execute(text(f'GRANT USAGE ON SCHEMA "{schema}" TO {q(role)}'))
         c.execute(text(f'GRANT SELECT, INSERT, UPDATE ON interactions TO {q(role)}'))
 
-    before = _utc_now()
     upgrade(engine, schema)
-    after = _utc_now()
 
     with engine.begin() as c:
         c.execute(text(f'SET LOCAL search_path="{schema}"'))
@@ -292,5 +292,7 @@ def test_existing_grants_and_rls_accept_rows_without_new_columns(legacy):
         created, updated = c.execute(text(
             'INSERT INTO interactions (id, tenant_id) VALUES (:id, 1) '
             'RETURNING created_at, updated_at'), {'id': 9999}).one()
-        _assert_recent(created, before, after)
-        _assert_recent(updated, before, after)
+        # now() is the transaction start, so the defaults equal it exactly.
+        transaction_now = c.execute(text("SELECT timezone('utc', now())")).scalar_one()
+        assert created == transaction_now
+        assert updated == transaction_now

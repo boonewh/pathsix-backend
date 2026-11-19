@@ -1,6 +1,7 @@
 """ORM defaults, service attribution and server defaults for change tracking."""
 import os
-from datetime import datetime, timezone
+from contextlib import contextmanager
+from datetime import datetime
 from uuid import uuid4
 
 import pytest
@@ -28,18 +29,39 @@ CHANGED_FIELD = {
 OLD = datetime(2000, 1, 1, 0, 0, 0)
 
 
-def _sqlite_factory():
-    engine = create_engine('sqlite://')
-    Base.metadata.create_all(engine)
-    return sessionmaker(bind=engine)
+@contextmanager
+def _factory(dialect):
+    if dialect == 'sqlite':
+        engine = create_engine('sqlite://')
+        Base.metadata.create_all(engine)
+        try:
+            yield sessionmaker(bind=engine)
+        finally:
+            engine.dispose()
+        return
+    url = os.getenv('SECURITY_TEST_DATABASE_URL')
+    if not url:
+        pytest.skip('Requires PostgreSQL')
+    schema = 'change_tracking_orm_' + uuid4().hex
+    admin = create_engine(url, hide_parameters=True)
+    try:
+        with admin.begin() as c:
+            c.execute(text(f'CREATE SCHEMA "{schema}"'))
+        engine = create_engine(url, hide_parameters=True, connect_args={'options': f'-csearch_path={schema}'})
+        try:
+            Base.metadata.create_all(engine)
+            yield sessionmaker(bind=engine)
+        finally:
+            engine.dispose()
+    finally:
+        with admin.begin() as c:
+            c.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+        admin.dispose()
 
 
-def _utc_now():
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
-def test_orm_inserts_and_updates_change_tracking_columns():
-    with _sqlite_factory()() as db:
+@pytest.mark.parametrize('dialect', ['sqlite', 'postgresql'])
+def test_orm_inserts_and_updates_change_tracking_columns(dialect):
+    with _factory(dialect) as factory, factory() as db:
         db.add(Tenant(id=1, name='T', slug='t'))
         db.add(User(id=1, tenant_id=1, email='u@example.test', password_hash='unused'))
         db.flush()
@@ -69,6 +91,7 @@ def test_orm_inserts_and_updates_change_tracking_columns():
         for record in records:
             setattr(record, CHANGED_FIELD[type(record)], 'changed')
         db.commit()
+        db.expire_all()
 
         for record in records:
             fresh = db.get(type(record), record.id)
@@ -114,13 +137,17 @@ def test_sales_report_ignores_backfilled_updated_at_without_a_real_edit(crm):
                  created_at=datetime(2026, 9, 1), updated_at=datetime(2026, 9, 1)),
             Lead(id=101, tenant_id=1, created_by=1, updated_by=1, name='Edited lead',
                  created_at=datetime(2026, 9, 1), updated_at=datetime(2026, 9, 2)),
+            # A genuine recorded edit whose created_at was filled in later than it.
+            Lead(id=102, tenant_id=1, created_by=1, updated_by=1, name='Edited before backfilled creation',
+                 created_at=datetime(2026, 9, 5), updated_at=datetime(2026, 9, 3)),
         ])
         db.commit()
         report = build_report(db, 1, user_id=1)
         edits = [event for event in report['events'] if event['action'] == 'edited']
-        assert [event['record_name'] for event in edits] == ['Edited lead']
+        assert sorted(event['record_name'] for event in edits) == [
+            'Edited before backfilled creation', 'Edited lead']
         summary = next(user for user in report['users'] if user['user_id'] == 1)
-        assert summary['edits'] == 1
+        assert summary['edits'] == 2
 
 
 def test_postgresql_raw_insert_uses_server_change_tracking_defaults():
@@ -139,15 +166,14 @@ def test_postgresql_raw_insert_uses_server_change_tracking_defaults():
             with sessionmaker(bind=engine)() as db:
                 db.add(Tenant(id=1, name='T', slug='t'))
                 db.commit()
-            before = _utc_now()
             with engine.begin() as c:
                 created, updated = c.execute(text(
                     "INSERT INTO interactions (tenant_id, summary, followup_status) "
                     "VALUES (1, 'raw', 'pending') "
                     "RETURNING created_at, updated_at")).one()
-            after = _utc_now()
-            assert before <= created <= after
-            assert before <= updated <= after
+                transaction_now = c.execute(text("SELECT timezone('utc', now())")).scalar_one()
+            assert created == transaction_now
+            assert updated == transaction_now
         finally:
             engine.dispose()
     finally:
