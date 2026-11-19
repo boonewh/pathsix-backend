@@ -220,7 +220,7 @@ class Client(Base):
     tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     created_by = Column(Integer, ForeignKey('users.id'), nullable=False)
     updated_by = Column(Integer, ForeignKey('users.id'), nullable=True)
-    updated_at = Column(DateTime, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     deleted_by = Column(Integer, ForeignKey('users.id'), nullable=True)
     assigned_to = Column(Integer, ForeignKey('users.id'), nullable=True)
     name = Column(String(100), nullable=False)
@@ -238,7 +238,7 @@ class Client(Base):
     status = Column(String(50), default='new')
     type = Column(String(50), nullable=True, default="None")
     notes = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     deleted_at = Column(DateTime, nullable=True)
     source_lead_id = Column(Integer, ForeignKey('leads.id'), nullable=True)
     converted_on = Column(DateTime, nullable=True)
@@ -256,6 +256,8 @@ class Account(Base):
 
     id = Column(Integer, primary_key=True)
     uuid = Column(Uuid, nullable=False, unique=True, default=uuid4)  # stable id for offline sync
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     client_id = Column(Integer, ForeignKey('clients.id'), nullable=False)
     tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     account_number = Column(String(100), nullable=False, unique=True)
@@ -277,7 +279,7 @@ class Lead(Base):
     tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     created_by = Column(Integer, ForeignKey('users.id'), nullable=False)
     updated_by = Column(Integer, ForeignKey('users.id'), nullable=True)
-    updated_at = Column(DateTime, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     deleted_at = Column(DateTime, nullable=True)
     deleted_by = Column(Integer, ForeignKey('users.id'), nullable=True)
     assigned_to = Column(Integer, ForeignKey('users.id'), nullable=True)
@@ -295,7 +297,7 @@ class Lead(Base):
     zip = Column(String(20))
     type = Column(String(50), nullable=True, default="None")
     notes = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     lead_status = Column(String(20), default="open")  # Tenant-configured; default pipeline: open, qualified, proposal, won, lost
     converted_on = Column(DateTime, nullable=True)
     lead_source = Column(String(50), nullable=True, index=True)  # Website, Referral, Cold Call, Email Campaign, etc.
@@ -327,7 +329,8 @@ class Contact(Base):
     secondary_phone = Column(String(20), nullable=True)
     secondary_phone_label = Column(String(20), nullable=True)
     notes = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     client = relationship("Client", backref="contacts")
     lead = relationship("Lead", backref="contacts")
@@ -371,9 +374,9 @@ class Project(Base):
     project_end = Column(DateTime, nullable=True)
     project_worth = Column(Float, nullable=True)
     value_type = Column(String(20), nullable=True, default='one_time')  # 'one_time', 'monthly', 'yearly'
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     created_by = Column(Integer, ForeignKey('users.id'), nullable=False)
-    updated_at = Column(DateTime, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     last_updated_by = Column(Integer, ForeignKey('users.id'), nullable=True)
     deleted_at = Column(DateTime, nullable=True)
     deleted_by = Column(Integer, ForeignKey('users.id'), nullable=True)
@@ -394,10 +397,13 @@ class Interaction(Base):
 
     id = Column(Integer, primary_key=True)
     uuid = Column(Uuid, nullable=False, unique=True, default=uuid4)  # stable id for offline sync
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     lead_id = Column(Integer, ForeignKey('leads.id'), nullable=True)
     client_id = Column(Integer, ForeignKey('clients.id'), nullable=True)
     project_id = Column(Integer, ForeignKey('projects.id'), nullable=True)  # 🆕 NEW FIELD
     tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
+    created_by = Column(Integer, ForeignKey('users.id'), nullable=True)  # NULL only for legacy rows
     contact_person = Column(String)
     email = Column(String)
     phone = Column(String)
@@ -646,9 +652,12 @@ class BackupRestore(Base):
         return f"<BackupRestore backup_id={self.backup_id} status={self.status}>"
 
 
-# Match the mobile_stable_ids migration on schemas built from these models
-# (create_all in tests), so raw inserts that omit uuid behave as in the real
-# database. PostgreSQL only: SQLite has no gen_random_uuid().
+# Match the mobile_stable_ids and mobile_change_tracking migrations on schemas
+# built from these models (create_all in tests), so raw inserts that omit these
+# columns behave as in the real database. PostgreSQL only: SQLite has no
+# gen_random_uuid(), and its ORM inserts use the Python defaults above.
 for _synced in (Client, Lead, Project, Contact, Interaction, Account):
     event.listen(_synced.__table__, 'after_create', DDL(
-        'ALTER TABLE %(fullname)s ALTER COLUMN uuid SET DEFAULT gen_random_uuid()').execute_if(dialect='postgresql'))
+        "ALTER TABLE %(fullname)s ALTER COLUMN uuid SET DEFAULT gen_random_uuid(), "
+        "ALTER COLUMN created_at SET DEFAULT timezone('utc', now()), "
+        "ALTER COLUMN updated_at SET DEFAULT timezone('utc', now())").execute_if(dialect='postgresql'))

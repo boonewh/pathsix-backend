@@ -154,6 +154,7 @@ class InteractionService(TenantService):
         )
         interaction = Interaction(
             tenant_id=self.principal.tenant_id,
+            created_by=self.principal.user_id,
             client_id=data.client_id,
             lead_id=data.lead_id,
             project_id=data.project_id,
