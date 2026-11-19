@@ -8,8 +8,9 @@ that ORM, Core, raw SQL, imports and scripts are all covered:
   the row (ACCESS_FIELDS), or 0 if none has since it was inserted. A new row
   cannot already be on a device, so an insert never counts as an access change.
 
-Values written by callers are always overwritten. An AFTER DELETE trigger writes
-one sync_purges row per deleted row, so a device learns about permanent deletes
+Values written by callers are always overwritten, and an update may not change a
+row's tenant_id or uuid. An AFTER DELETE trigger writes one sync_purges row per
+deleted row (as the function owner; the runtime role can only read them), so a device learns about permanent deletes
 (PurgeService, scripts/prune_tombstones.py, repair scripts) for the 90-day window.
 
 The same DDL is used by the mobile_change_feed migration and, through
@@ -44,6 +45,12 @@ DECLARE
     old_row jsonb;
     field text;
 BEGIN
+    IF TG_OP = 'UPDATE' AND (NEW.tenant_id IS DISTINCT FROM OLD.tenant_id
+                             OR NEW.uuid IS DISTINCT FROM OLD.uuid) THEN
+        -- A device holds the record under its old tenant and uuid; moving or
+        -- rekeying in place would leave that copy behind with no removal.
+        RAISE EXCEPTION 'Sync records cannot change tenant or uuid' USING ERRCODE = 'check_violation';
+    END IF;
     NEW.sync_change_xid := current_xid;
     IF TG_OP = 'INSERT' THEN
         NEW.sync_access_xid := 0;
@@ -62,10 +69,15 @@ BEGIN
 END
 $$;
 
-CREATE OR REPLACE FUNCTION {PURGE_FUNCTION}() RETURNS trigger LANGUAGE plpgsql AS $$
+-- SECURITY DEFINER: the runtime role may only read sync_purges, so a purge record
+-- can only come from an actual row delete. The search_path is pinned and the
+-- table is named with the deleted row's own schema. clock_timestamp(), not now():
+-- retention must not age a record by how long its transaction ran beforehand.
+CREATE OR REPLACE FUNCTION {PURGE_FUNCTION}() RETURNS trigger LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
     EXECUTE format('INSERT INTO %I.{PURGE_TABLE} (tenant_id, entity, record_uuid, purged_xid, purged_at) '
-                   'VALUES ($1, $2, $3, pg_current_xact_id()::text::bigint, timezone(''utc'', now()))',
+                   'VALUES ($1, $2, $3, pg_current_xact_id()::text::bigint, timezone(''utc'', clock_timestamp()))',
                    TG_TABLE_SCHEMA)
         USING OLD.tenant_id, TG_TABLE_NAME, OLD.uuid;
     RETURN OLD;

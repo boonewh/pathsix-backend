@@ -25,7 +25,9 @@ With no `cursor`, the request starts a full sync. With a cursor, always send the
 - **`has_more: true`:** call again with `cursor` to continue the same round. Only the last page of a round is shorter than `limit`.
 - **`has_more: false`:** the round is complete. Store `cursor` and use it for the next sync.
 - **After a full sync:** when it completes, delete every local record it didn't deliver.
-- **Upserts:** replace the local record, keyed by `uuid`. `record` holds `id` and `uuid`, and each parent appears as both `<parent>_id` and `<parent>_uuid`. Datetimes are naive UTC in ISO 8601 format.
+- **Upserts:** replace the local record, keyed by `uuid`. `record` holds `id` and `uuid`, and each parent appears as both `<parent>_id` and `<parent>_uuid`.
+- **Datetimes:** naive ISO 8601, stored exactly as the web app stores them. Most are UTC. Interaction `contact_date` and `follow_up` are wall-clock values as the user entered them; don't shift them by a time zone.
+- **Client conversion link:** clients don't include their source lead or conversion date. The web app shows that link only when the lead is visible too.
 - **Removes:** delete the local record. A remove can name a uuid the device never held; ignore it. It carries no content.
 - **Repeated changes:** the same change can arrive in more than one round, so apply changes idempotently. A child can arrive before its parent; the parent follows in the same round or the next one.
 
@@ -36,7 +38,7 @@ With no `cursor`, the request starts a full sync. With a cursor, always send the
 | 400 | `invalid_cursor` | Corrupt or forged token, or a cursor issued to another user or tenant. Start a full sync. |
 | 400 | `invalid_limit` | `limit` isn't an integer from 1 to 500. |
 | 401 | — | Not signed in. |
-| 410 | `resync_required` | Cursor older than 89 days, the user's admin role changed, or the cursor format changed. Start a full sync. |
+| 410 | `resync_required` | Start a full sync. Sent when: the cursor's last completed round started more than 89 days ago; the user's admin role changed; the database's sync history was reset (restore or rebuild); or the cursor format changed. |
 | 501 | `unsupported_database` | Development SQLite only. |
 
 ## What a user sees
@@ -64,13 +66,15 @@ Deleted contacts, accounts and interactions (tombstones) are never sent as recor
 
 ## How it works
 
-- **Change markers.** A trigger on each of the six tables stamps the writing transaction's id into `sync_change_xid`. It also stamps `sync_access_xid` when a field that decides visibility changes; `ACCESS_FIELDS` in `app/utils/sync_markers.py` lists them. An insert never counts as an access change.
-- **Permanent deletes.** An `AFTER DELETE` trigger writes a `sync_purges` row (tenant, entity, uuid, xid). The runtime role can only read and insert them. `scripts/prune_tombstones.py` removes rows older than 90 days.
+- **Change markers.** A trigger on each of the six tables stamps the writing transaction's id into `sync_change_xid`. It also stamps `sync_access_xid` when a field that decides visibility changes; `ACCESS_FIELDS` in `app/utils/sync_markers.py` lists them. An insert never counts as an access change. The same trigger refuses any update that changes a row's `tenant_id` or `uuid`, because a device would keep the old copy.
+- **Permanent deletes.** A `SECURITY DEFINER` `AFTER DELETE` trigger writes a `sync_purges` row (tenant, entity, uuid, xid, deletion time from `clock_timestamp()`). It is written in the deleting transaction and rolls back with it. The runtime role can only read these rows, so it cannot forge a removal. `scripts/prune_tombstones.py` removes rows older than 90 days. If a purged uuid reappears (an operator reinsert), its old purge record is ignored.
+- **History reset.** The cursor carries the identity of the `sync_purges` table. A `pg_restore --clean` or rebuild recreates that table, which invalidates every cursor, because a restore can drop rows without leaving purge records.
 - **Consistency.** Each round records `pg_snapshot_xmin(pg_current_snapshot())` before reading anything, and the next round asks for everything from that point. A transaction still running at that moment is therefore picked up next time; that's why changes can repeat.
 - **Cursor.** The cursor is HMAC-signed with the app's `SECRET_KEY`, so rotating the key invalidates every cursor and devices fully resync. It carries the tenant, the user, the admin flag and the round's start time. Changing the admin flag forces a resync, because it changes visibility everywhere.
-- **Retention.** Tombstones and purge records are kept for 90 days, and cursors are accepted for 89. Every removal a still-valid cursor needs is therefore retained.
+- **Retention.** Tombstones and purge records are kept for 90 days. A cursor is accepted while its lower bound, the start of its last completed round, is under 89 days old, and this is checked on every page of a round. Every removal a still-valid cursor needs is therefore retained. The one-day margin assumes no deleting transaction stays open for more than about a day; runtime requests are bounded far below that.
 
 ## Known limits
 
-- **Possible uuid disclosure.** A removal can disclose the uuid of a record the caller can't see, for example after a reassignment between two other users. Only the entity and uuid are disclosed, never content. Per-device sync state (with device registration, item 6) can narrow this later.
+- **Possible uuid disclosure.** A removal can disclose the uuid of a record the caller can't see, for example after a reassignment between two other users. Only the entity and uuid are disclosed, never content. A content edit or insert of an invisible record produces nothing, unless the record or one of its ancestors also had an access change since the cursor. Scoping removals to the devices that held the record is tracked as Solo todo 26, with device registration (item 6).
+- **Responses are not cached:** they are sent with `Cache-Control: no-store`.
 - **Archive owners.** Archived projects are invisible here, even to archive owners. The private archive has its own endpoint.

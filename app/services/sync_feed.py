@@ -45,8 +45,7 @@ PURGES = len(ENTITIES)  # resume index of the sync_purges phase (incremental onl
 FIELDS = {
     'clients': ('id', 'uuid', 'name', 'contact_person', 'contact_title', 'email', 'phone', 'phone_label',
                 'secondary_phone', 'secondary_phone_label', 'address', 'city', 'state', 'zip', 'status',
-                'type', 'notes', 'created_by', 'assigned_to', 'source_lead_id', 'converted_on',
-                'created_at', 'updated_at'),
+                'type', 'notes', 'created_by', 'assigned_to', 'created_at', 'updated_at'),
     'leads': ('id', 'uuid', 'name', 'contact_person', 'contact_title', 'email', 'phone', 'phone_label',
               'secondary_phone', 'secondary_phone_label', 'address', 'city', 'state', 'zip', 'type',
               'notes', 'lead_status', 'lead_source', 'converted_on', 'created_by', 'assigned_to',
@@ -160,7 +159,7 @@ class SyncFeedService:
         bind_principal(session, principal)
 
     # -- cursor ---------------------------------------------------------
-    def _state(self, cursor, secret, now):
+    def _state(self, cursor, secret, now, epoch):
         p = self.principal
         if cursor is None:
             return None
@@ -170,10 +169,11 @@ class SyncFeedService:
         if payload.get('t') != p.tenant_id or payload.get('u') != p.user_id:
             raise InvalidCursor('Cursor belongs to another account')
         mode, since, base, issued = payload.get('m'), payload.get('s'), payload.get('b'), payload.get('i')
-        key = payload.get('k')
+        key, watermark = payload.get('k'), payload.get('w')
         if (mode not in ('full', 'inc') or not _int(base) or not _int(issued)
-                or (mode == 'full' and since is not None)
-                or (mode == 'inc' and (not _int(since) or since > base))
+                or (mode == 'full' and (since is not None or watermark is not None))
+                or (mode == 'inc' and (not _int(since) or since > base
+                                       or not _int(watermark) or watermark > issued))
                 or (key is not None and not (isinstance(key, list) and len(key) == 2
                                              and _int(key[0]) and _int(key[1])
                                              and key[0] <= (PURGES if mode == 'inc' else PURGES - 1)))
@@ -181,16 +181,24 @@ class SyncFeedService:
             raise InvalidCursor('Invalid cursor')
         if payload['a'] != p.is_admin:
             raise ResyncRequired('Account permissions changed')
-        if issued < now - CURSOR_MAX_AGE_DAYS * 86400 or issued > now + 300:
+        if payload.get('e') != epoch:
+            # sync_purges was recreated (restore or rebuild): history restarted.
+            raise ResyncRequired('Sync history was reset')
+        # The removals a cursor still needs date from its lower watermark `since`,
+        # captured at `watermark`, not from this round's newer base. Check it on
+        # every page: a round started near the deadline must not finish after it.
+        oldest = watermark if mode == 'inc' else issued
+        if oldest < now - CURSOR_MAX_AGE_DAYS * 86400 or issued > now + 300:
             raise ResyncRequired('Cursor is too old')
-        return {'mode': mode, 'since': since, 'base': base, 'issued': issued,
+        return {'mode': mode, 'since': since, 'base': base, 'issued': issued, 'watermark': watermark,
                 'key': tuple(key) if key is not None else None}
 
-    def _token(self, state, secret):
+    def _token(self, state, secret, epoch):
         p = self.principal
         return encode_cursor({'v': CURSOR_VERSION, 't': p.tenant_id, 'u': p.user_id, 'a': p.is_admin,
-                              'm': state['mode'], 's': state['since'], 'b': state['base'],
-                              'i': state['issued'], 'k': list(state['key']) if state['key'] else None},
+                              'e': epoch, 'm': state['mode'], 's': state['since'], 'b': state['base'],
+                              'i': state['issued'], 'w': state['watermark'],
+                              'k': list(state['key']) if state['key'] else None},
                              secret)
 
     # -- predicates -----------------------------------------------------
@@ -216,10 +224,10 @@ class SyncFeedService:
         return and_(Interaction.tenant_id == tenant, Interaction.deleted_at.is_(None),
                     interaction_access_filter(p), visible_interaction(Interaction))
 
-    @staticmethod
-    def _access_changed(entity, since):
-        client = lambda rel: rel.has(Client.sync_access_xid >= since)
-        lead = lambda rel: rel.has(Lead.sync_access_xid >= since)
+    def _access_changed(self, entity, since):
+        tenant = self.principal.tenant_id
+        client = lambda rel: rel.has(and_(Client.tenant_id == tenant, Client.sync_access_xid >= since))
+        lead = lambda rel: rel.has(and_(Lead.tenant_id == tenant, Lead.sync_access_xid >= since))
         if entity == 'clients':
             return Client.sync_access_xid >= since
         if entity == 'leads':
@@ -231,8 +239,8 @@ class SyncFeedService:
         if entity == 'contacts':
             return or_(Contact.sync_access_xid >= since, client(Contact.client), lead(Contact.lead))
         return or_(Interaction.sync_access_xid >= since, client(Interaction.client), lead(Interaction.lead),
-                   Interaction.project.has(or_(Project.sync_access_xid >= since,
-                                               client(Project.client), lead(Project.lead))))
+                   Interaction.project.has(and_(Project.tenant_id == tenant, or_(
+                       Project.sync_access_xid >= since, client(Project.client), lead(Project.lead)))))
 
     # -- reads ----------------------------------------------------------
     def _entity_rows(self, entity, state, after_id, limit):
@@ -241,7 +249,8 @@ class SyncFeedService:
         columns = [getattr(model, field) for field in FIELDS[entity]]
         for field, parent in PARENTS.items():
             if field in FIELDS[entity]:
-                columns.append(select(parent.uuid).where(parent.id == getattr(model, field))
+                columns.append(select(parent.uuid).where(parent.id == getattr(model, field),
+                                                         parent.tenant_id == self.principal.tenant_id)
                                .correlate(model).scalar_subquery().label(field[:-3] + '_uuid'))
         if state['mode'] == 'full':
             flag, where = case((visible, True), else_=False), visible
@@ -266,7 +275,11 @@ class SyncFeedService:
     def _purge_rows(self, state, after_id, limit):
         stmt = (select(SyncPurge.id, SyncPurge.entity, SyncPurge.record_uuid)
                 .where(SyncPurge.tenant_id == self.principal.tenant_id, SyncPurge.id > after_id,
-                       SyncPurge.purged_xid >= state['since'], SyncPurge.entity.in_(ENTITIES))
+                       SyncPurge.purged_xid >= state['since'], SyncPurge.entity.in_(ENTITIES),
+                       # A uuid present again (operator reinsert) is not a final removal;
+                       # the entity phases already reported its current state.
+                       ~or_(*(select(model.id).where(model.uuid == SyncPurge.record_uuid).exists()
+                              for model in MODELS.values())))
                 .order_by(SyncPurge.id).limit(limit))
         return [(row.id, {'entity': row.entity, 'op': 'remove', 'uuid': _value(row.record_uuid)})
                 for row in self.connection.execute(stmt)]
@@ -276,14 +289,19 @@ class SyncFeedService:
         now = int(time.time() if now is None else now)
         if self.session.get_bind().dialect.name != 'postgresql':
             raise UnsupportedDatabase('The change feed requires PostgreSQL')
-        state = self._state(cursor, secret, now)
         self.connection = self.session.connection()
+        epoch = self.connection.execute(
+            text("SELECT to_regclass('sync_purges')::oid::bigint")).scalar_one()
+        if epoch is None:
+            raise UnsupportedDatabase('Change feed storage is not installed')
+        state = self._state(cursor, secret, now, epoch)
         if state is None or state['key'] is None:
             # A new round: take its base before any data query (see module docstring).
             base = self.connection.execute(
                 text('SELECT pg_snapshot_xmin(pg_current_snapshot())::text::bigint')).scalar_one()
-            state = {'mode': 'full', 'since': None} if state is None else \
-                {'mode': 'inc', 'since': state['base']}
+            state = ({'mode': 'full', 'since': None, 'watermark': None} if state is None else
+                     # The new lower watermark is the finished round's base, captured at its issue time.
+                     {'mode': 'inc', 'since': state['base'], 'watermark': state['issued']})
             state.update(base=base, issued=now, key=(0, 0))
         last = PURGES if state['mode'] == 'inc' else PURGES - 1
         # Collect up to limit + 1 entries across phases: the extra one only tells
@@ -305,6 +323,6 @@ class SyncFeedService:
         else:
             # Round complete: the next round asks for everything since this base.
             next_state = {'mode': 'inc', 'since': state['base'], 'base': state['base'],
-                          'issued': state['issued'], 'key': None}
+                          'issued': state['issued'], 'watermark': state['issued'], 'key': None}
         return {'mode': 'full' if state['mode'] == 'full' else 'incremental', 'changes': changes,
-                'cursor': self._token(next_state, secret), 'has_more': has_more}
+                'cursor': self._token(next_state, secret, epoch), 'has_more': has_more}

@@ -6,10 +6,12 @@ DELETE trigger and kept for 90 days by scripts/prune_tombstones.py. Existing
 rows get the migration's xid as their change marker and 0 as their access
 marker: every device starts with a full sync, so no earlier history is needed.
 
-The restricted runtime role may read and insert sync_purges, never change it.
-It comes from the `runtime_role` Alembic attribute when an operator script
-supplies one; otherwise it is the single restricted login already granted
-INSERT on clients, so the documented `alembic upgrade head` keeps working.
+The restricted runtime role may only read sync_purges; the SECURITY DEFINER
+delete trigger writes it, and update triggers forbid changing a row's tenant or
+uuid. The role comes from the `runtime_role` Alembic attribute when an operator
+script supplies one (it must hold INSERT on clients); otherwise it is the single
+non-owner role directly granted INSERT on clients, checked like the isolation
+contract checks it, so the documented `alembic upgrade head` keeps working.
 """
 from alembic import op
 from sqlalchemy import inspect, text
@@ -25,10 +27,15 @@ MARKERS = ('sync_change_xid', 'sync_access_xid')
 
 
 def _unsafe(connection, role):
+    """Same role checks as ops/isolation_contract.py, including inherited elevation."""
     row = connection.execute(text(
         'SELECT rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb FROM pg_roles WHERE rolname=:role'),
         {'role': role}).first()
-    return row is None or row[0]
+    if row is None or row[0]:
+        return True
+    return connection.execute(text(
+        'SELECT EXISTS (SELECT 1 FROM pg_roles WHERE (rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb) '
+        "AND pg_has_role(:role, oid, 'MEMBER'))"), {'role': role}).scalar_one()
 
 
 def runtime_role_for(connection, schema, supplied=None):
@@ -40,8 +47,8 @@ def runtime_role_for(connection, schema, supplied=None):
         "WHERE n.nspname=:schema AND c.relname='clients' AND a.privilege_type='INSERT' "
         'AND a.grantee <> c.relowner'), {'schema': schema}).scalars())
     if supplied:
-        if grantees and supplied not in grantees:
-            raise RuntimeError('Supplied runtime role does not match the role granted on clients')
+        if supplied not in grantees:
+            raise RuntimeError('Supplied runtime role is not the role granted on clients')
         role = supplied
     else:
         if len(grantees) != 1:
@@ -68,14 +75,23 @@ def secure(connection, schema, runtime_role):
     role = q(runtime_role)
     sequence = connection.execute(text('SELECT pg_get_serial_sequence(:table, :column)'),
                                   {'table': table, 'column': 'id'}).scalar_one()
+    # Read only: records are written by the SECURITY DEFINER delete trigger, so
+    # the runtime role cannot author, change or remove a purge record.
     connection.execute(text(f'REVOKE ALL ON {table} FROM PUBLIC, {role}'))
-    connection.execute(text(f'GRANT SELECT, INSERT ON {table} TO {role}'))
-    # Returned fully quoted by PostgreSQL. Needed for the delete trigger's insert.
-    connection.execute(text(f'GRANT USAGE ON SEQUENCE {sequence} TO {role}'))
+    connection.execute(text(f'REVOKE ALL ON SEQUENCE {sequence} FROM PUBLIC, {role}'))
+    connection.execute(text(f'GRANT SELECT ON {table} TO {role}'))
     own = "tenant_id = NULLIF(current_setting('crm.tenant_id', true), '')::integer"
     connection.execute(text(f'CREATE POLICY crm_all ON {table} FOR ALL TO PUBLIC USING ({own}) WITH CHECK ({own})'))
     connection.execute(text(f'ALTER TABLE {table} ENABLE ROW LEVEL SECURITY'))
     connection.execute(text(f'ALTER TABLE {table} FORCE ROW LEVEL SECURITY'))
+    # Effective privileges, including any inherited through other roles.
+    effective = connection.execute(text(
+        "SELECT has_table_privilege(:role, :table, 'SELECT'), "
+        "has_table_privilege(:role, :table, 'INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER'), "
+        "has_sequence_privilege(:role, :sequence, 'USAGE, UPDATE')"),
+        {'role': runtime_role, 'table': table, 'sequence': sequence}).one()
+    if tuple(effective) != (True, False, False):
+        raise RuntimeError('Runtime role privileges on sync_purges must be SELECT only')
 
 
 def reconcile(connection, schema, runtime_role=None):
