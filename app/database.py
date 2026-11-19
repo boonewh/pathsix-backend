@@ -93,3 +93,6 @@ def scope_authenticated_queries(state):
 
 from app.utils.project_archive_access import install_archive_guards
 install_archive_guards()
+
+from app.utils.tombstones import install_tombstone_filter
+install_tombstone_filter()

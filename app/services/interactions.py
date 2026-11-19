@@ -14,6 +14,7 @@ from app.models import (
 from app.schemas.interactions import InteractionCreateSchema, InteractionUpdateSchema
 from app.services.base import TenantService
 from app.services.errors import RecordNotFound
+from app.utils.tombstones import bury
 from app.services.access import interaction_access_filter
 
 
@@ -225,7 +226,7 @@ class InteractionService(TenantService):
         if not interaction:
             raise RecordNotFound("Interaction not found")
         self._validate_parents({}, ("client_id", "lead_id", "project_id"), interaction)
-        self.session.delete(interaction)
+        bury(interaction, self.principal.user_id)
         self.session.flush()
         return {"message": "Interaction deleted"}
 

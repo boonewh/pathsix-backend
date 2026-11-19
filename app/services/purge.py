@@ -3,11 +3,12 @@
 The caller owns commit/rollback. Never detach or cascade linked records. Chat is
 deliberately outside runtime read permissions; its FK remains the final guard.
 """
-from sqlalchemy import func
+from sqlalchemy import delete, func
 
 from app.models import Account, Client, Contact, Interaction, Lead, Project, Subscription
 from app.services.base import TenantService
 from app.services.errors import RecordNotFound
+from app.utils.tombstones import INCLUDE, tombstone_models
 
 
 MODELS = {"clients": Client, "leads": Lead, "projects": Project}
@@ -54,7 +55,11 @@ class PurgeService(TenantService):
         blockers = {record.id: [] for record in records}
         for child, field, label in DEPENDENCIES[resource]:
             parent_id = getattr(child, field)
-            # Include soft-deleted children: they still hold a real FK reference.
+            # Soft-deleted (trashed) projects and clients still block. Tombstoned
+            # contacts, accounts and interactions are hidden here and removed with
+            # their parent below: their record is already gone for every user.
+            # Purge leaves no trace of the parent or those children, so the change
+            # feed (mobile Phase 0 item 4) must record purges before devices sync.
             counts = self.session.query(parent_id, func.count(child.id)).filter(
                 child.tenant_id == self.principal.tenant_id,
                 parent_id.in_(selected_ids),
@@ -72,6 +77,14 @@ class PurgeService(TenantService):
 
         from app.utils.sales_audit import log_bulk_deletion
         log_bulk_deletion(self.session, self._query(model).filter(model.id.in_(selected_ids)))
+
+        for child, field, _label in DEPENDENCIES[resource]:
+            if child in tombstone_models():
+                self.session.execute(delete(child).where(
+                    child.tenant_id == self.principal.tenant_id,
+                    getattr(child, field).in_(selected_ids),
+                    child.deleted_at.isnot(None),
+                ), execution_options={INCLUDE: True, "synchronize_session": False})
 
         # Bulk SQL intentionally avoids ORM nulling of nullable child references.
         self._query(model).filter(model.id.in_(selected_ids), model.deleted_at.isnot(None)).delete(

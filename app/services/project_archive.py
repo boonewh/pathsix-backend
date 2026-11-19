@@ -10,8 +10,9 @@ from app.models import Project, Interaction, Client, Lead
 from app.utils.project_archive_access import ARCHIVE_TENANT_ID, private_session
 
 CUTOFF = datetime(2026, 5, 1)
-# Added by mobile_change_tracking; projects already had created_at and updated_at.
-SYNC_ONLY = {'interactions': {'created_at', 'updated_at', 'created_by'}}
+# Added by mobile_change_tracking and mobile_tombstones; projects already had
+# created_at, updated_at, deleted_at and deleted_by.
+SYNC_ONLY = {'interactions': {'created_at', 'updated_at', 'created_by', 'deleted_at', 'deleted_by'}}
 
 
 def serialize(record):

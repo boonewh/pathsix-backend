@@ -6,6 +6,7 @@ from app.services.access import owned_record_filter
 from app.services.database_context import bind_principal
 from app.services.errors import RecordNotFound
 from app.utils.phone_utils import clean_phone_number
+from app.utils.tombstones import bury
 
 
 class ContactService:
@@ -81,5 +82,5 @@ class ContactService:
         self.session.flush()
 
     def delete(self, contact_id):
-        self.session.delete(self._get(contact_id))
+        bury(self._get(contact_id), self.principal.user_id)
         self.session.flush()
