@@ -129,9 +129,18 @@ administrator. Its host is `.flycast`/`.internal`, reachable only from inside
 Fly, so pipe it to the app machine on stdin, the same way the retention script
 takes it (`docs/ai-connector-runbook.md`, section 7):
 
-    powershell -NoProfile -File G:/Projects/tools/pathsix-mobile-admin-url.ps1 | \
+Run it from Git Bash, not PowerShell. Windows PowerShell 5.1 re-encodes a pipe
+between two programs with CRLF, the trailing carriage return reaches `read`, and
+SQLAlchemy rejects the URL ("Could not parse SQLAlchemy URL"). `tr -d '\r'`
+guards against that from any shell:
+
+    powershell -NoProfile -File G:/Projects/tools/pathsix-mobile-admin-url.ps1 | tr -d '\r' | \
       flyctl ssh console --app pathsixsolutions-backend-mobile \
-      -C "sh -c 'read -r DATABASE_URL; export DATABASE_URL; cd /app && alembic upgrade head'"
+      -C "sh -c 'read -r DATABASE_URL; export DATABASE_URL; cd /app && alembic upgrade head && alembic current'"
+
+A stopped machine must be woken first (any HTTP request to `/api/health`).
+flyctl on Windows may print "The handle is invalid." after the remote command
+exits; it is harmless once `alembic current` has printed the head.
 
 Run it immediately after a deploy that adds columns the models use: until the
 migration commits, the new image's queries against those columns fail with
@@ -141,8 +150,11 @@ production rollout of these migrations needs a no-gap order instead (migrate
 from a machine running the new image before it takes traffic).
 
 Corrected November 18, 2026: the earlier one-line form ran as the runtime role
-and would fail after the role cutover. This form is not yet verified; the first
-Phase 0 migration deploy is its proof, and this note should be updated then.
+and would fail after the role cutover. Verified the same day by applying
+`mobile_stable_ids` (mobile Phase 0, item 1) at commit `d2205a7`: head became
+`mobile_stable_ids`, and a read through `pathsix_crm_mobile_runtime` (no RLS
+bypass, tenant 1) found all 129 existing rows with a distinct, non-null `uuid`
+in each of the six tables, while tenant 2 still saw 0 clients.
 
 The restricted runtime role has already been provisioned and `DATABASE_URL` cut
 over to it. If the database is ever rebuilt, provision it again with:
