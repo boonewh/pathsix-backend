@@ -10,6 +10,8 @@ from app.models import Project, Interaction, Client, Lead
 from app.utils.project_archive_access import ARCHIVE_TENANT_ID, private_session
 
 CUTOFF = datetime(2026, 5, 1)
+# Added by mobile_change_tracking; projects already had created_at and updated_at.
+SYNC_ONLY = {'interactions': {'created_at', 'updated_at', 'created_by'}}
 
 
 def serialize(record):
@@ -17,10 +19,11 @@ def serialize(record):
         if isinstance(v, datetime):
             return v.isoformat() + 'Z'
         return v.value if hasattr(v, 'value') else v
-    # uuid is the mobile sync identifier, not part of the archive's response or
-    # preview fingerprint; leaving it out keeps both unchanged.
+    # Columns added for mobile sync are not part of the archive's response or
+    # preview fingerprint; leaving them out keeps both unchanged.
+    skip = SYNC_ONLY.get(record.__table__.name, set()) | {'uuid'}
     return {column.name: value(getattr(record, column.name)) for column in record.__table__.columns
-            if column.name != 'uuid'}
+            if column.name not in skip}
 
 
 class ArchiveConflict(ValueError):
