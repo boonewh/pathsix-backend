@@ -221,6 +221,9 @@ with engine.begin() as c:
         # Present once mobile_change_feed is applied; its delete trigger just wrote these.
         if c.execute(text("SELECT to_regclass('public.sync_purges')")).scalar() is not None:
             c.execute(text('DELETE FROM public.sync_purges WHERE tenant_id=:t'), {'t': tenant})
+        # Present once mobile_idempotent_writes is applied (FK to tenants).
+        if c.execute(text("SELECT to_regclass('public.write_receipts')")).scalar() is not None:
+            c.execute(text('DELETE FROM public.write_receipts WHERE tenant_id=:t'), {'t': tenant})
         c.execute(text('DELETE FROM public.user_preferences WHERE user_id=:u'), {'u': uid})
         c.execute(text('DELETE FROM public.user_roles WHERE user_id=:u'), {'u': uid})
         c.execute(text('DELETE FROM public.users WHERE id=:u'), {'u': uid})

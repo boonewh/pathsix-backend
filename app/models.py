@@ -696,6 +696,23 @@ class SyncPurge(Base):
     __table_args__ = (Index('ix_sync_purges_tenant_xid', 'tenant_id', 'purged_xid'),)
 
 
+
+class WriteReceipt(Base):
+    """First successful outcome of an Idempotency-Key write; kept 90 days (app/services/idempotency.py)."""
+    __tablename__ = 'write_receipts'
+    id = Column(BigInteger, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
+    user_id = Column(Integer, nullable=False)
+    request_key = Column(String(64), nullable=False)
+    endpoint = Column(String(100), nullable=False)
+    input_hash = Column(String(64), nullable=False)
+    status_code = Column(Integer, nullable=False)
+    response = Column(JSON, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    __table_args__ = (UniqueConstraint('tenant_id', 'user_id', 'request_key', name='uq_write_receipts_key'),
+                      Index('ix_write_receipts_created', 'created_at'))
+
+
 # Change-feed indexes and triggers (mobile_change_feed migration).
 from app.utils.sync_markers import install_sync_ddl  # noqa: E402
 for _synced in (Client, Lead, Project, Contact, Interaction, Account):

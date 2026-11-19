@@ -1,6 +1,7 @@
 from quart import Blueprint, request, jsonify, Response
 from pydantic import ValidationError
 from app.database import SessionLocal
+from app.services.idempotency import idempotent_write
 from app.utils.auth_utils import requires_auth
 from app.services.interactions import InteractionService, RecordNotFound
 from app.schemas.interactions import InteractionCreateSchema, InteractionUpdateSchema
@@ -47,12 +48,8 @@ async def create_interaction():
         return jsonify({"error": "Validation failed", "details": exc.errors()}), 400
     with SessionLocal() as session:
         try:
-            service = InteractionService(session, request.principal)
-            result = service.create(data)
-            session.commit()
-            response = jsonify(result)
-            response.headers["Cache-Control"] = "no-store"
-            return response, 201
+            return idempotent_write(session, request.principal, raw, lambda: InteractionService(
+                session, request.principal).create(data), 201, no_store=True)
         except RecordNotFound as exc:
             return jsonify({"error": str(exc)}), 404
         except PermissionError as exc:
@@ -73,12 +70,8 @@ async def update_interaction(interaction_id):
         return jsonify({"error": "Validation failed", "details": exc.errors()}), 400
     with SessionLocal() as session:
         try:
-            service = InteractionService(session, request.principal)
-            result = service.update(interaction_id, data)
-            session.commit()
-            response = jsonify(result)
-            response.headers["Cache-Control"] = "no-store"
-            return response
+            return idempotent_write(session, request.principal, raw, lambda: InteractionService(
+                session, request.principal).update(interaction_id, data), no_store=True)
         except RecordNotFound as exc:
             return jsonify({"error": str(exc)}), 404
         except PermissionError as exc:

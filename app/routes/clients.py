@@ -3,6 +3,7 @@ from app.services.clients import ClientService, RecordNotFound
 from quart import Blueprint, request, jsonify
 from pydantic import ValidationError
 from app.database import SessionLocal
+from app.services.idempotency import idempotent_write
 from app.utils.auth_utils import requires_auth
 from app.utils.email_utils import send_assignment_notification
 from app.schemas.clients import ClientCreateSchema, ClientUpdateSchema, ClientAssignSchema
@@ -40,9 +41,8 @@ async def create_client():
         return jsonify({"error": "Validation failed", "details": exc.errors()}), 400
     with SessionLocal() as session:
         try:
-            client_id = ClientService(session, request.principal).create(data)
-            session.commit()
-            return jsonify({"id": client_id}), 201
+            return idempotent_write(session, request.principal, raw_data, lambda: {
+                "id": ClientService(session, request.principal).create(data)}, 201)
         except RecordNotFound as exc:
             return jsonify({"error": str(exc)}), 404
         except ValueError as exc:
@@ -75,9 +75,8 @@ async def update_client(client_id):
         return jsonify({"error": "Validation failed", "details": exc.errors()}), 400
     with SessionLocal() as session:
         try:
-            result_id = ClientService(session, request.principal).update(client_id, data)
-            session.commit()
-            return jsonify({"id": result_id})
+            return idempotent_write(session, request.principal, raw_data, lambda: {
+                "id": ClientService(session, request.principal).update(client_id, data)})
         except RecordNotFound as exc:
             return jsonify({"error": str(exc)}), 404
         except ValueError as exc:
