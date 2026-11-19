@@ -3,7 +3,7 @@ from sqlalchemy.orm import relationship, backref
 from datetime import datetime
 from uuid import uuid4
 from app.database import Base
-from sqlalchemy import Enum, Index, UniqueConstraint, JSON, ForeignKeyConstraint, CheckConstraint
+from sqlalchemy import Enum, Index, UniqueConstraint, JSON, ForeignKeyConstraint, CheckConstraint, DDL, event
 import enum
 
 # Association table for many-to-many User ↔ Role
@@ -644,3 +644,11 @@ class BackupRestore(Base):
 
     def __repr__(self):
         return f"<BackupRestore backup_id={self.backup_id} status={self.status}>"
+
+
+# Match the mobile_stable_ids migration on schemas built from these models
+# (create_all in tests), so raw inserts that omit uuid behave as in the real
+# database. PostgreSQL only: SQLite has no gen_random_uuid().
+for _synced in (Client, Lead, Project, Contact, Interaction, Account):
+    event.listen(_synced.__table__, 'after_create', DDL(
+        'ALTER TABLE %(fullname)s ALTER COLUMN uuid SET DEFAULT gen_random_uuid()').execute_if(dialect='postgresql'))

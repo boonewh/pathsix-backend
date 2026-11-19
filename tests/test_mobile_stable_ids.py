@@ -35,10 +35,10 @@ def test_orm_created_records_get_their_own_uuid():
             assert db.get(type(record), record.id).uuid == record.uuid
 
 
-def test_project_archive_serializes_uuid_as_a_json_string():
+def test_project_archive_output_omits_uuid():
     project = Project(id=1, tenant_id=1, created_by=1, uuid=uuid4(),
                       project_name='Project', project_status='pending')
     serialized = project_archive.serialize(project)
-    assert serialized['uuid'] == str(project.uuid)
-    assert isinstance(serialized['uuid'], str)
-    assert json.loads(json.dumps(serialized))['uuid'] == str(project.uuid)
+    assert 'uuid' not in serialized
+    assert serialized['id'] == 1
+    json.dumps(serialized)

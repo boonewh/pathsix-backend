@@ -133,6 +133,13 @@ takes it (`docs/ai-connector-runbook.md`, section 7):
       flyctl ssh console --app pathsixsolutions-backend-mobile \
       -C "sh -c 'read -r DATABASE_URL; export DATABASE_URL; cd /app && alembic upgrade head'"
 
+Run it immediately after a deploy that adds columns the models use: until the
+migration commits, the new image's queries against those columns fail with
+`undefined_column`, and the health check does not touch the database so it will
+not catch this. On this box, with no users, that short gap is accepted. A
+production rollout of these migrations needs a no-gap order instead (migrate
+from a machine running the new image before it takes traffic).
+
 Corrected November 18, 2026: the earlier one-line form ran as the runtime role
 and would fail after the role cutover. This form is not yet verified; the first
 Phase 0 migration deploy is its proof, and this note should be updated then.
