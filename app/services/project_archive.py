@@ -2,6 +2,7 @@
 from datetime import datetime
 from hashlib import sha256
 import json
+from uuid import UUID
 
 from itsdangerous import URLSafeTimedSerializer, BadSignature
 from sqlalchemy import update
@@ -16,6 +17,8 @@ def serialize(record):
     def value(v):
         if isinstance(v, datetime):
             return v.isoformat() + 'Z'
+        if isinstance(v, UUID):
+            return str(v)  # fingerprint() feeds this to json.dumps
         return v.value if hasattr(v, 'value') else v
     return {column.name: value(getattr(record, column.name)) for column in record.__table__.columns}
 

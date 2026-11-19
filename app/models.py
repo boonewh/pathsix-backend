@@ -1,6 +1,7 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Float, ForeignKey, Table, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, Text, Float, ForeignKey, Table, Boolean, Uuid
 from sqlalchemy.orm import relationship, backref
 from datetime import datetime
+from uuid import uuid4
 from app.database import Base
 from sqlalchemy import Enum, Index, UniqueConstraint, JSON, ForeignKeyConstraint, CheckConstraint
 import enum
@@ -215,6 +216,7 @@ class AIWriteAction(Base):
 class Client(Base):
     __tablename__ = 'clients'
     id = Column(Integer, primary_key=True, index=True)
+    uuid = Column(Uuid, nullable=False, unique=True, default=uuid4)  # stable id for offline sync
     tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     created_by = Column(Integer, ForeignKey('users.id'), nullable=False)
     updated_by = Column(Integer, ForeignKey('users.id'), nullable=True)
@@ -253,6 +255,7 @@ class Account(Base):
     __tablename__ = 'accounts'
 
     id = Column(Integer, primary_key=True)
+    uuid = Column(Uuid, nullable=False, unique=True, default=uuid4)  # stable id for offline sync
     client_id = Column(Integer, ForeignKey('clients.id'), nullable=False)
     tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     account_number = Column(String(100), nullable=False, unique=True)
@@ -270,6 +273,7 @@ class Account(Base):
 class Lead(Base):
     __tablename__ = 'leads'
     id = Column(Integer, primary_key=True)
+    uuid = Column(Uuid, nullable=False, unique=True, default=uuid4)  # stable id for offline sync
     tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     created_by = Column(Integer, ForeignKey('users.id'), nullable=False)
     updated_by = Column(Integer, ForeignKey('users.id'), nullable=True)
@@ -308,6 +312,7 @@ class Contact(Base):
     __tablename__ = 'contacts'
 
     id = Column(Integer, primary_key=True)
+    uuid = Column(Uuid, nullable=False, unique=True, default=uuid4)  # stable id for offline sync
     tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
 
     client_id = Column(Integer, ForeignKey('clients.id'), nullable=True)
@@ -345,6 +350,7 @@ class Project(Base):
     __tablename__ = 'projects'
 
     id = Column(Integer, primary_key=True)
+    uuid = Column(Uuid, nullable=False, unique=True, default=uuid4)  # stable id for offline sync
     lead_id = Column(Integer, ForeignKey('leads.id'), nullable=True)
     client_id = Column(Integer, ForeignKey('clients.id'), nullable=True)
     tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
@@ -387,6 +393,7 @@ class Interaction(Base):
     __tablename__ = 'interactions'
 
     id = Column(Integer, primary_key=True)
+    uuid = Column(Uuid, nullable=False, unique=True, default=uuid4)  # stable id for offline sync
     lead_id = Column(Integer, ForeignKey('leads.id'), nullable=True)
     client_id = Column(Integer, ForeignKey('clients.id'), nullable=True)
     project_id = Column(Integer, ForeignKey('projects.id'), nullable=True)  # 🆕 NEW FIELD
