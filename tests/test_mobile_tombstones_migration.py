@@ -64,13 +64,30 @@ def _columns(c, schema):
 
 
 def _rows(c):
-    return {table: sorted(c.execute(text(f'SELECT id FROM {table}')).scalars())
+    return {table: {row['id']: dict(row) for row in
+                    c.execute(text(f'SELECT * FROM {table} ORDER BY id')).mappings()}
             for table in TABLES}
 
 
+def _unique_rules(c):
+    """Every unique rule on accounts, as (name, full index definition)."""
+    return sorted(c.execute(text(
+        "SELECT c.relname, pg_get_indexdef(i.indexrelid) "
+        "FROM pg_index i "
+        "JOIN pg_class c ON c.oid = i.indexrelid "
+        "JOIN pg_namespace n ON n.oid = c.relnamespace "
+        "WHERE i.indrelid = 'accounts'::regclass AND i.indisunique "
+        "AND n.nspname = current_schema() "
+        "ORDER BY c.relname")).all())
+
+
 def _snapshot(c, schema):
-    return (_columns(c, schema), _rows(c), c.execute(text(
-        'SELECT version_num FROM alembic_version')).scalar_one())
+    return {
+        'columns': _columns(c, schema),
+        'rows': _rows(c),
+        'unique_rules': _unique_rules(c),
+        'version': c.execute(text('SELECT version_num FROM alembic_version')).scalar_one(),
+    }
 
 
 def _assert_unchanged(engine, schema, before):
@@ -81,10 +98,29 @@ def _assert_unchanged(engine, schema, before):
 
 def test_upgrade_adds_nullable_tombstones_both_foreign_keys_and_live_number_index(legacy):
     engine, schema = legacy
+    with engine.connect() as c:
+        c.execute(text(f'SET LOCAL search_path="{schema}"'))
+        before = _snapshot(c, schema)
     upgrade(engine, schema)
     with engine.connect() as c:
         c.execute(text(f'SET LOCAL search_path="{schema}"'))
-        assert c.execute(text('SELECT version_num FROM alembic_version')).scalar_one() == revision
+        after = _snapshot(c, schema)
+        assert after['version'] == revision
+        # Existing rows survive the upgrade unchanged apart from the two new
+        # columns, which start NULL.
+        for table in TABLES:
+            assert set(after['rows'][table]) == set(before['rows'][table]), table
+            assert after['columns'][table] == sorted(
+                before['columns'][table] + ['deleted_at', 'deleted_by']), table
+            for record_id, old_row in before['rows'][table].items():
+                new_row = after['rows'][table][record_id]
+                assert {key: new_row[key] for key in old_row} == old_row, (table, record_id)
+                assert new_row['deleted_at'] is None and new_row['deleted_by'] is None
+        # The database-wide rule was replaced by the live-only rule.
+        assert any(name == LEGACY_NUMBER_RULE for name, _ in before['unique_rules'])
+        assert all(name != LEGACY_NUMBER_RULE for name, _ in after['unique_rules'])
+        assert any(name == LIVE_NUMBER_INDEX for name, _ in after['unique_rules'])
+
         inspector = inspect(c)
         for table in TABLES:
             columns = {column['name']: column
