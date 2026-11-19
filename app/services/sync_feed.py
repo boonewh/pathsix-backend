@@ -21,6 +21,8 @@ import base64
 import hashlib
 import hmac
 import json
+import os
+import re
 import time
 
 from sqlalchemy import and_, case, false, or_, select, text
@@ -89,15 +91,29 @@ def _b64(data):
     return base64.urlsafe_b64encode(data).rstrip(b'=').decode('ascii')
 
 
+_B64URL = re.compile(r'[A-Za-z0-9_-]+')
+_LIMIT = re.compile(r'[0-9]{1,3}')
+
+
 def _unb64(value):
-    return base64.urlsafe_b64decode(value + '=' * (-len(value) % 4))
+    if not _B64URL.fullmatch(value):
+        raise ValueError('not base64url')
+    data = base64.urlsafe_b64decode(value + '=' * (-len(value) % 4))
+    if _b64(data) != value:  # canonical encoding only
+        raise ValueError('non-canonical base64url')
+    return data
 
 
 def _key(secret):
     if not isinstance(secret, str) or not secret:
         raise RuntimeError('A signing secret is required')
-    # Separate the cursor key from other uses of the application secret.
-    return hmac.new(secret.encode(), b'pathsix-sync-cursor-v1', hashlib.sha256).digest()
+    # Separate the cursor key from other uses of the application secret. Changing
+    # SYNC_FEED_GENERATION invalidates every cursor without signing anyone out:
+    # do it before reopening the feed after any restore or reload that rewinds
+    # database history (docs/mobile-sync-feed.md).
+    generation = os.getenv('SYNC_FEED_GENERATION', '1')
+    return hmac.new(secret.encode(), b'pathsix-sync-cursor-v1\0' + generation.encode(),
+                    hashlib.sha256).digest()
 
 
 def encode_cursor(payload, secret):
@@ -132,7 +148,7 @@ def _limit(value):
     if value is None:
         return DEFAULT_LIMIT
     if isinstance(value, str):
-        if not value.isdigit():
+        if not _LIMIT.fullmatch(value):
             raise InvalidLimit('limit must be an integer from 1 to 500')
         value = int(value)
     if type(value) is not int or not 1 <= value <= MAX_LIMIT:
@@ -276,10 +292,12 @@ class SyncFeedService:
         stmt = (select(SyncPurge.id, SyncPurge.entity, SyncPurge.record_uuid)
                 .where(SyncPurge.tenant_id == self.principal.tenant_id, SyncPurge.id > after_id,
                        SyncPurge.purged_xid >= state['since'], SyncPurge.entity.in_(ENTITIES),
-                       # A uuid present again (operator reinsert) is not a final removal;
-                       # the entity phases already reported its current state.
-                       ~or_(*(select(model.id).where(model.uuid == SyncPurge.record_uuid).exists()
-                              for model in MODELS.values())))
+                       # A uuid the caller can see again in the same entity (operator
+                       # reinsert) is not a final removal: the entity phase upserted it.
+                       ~or_(*(and_(SyncPurge.entity == entity, select(model.id).where(
+                           model.tenant_id == self.principal.tenant_id,
+                           model.uuid == SyncPurge.record_uuid, self._visible(entity)).exists())
+                              for entity, model in MODELS.items())))
                 .order_by(SyncPurge.id).limit(limit))
         return [(row.id, {'entity': row.entity, 'op': 'remove', 'uuid': _value(row.record_uuid)})
                 for row in self.connection.execute(stmt)]

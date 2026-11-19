@@ -34,6 +34,10 @@ ACCESS_FIELDS = {
 MARK_FUNCTION = 'sync_mark_row'
 PURGE_FUNCTION = 'sync_record_purge'
 PURGE_TABLE = 'sync_purges'
+TABLE_LIST = ', '.join(f"'{name}'" for name in SYNC_TABLES)
+# The function's own oid, found from inside it: fn_oid is not exposed to PL/pgSQL,
+# so match the trigger's recorded function (tgfoid) for the firing trigger.
+PURGE_OID_EXPR = '(SELECT t.tgfoid FROM pg_trigger t WHERE t.tgrelid = TG_RELID AND t.tgname = TG_NAME)'
 
 # Unqualified names resolve in the creating schema (current_schema). The purge
 # insert names the table's own schema, so it never depends on a caller's search_path.
@@ -76,6 +80,12 @@ $$;
 CREATE OR REPLACE FUNCTION {PURGE_FUNCTION}() RETURNS trigger LANGUAGE plpgsql
 SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
+    -- Only the sync tables, and only in this function's own schema (the ledger's).
+    IF TG_TABLE_NAME NOT IN ({TABLE_LIST}) OR TG_TABLE_SCHEMA <> (
+            SELECT n.nspname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE p.oid = {PURGE_OID_EXPR}) THEN
+        RAISE EXCEPTION 'sync_record_purge: unexpected trigger source' USING ERRCODE = 'insufficient_privilege';
+    END IF;
     EXECUTE format('INSERT INTO %I.{PURGE_TABLE} (tenant_id, entity, record_uuid, purged_xid, purged_at) '
                    'VALUES ($1, $2, $3, pg_current_xact_id()::text::bigint, timezone(''utc'', clock_timestamp()))',
                    TG_TABLE_SCHEMA)
@@ -83,6 +93,9 @@ BEGIN
     RETURN OLD;
 END
 $$;
+-- Trigger functions run when their trigger fires; nobody needs to call or bind
+-- this one, and EXECUTE would let a role attach the definer to its own table.
+REVOKE ALL ON FUNCTION {PURGE_FUNCTION}() FROM PUBLIC;
 """
 
 

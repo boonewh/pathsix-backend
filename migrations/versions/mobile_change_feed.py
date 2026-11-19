@@ -29,12 +29,13 @@ MARKERS = ('sync_change_xid', 'sync_access_xid')
 def _unsafe(connection, role):
     """Same role checks as ops/isolation_contract.py, including inherited elevation."""
     row = connection.execute(text(
-        'SELECT rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb FROM pg_roles WHERE rolname=:role'),
-        {'role': role}).first()
+        'SELECT rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb OR rolreplication '
+        'FROM pg_roles WHERE rolname=:role'), {'role': role}).first()
     if row is None or row[0]:
         return True
     return connection.execute(text(
-        'SELECT EXISTS (SELECT 1 FROM pg_roles WHERE (rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb) '
+        'SELECT EXISTS (SELECT 1 FROM pg_roles WHERE '
+        '(rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb OR rolreplication) '
         "AND pg_has_role(:role, oid, 'MEMBER'))"), {'role': role}).scalar_one()
 
 
@@ -84,13 +85,20 @@ def secure(connection, schema, runtime_role):
     connection.execute(text(f'CREATE POLICY crm_all ON {table} FOR ALL TO PUBLIC USING ({own}) WITH CHECK ({own})'))
     connection.execute(text(f'ALTER TABLE {table} ENABLE ROW LEVEL SECURITY'))
     connection.execute(text(f'ALTER TABLE {table} FORCE ROW LEVEL SECURITY'))
-    # Effective privileges, including any inherited through other roles.
-    effective = connection.execute(text(
-        "SELECT has_table_privilege(:role, :table, 'SELECT'), "
-        "has_table_privilege(:role, :table, 'INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER'), "
-        "has_sequence_privilege(:role, :sequence, 'USAGE, UPDATE')"),
-        {'role': runtime_role, 'table': table, 'sequence': sequence}).one()
-    if tuple(effective) != (True, False, False):
+    # Effective privileges of the role and of every role it can assume (SET ROLE),
+    # including column grants: none may write the ledger or bind its trigger function.
+    if not connection.execute(text("SELECT has_table_privilege(:role, :table, 'SELECT')"),
+                              {'role': runtime_role, 'table': table}).scalar_one():
+        raise RuntimeError('Runtime role cannot read sync_purges')
+    writable = connection.execute(text(
+        "SELECT r.rolname FROM pg_roles r WHERE pg_has_role(:role, r.oid, 'MEMBER') AND ("
+        "has_table_privilege(r.oid, :table, 'INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER') "
+        "OR has_any_column_privilege(r.oid, :table, 'INSERT, UPDATE, REFERENCES') "
+        "OR has_sequence_privilege(r.oid, :sequence, 'USAGE, UPDATE') "
+        "OR has_function_privilege(r.oid, :function, 'EXECUTE'))"),
+        {'role': runtime_role, 'table': table, 'sequence': sequence,
+         'function': f'{q(schema)}.{q(PURGE_FUNCTION)}()'}).scalars().all()
+    if writable:
         raise RuntimeError('Runtime role privileges on sync_purges must be SELECT only')
 
 
@@ -121,7 +129,6 @@ def reconcile(connection, schema, runtime_role=None):
         'entity varchar(20) NOT NULL, record_uuid uuid NOT NULL, purged_xid bigint NOT NULL, '
         'purged_at timestamp NOT NULL)'))
     connection.execute(text(f'CREATE INDEX ix_sync_purges_tenant_xid ON {t(PURGE_TABLE)} (tenant_id, purged_xid)'))
-    secure(connection, schema, role)
 
     # Unqualified, the functions are created in current_schema(), which is `schema`
     # (upgrade passes it; callers must set search_path), and the triggers resolve them there.
@@ -138,6 +145,8 @@ def reconcile(connection, schema, runtime_role=None):
             connection.execute(text(
                 f'CREATE INDEX {q(f"ix_{name}_tenant_sync_{marker}")} ON {t(name)} (tenant_id, sync_{marker}_xid)'))
         connection.execute(text(trigger_sql(name, quote=q, qualified=t(name))))
+    # After the functions exist: secure() also checks nobody can execute the purge definer.
+    secure(connection, schema, role)
 
 
 def upgrade():
