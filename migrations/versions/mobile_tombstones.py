@@ -1,8 +1,8 @@
 """Tombstones for contacts, accounts and interactions (mobile Phase 0, item 3).
 
 Deleting one of these records now sets deleted_at/deleted_by instead of removing
-the row, so offline devices can learn about the deletion. Every ORM read hides
-tombstones (app/utils/tombstones.py) and scripts/prune_tombstones.py removes
+the row, so offline devices can learn about the deletion. ORM reads hide
+tombstones (app/utils/tombstones.py documents the exact coverage) and scripts/prune_tombstones.py removes
 them after 90 days. Existing rows are all live; nothing is backfilled.
 
 accounts.account_number was unique across every row. It becomes unique among

@@ -42,7 +42,12 @@ def prune(connection, now, apply):
     for table in TABLES:
         target = f'{table} WHERE deleted_at IS NOT NULL AND deleted_at < :before'
         if apply:
-            counts[table] = connection.execute(text(f'DELETE FROM {target}'), params).rowcount
+            # Lock only rows nobody else holds, then delete exactly those. Rows a
+            # concurrent purge has locked are skipped (it is deleting them anyway,
+            # or a later run collects them), so the two cannot deadlock.
+            counts[table] = connection.execute(text(
+                f'DELETE FROM {table} WHERE id IN '
+                f'(SELECT id FROM {target} ORDER BY id FOR UPDATE SKIP LOCKED)'), params).rowcount
         else:
             counts[table] = connection.execute(text(f'SELECT count(*) FROM {target}'), params).scalar()
     return counts

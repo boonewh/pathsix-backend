@@ -14,7 +14,8 @@ primary key), Core table statements and raw SQL. Use a fresh ORM query when a
 visibility decision matters.
 
 Writes: before each flush, rows of these models with pending changes are locked
-and re-read; if another transaction has tombstoned one, the flush raises
+and re-read; if another transaction has tombstoned one, or it no longer exists
+or is not visible (purged, or hidden by row security), the flush raises
 RecordNotFound. An edit or a second delete racing a delete therefore fails as
 "not found" instead of silently changing a tombstone.
 """
@@ -28,8 +29,9 @@ INCLUDE = 'include_tombstones'
 
 
 def tombstone_models():
+    """In lock order, matching PurgeService and scripts/prune_tombstones.py."""
     from app.models import Account, Contact, Interaction
-    return (Contact, Account, Interaction)
+    return (Interaction, Contact, Account)
 
 
 def bury(record, user_id):
@@ -54,7 +56,10 @@ def guard_tombstone_writes(session, *args):
         if isinstance(item, tombstone_models()) and item.id is not None and session.is_modified(item):
             pending.setdefault(type(item), set()).add(item.id)
     from app.services.errors import RecordNotFound
-    for model, ids in pending.items():
+    for model in tombstone_models():
+        ids = pending.get(model)
+        if not ids:
+            continue
         table = model.__table__
         # Lock every row about to be written (ascending id, like purge and the
         # archive guard). Under READ COMMITTED a row tombstoned by a transaction
@@ -62,7 +67,7 @@ def guard_tombstone_writes(session, *args):
         rows = session.connection().execute(
             select(table.c.id, table.c.deleted_at).where(table.c.id.in_(sorted(ids)))
             .order_by(table.c.id).with_for_update()).all()
-        if any(row.deleted_at is not None for row in rows):
+        if {row.id for row in rows} != ids or any(row.deleted_at is not None for row in rows):
             raise RecordNotFound(f'{model.__name__} not found')
 
 
