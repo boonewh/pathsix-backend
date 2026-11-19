@@ -981,7 +981,8 @@ def test_prune_only_removes_old_purge_records_and_dry_run_deletes_nothing(crm):
 
     with factory() as db:
         counts = prune_tombstones.prune(db.connection(), now, apply=False)
-        assert counts == {'interactions': 0, 'contacts': 0, 'accounts': 0, 'sync_purges': 1}
+        assert counts == {'interactions': 0, 'contacts': 0, 'accounts': 0, 'sync_purges': 1,
+                          'write_receipts': 0}
         db.commit()
         assert db.execute(text('SELECT count(*) FROM sync_purges')).scalar_one() == 3
 
