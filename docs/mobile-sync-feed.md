@@ -9,7 +9,7 @@ GET /api/sync/changes?cursor=<token>&limit=<1-500, default 200>
 Authorization: Bearer <access token>
 ```
 
-With no `cursor`, the request starts a full sync. With a cursor, always send the `cursor` from the previous response, unchanged.
+With no `cursor` (or an empty one), the request starts a full sync. With a cursor, always send the `cursor` from the previous response, unchanged.
 
 ## Response
 
@@ -36,7 +36,7 @@ With no `cursor`, the request starts a full sync. With a cursor, always send the
 
 | Status | `code` | Meaning |
 |---|---|---|
-| 400 | `invalid_cursor` | Corrupt or forged token, or a cursor issued to another user or tenant. Start a full sync. |
+| 400 | `invalid_cursor` | Corrupt or forged token, a cursor issued to another user or tenant, or a cursor from before a `SYNC_FEED_GENERATION` change. Start a full sync. |
 | 400 | `invalid_limit` | `limit` isn't an integer from 1 to 500. |
 | 401 | — | Not signed in. |
 | 410 | `resync_required` | Start a full sync. Sent when: the cursor's last completed round started more than 89 days ago; the user's admin role changed; the database's sync history was reset (restore or rebuild); or the cursor format changed. |
@@ -68,9 +68,17 @@ Deleted contacts, accounts and interactions (tombstones) are never sent as recor
 ## How it works
 
 - **Change markers.** A trigger on each of the six tables stamps the writing transaction's id into `sync_change_xid`. It also stamps `sync_access_xid` when a field that decides visibility changes; `ACCESS_FIELDS` in `app/utils/sync_markers.py` lists them. An insert never counts as an access change. The same trigger refuses any update that changes a row's `tenant_id` or `uuid`, because a device would keep the old copy.
-- **Permanent deletes.** A `SECURITY DEFINER` `AFTER DELETE` trigger writes a `sync_purges` row (tenant, entity, uuid, xid, deletion time from `clock_timestamp()`). It is written in the deleting transaction and rolls back with it. The runtime role can only read these rows, so it cannot forge a removal. `scripts/prune_tombstones.py` removes rows older than 90 days. If a purged uuid reappears (an operator reinsert), its old purge record is ignored.
+- **Permanent deletes.** A `SECURITY DEFINER` `AFTER DELETE` trigger writes a `sync_purges` row (tenant, entity, uuid, xid, deletion time from `clock_timestamp()`). It is written in the deleting transaction and rolls back with it. The runtime role can only read these rows, so it cannot forge a removal. `scripts/prune_tombstones.py` removes rows older than 90 days. If a purged uuid reappears in the same entity (an operator reinsert) and the caller can see the replacement, its old purge record is ignored. If the caller can't see the replacement, the removal is still sent.
 - **History reset.** The cursor carries the identity of the `sync_purges` table. A `pg_restore --clean` or rebuild recreates that table, which invalidates every cursor, because a restore can drop rows without leaving purge records.
-- **Restores that keep the table:** point-in-time recovery or an in-place reload can rewind history without recreating that table. **Before reopening the app after any such restore, change the `SYNC_FEED_GENERATION` secret** (default `1`; any new value). Every cursor stops validating and devices fully resync. Users stay signed in, because this doesn't rotate `SECRET_KEY`. After a logical restore into a database with a different transaction history, every device fully resyncs on the new generation, so the restored markers are only compared with new cursors.
+- **Restores that keep the table:** point-in-time recovery or an in-place reload can rewind history without recreating that table.
+
+### Restoring the database while devices sync
+
+**Any restore is unsupported for an active feed until a reviewed recovery procedure exists.** This covers the backup worker's `pg_restore`, point-in-time recovery, and a logical restore into another cluster. Until then, keep the feed closed after a restore (keep the app's traffic off), and do all of the following before reopening it:
+
+1. **Reapply the ledger permissions and verify them.** The backup worker dumps and restores with `--no-acl`, so a restore loses two settings: the runtime role's SELECT-only grant on `sync_purges`, and the revoked PUBLIC EXECUTE on `sync_record_purge()`. Reapply both and verify effective privileges, as `secure()` in `migrations/versions/mobile_change_feed.py` does.
+2. **Rebase the markers if the restore came from another transaction history**, such as a logical restore into a different cluster. Copied markers can be ahead of the new cluster's counter: set every row's `sync_change_xid` to the current transaction and `sync_access_xid` to 0, with the marker triggers disabled for that one update, and empty `sync_purges`.
+3. **Change the `SYNC_FEED_GENERATION` secret** (default `1`; any new value). Every cursor then fails with `invalid_cursor` and devices fully resync. Users stay signed in, because `SECRET_KEY` doesn't change.
 - **Consistency.** Each round records `pg_snapshot_xmin(pg_current_snapshot())` before reading anything, and the next round asks for everything from that point. A transaction still running at that moment is therefore picked up next time; that's why changes can repeat.
 - **Cursor.** The cursor is HMAC-signed with the app's `SECRET_KEY`, so rotating the key invalidates every cursor and devices fully resync. It carries the tenant, the user, the admin flag and the round's start time. Changing the admin flag forces a resync, because it changes visibility everywhere.
 - **Retention.** Tombstones and purge records are kept for 90 days. A cursor is accepted while its lower bound, the start of its last completed round, is under 89 days old, and this is checked on every page of a round. Every removal a still-valid cursor needs is therefore retained. The one-day margin assumes no deleting transaction stays open for more than about a day; runtime requests are bounded far below that.
