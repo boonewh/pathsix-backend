@@ -8,7 +8,8 @@ import re
 from sqlalchemy import text
 from migrations.versions.tenant_rls_prepare import TABLES as LEGACY_TABLES, BUSINESS
 
-TABLES = LEGACY_TABLES + ('ai_connections', 'oauth_credentials', 'ai_tool_audits', 'ai_write_actions')
+TABLES = LEGACY_TABLES + ('ai_connections', 'oauth_credentials', 'ai_tool_audits', 'ai_write_actions',
+                          'sync_purges')
 
 
 def expected_policies():
@@ -17,6 +18,7 @@ def expected_policies():
         ('tenant_id','auth_user_id','auth_tenant_id','reset_user_id')]
     own = f'(tenant_id = {tenant})'
     result = {(name,'crm_all','ALL'):(own,own) for name in BUSINESS}
+    result[('sync_purges','crm_all','ALL')] = (own,own)  # mobile_change_feed
     connection_owner = f'({own} AND (user_id = {setting("user_id")}))'
     result[('ai_connections','crm_all','ALL')] = (connection_owner,connection_owner)
     result[('oauth_credentials','crm_all','ALL')] = (connection_owner,connection_owner)

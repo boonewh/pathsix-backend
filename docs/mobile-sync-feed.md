@@ -1,0 +1,76 @@
+# Mobile change feed
+
+This is how the mobile app keeps a local copy of the CRM records a user can see, and learns which ones it must drop. It is mobile Phase 0 item 4, added by migration `mobile_change_feed`. Code: `app/services/sync_feed.py`, `app/routes/sync.py` and `app/utils/sync_markers.py`.
+
+## Request
+
+```
+GET /api/sync/changes?cursor=<token>&limit=<1-500, default 200>
+Authorization: Bearer <access token>
+```
+
+With no `cursor`, the request starts a full sync. With a cursor, always send the `cursor` from the previous response, unchanged.
+
+## Response
+
+```json
+{"mode": "full" | "incremental",
+ "changes": [{"entity": "contacts", "op": "upsert", "uuid": "…", "record": {…}},
+             {"entity": "contacts", "op": "remove", "uuid": "…"}],
+ "cursor": "<token>",
+ "has_more": true}
+```
+
+- **Entity order:** `clients`, `leads`, `projects`, `accounts`, `contacts`, `interactions`.
+- **`has_more: true`:** call again with `cursor` to continue the same round. Only the last page of a round is shorter than `limit`.
+- **`has_more: false`:** the round is complete. Store `cursor` and use it for the next sync.
+- **After a full sync:** when it completes, delete every local record it didn't deliver.
+- **Upserts:** replace the local record, keyed by `uuid`. `record` holds `id` and `uuid`, and each parent appears as both `<parent>_id` and `<parent>_uuid`. Datetimes are naive UTC in ISO 8601 format.
+- **Removes:** delete the local record. A remove can name a uuid the device never held; ignore it. It carries no content.
+- **Repeated changes:** the same change can arrive in more than one round, so apply changes idempotently. A child can arrive before its parent; the parent follows in the same round or the next one.
+
+## Errors
+
+| Status | `code` | Meaning |
+|---|---|---|
+| 400 | `invalid_cursor` | Corrupt or forged token, or a cursor issued to another user or tenant. Start a full sync. |
+| 400 | `invalid_limit` | `limit` isn't an integer from 1 to 500. |
+| 401 | — | Not signed in. |
+| 410 | `resync_required` | Cursor older than 89 days, the user's admin role changed, or the cursor format changed. Start a full sync. |
+| 501 | `unsupported_database` | Development SQLite only. |
+
+## What a user sees
+
+The feed uses the same rules as the web app:
+
+| Entity | Visible when |
+|---|---|
+| Clients and leads | The user created them, is assigned to them, or is an admin. Trashed records are excluded. |
+| Projects | They pass `project_access_filter`. Trashed and archived projects are excluded. |
+| Accounts | Their client is visible. |
+| Contacts | Their parent is visible. |
+| Interactions | They pass `interaction_access_filter`. Interactions of archived projects are excluded. |
+
+Deleted contacts, accounts and interactions (tombstones) are never sent as records.
+
+**Removals.** A record leaves the device when any of these happens to it:
+
+- it is deleted;
+- it is reassigned, or its owner changes;
+- its parent changes;
+- it is archived;
+- it is trashed, or a parent is trashed or reassigned away from the user;
+- it is permanently deleted.
+
+## How it works
+
+- **Change markers.** A trigger on each of the six tables stamps the writing transaction's id into `sync_change_xid`. It also stamps `sync_access_xid` when a field that decides visibility changes; `ACCESS_FIELDS` in `app/utils/sync_markers.py` lists them. An insert never counts as an access change.
+- **Permanent deletes.** An `AFTER DELETE` trigger writes a `sync_purges` row (tenant, entity, uuid, xid). The runtime role can only read and insert them. `scripts/prune_tombstones.py` removes rows older than 90 days.
+- **Consistency.** Each round records `pg_snapshot_xmin(pg_current_snapshot())` before reading anything, and the next round asks for everything from that point. A transaction still running at that moment is therefore picked up next time; that's why changes can repeat.
+- **Cursor.** The cursor is HMAC-signed with the app's `SECRET_KEY`, so rotating the key invalidates every cursor and devices fully resync. It carries the tenant, the user, the admin flag and the round's start time. Changing the admin flag forces a resync, because it changes visibility everywhere.
+- **Retention.** Tombstones and purge records are kept for 90 days, and cursors are accepted for 89. Every removal a still-valid cursor needs is therefore retained.
+
+## Known limits
+
+- **Possible uuid disclosure.** A removal can disclose the uuid of a record the caller can't see, for example after a reassignment between two other users. Only the entity and uuid are disclosed, never content. Per-device sync state (with device registration, item 6) can narrow this later.
+- **Archive owners.** Archived projects are invisible here, even to archive owners. The private archive has its own endpoint.

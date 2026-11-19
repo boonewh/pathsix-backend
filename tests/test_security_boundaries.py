@@ -49,7 +49,7 @@ def crm(tmp_path, monkeypatch, request):
         engine = create_engine(f"sqlite:///{tmp_path / 'security.db'}")
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine)
-    for name in ('accounts', 'activity', 'subscriptions', 'contacts', 'projects', 'interactions', 'clients', 'leads', 'auth', 'reports', 'imports', 'users', 'search', 'storage', 'user_preferences', 'ai_connections', 'oauth', 'ai_actions'):
+    for name in ('accounts', 'activity', 'subscriptions', 'contacts', 'projects', 'interactions', 'clients', 'leads', 'auth', 'reports', 'imports', 'users', 'search', 'storage', 'user_preferences', 'ai_connections', 'oauth', 'ai_actions', 'sync'):
         monkeypatch.setattr(importlib.import_module(f'app.routes.{name}'), 'SessionLocal', factory)
     monkeypatch.setattr(auth_utils, 'SessionLocal', factory)
     monkeypatch.setattr(importlib.import_module('app.mcp_server'),'SessionLocal',factory)
@@ -107,12 +107,14 @@ def crm(tmp_path, monkeypatch, request):
                 secure_creation(connection,schema,runtime_role)
                 from migrations.versions.mcp_record_updates import secure as secure_updates
                 secure_updates(connection,schema,runtime_role)
+                from migrations.versions.mobile_change_feed import secure as secure_sync
+                secure_sync(connection,schema,runtime_role)
         runtime_factory = sessionmaker(bind=engine)
         @event.listens_for(runtime_factory, 'after_begin')
         def set_runtime_role(session, transaction, connection):
             role_sql = connection.dialect.identifier_preparer.quote(runtime_role)
             connection.execute(text(f'SET LOCAL ROLE {role_sql}'))
-        for name in ('accounts', 'activity', 'subscriptions', 'contacts', 'projects', 'interactions', 'clients', 'leads', 'auth', 'reports', 'imports', 'users', 'search', 'storage', 'user_preferences', 'ai_connections', 'oauth', 'ai_actions'):
+        for name in ('accounts', 'activity', 'subscriptions', 'contacts', 'projects', 'interactions', 'clients', 'leads', 'auth', 'reports', 'imports', 'users', 'search', 'storage', 'user_preferences', 'ai_connections', 'oauth', 'ai_actions', 'sync'):
             monkeypatch.setattr(importlib.import_module(f'app.routes.{name}'), 'SessionLocal', runtime_factory)
         monkeypatch.setattr(auth_utils, 'SessionLocal', runtime_factory)
         monkeypatch.setattr(importlib.import_module('app.mcp_server'),'SessionLocal',runtime_factory)

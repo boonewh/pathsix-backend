@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Float, ForeignKey, Table, Boolean, Uuid
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Text, Float, ForeignKey, Table, Boolean, Uuid, FetchedValue
 from sqlalchemy.orm import relationship, backref
 from datetime import datetime
 from uuid import uuid4
@@ -13,6 +13,12 @@ user_roles = Table(
     Column('user_id', Integer, ForeignKey('users.id')),
     Column('role_id', Integer, ForeignKey('roles.id')),
 )
+
+class SyncMarked:
+    """Change-feed markers, maintained by database triggers (app/utils/sync_markers.py)."""
+    sync_change_xid = Column(BigInteger, nullable=False, server_default=text('0'), server_onupdate=FetchedValue())
+    sync_access_xid = Column(BigInteger, nullable=False, server_default=text('0'), server_onupdate=FetchedValue())
+
 
 class FollowUpStatus(enum.Enum):
     pending = "pending"
@@ -213,7 +219,7 @@ class AIWriteAction(Base):
     decided_at = Column(DateTime)
 
 
-class Client(Base):
+class Client(SyncMarked, Base):
     __tablename__ = 'clients'
     id = Column(Integer, primary_key=True, index=True)
     uuid = Column(Uuid, nullable=False, unique=True, default=uuid4)  # stable id for offline sync
@@ -251,7 +257,7 @@ class Client(Base):
         return f"<Client {self.name}>"
 
 
-class Account(Base):
+class Account(SyncMarked, Base):
     __tablename__ = 'accounts'
 
     id = Column(Integer, primary_key=True)
@@ -281,7 +287,7 @@ class Account(Base):
         return f"<Account {self.account_number}>"
 
 
-class Lead(Base):
+class Lead(SyncMarked, Base):
     __tablename__ = 'leads'
     id = Column(Integer, primary_key=True)
     uuid = Column(Uuid, nullable=False, unique=True, default=uuid4)  # stable id for offline sync
@@ -319,7 +325,7 @@ class Lead(Base):
         return f"<Lead {self.name}>"
     
 
-class Contact(Base):
+class Contact(SyncMarked, Base):
     __tablename__ = 'contacts'
 
     id = Column(Integer, primary_key=True)
@@ -361,7 +367,7 @@ class Contact(Base):
         return f"<Contact {self.first_name} {self.last_name}>"
 
 
-class Project(Base):
+class Project(SyncMarked, Base):
     __tablename__ = 'projects'
 
     id = Column(Integer, primary_key=True)
@@ -404,7 +410,7 @@ class Project(Base):
         return f"<Project {self.project_name}>"
     
 
-class Interaction(Base):
+class Interaction(SyncMarked, Base):
     __tablename__ = 'interactions'
 
     id = Column(Integer, primary_key=True)
@@ -676,3 +682,24 @@ for _synced in (Client, Lead, Project, Contact, Interaction, Account):
         "ALTER TABLE %(fullname)s ALTER COLUMN uuid SET DEFAULT gen_random_uuid(), "
         "ALTER COLUMN created_at SET DEFAULT timezone('utc', now()), "
         "ALTER COLUMN updated_at SET DEFAULT timezone('utc', now())").execute_if(dialect='postgresql'))
+
+
+class SyncPurge(Base):
+    """One permanently deleted sync record, written by a trigger; kept 90 days."""
+    __tablename__ = 'sync_purges'
+    id = Column(BigInteger, primary_key=True)
+    tenant_id = Column(Integer, nullable=False)  # no FK: tenant teardown must still work
+    entity = Column(String(20), nullable=False)
+    record_uuid = Column(Uuid, nullable=False)
+    purged_xid = Column(BigInteger, nullable=False)
+    purged_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    __table_args__ = (Index('ix_sync_purges_tenant_xid', 'tenant_id', 'purged_xid'),)
+
+
+# Change-feed indexes and triggers (mobile_change_feed migration).
+from app.utils.sync_markers import install_sync_ddl  # noqa: E402
+for _synced in (Client, Lead, Project, Contact, Interaction, Account):
+    _name = _synced.__tablename__
+    Index(f'ix_{_name}_tenant_sync_change', _synced.tenant_id, _synced.sync_change_xid)
+    Index(f'ix_{_name}_tenant_sync_access', _synced.tenant_id, _synced.sync_access_xid)
+install_sync_ddl(Base.metadata)

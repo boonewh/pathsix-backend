@@ -91,6 +91,18 @@ def tenant_and_user(c):
     return tenant, (row.id if row else None)
 
 
+def live_only(c, table):
+    """Tombstone filter, only where the target schema has it (mobile_tombstones).
+
+    Production may run this before or after those columns arrive; a tombstoned
+    fixture must never be reused once they exist.
+    """
+    present = c.execute(text(
+        "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' "
+        "AND table_name=:t AND column_name='deleted_at')"), {'t': table}).scalar_one()
+    return ' AND deleted_at IS NULL' if present else ''
+
+
 with engine.begin() as c:
     c.execute(text("SET LOCAL statement_timeout='30s'"))
     database, user = c.execute(text('SELECT current_database(), current_user')).one()
@@ -147,7 +159,8 @@ with engine.begin() as c:
                 {**owned, 'name': 'Verification Lead LLC', 'person': 'Avery Stone', 'email': 'avery@verification.example.com',
                  'phone': '+15125550188', 'city': 'Round Rock', 'notes': 'Synthetic record for the connector check.'}
             ).scalar_one()
-        interaction = c.execute(text('SELECT id FROM public.interactions WHERE tenant_id=:t AND summary=:s'),
+        interaction = c.execute(text('SELECT id FROM public.interactions WHERE tenant_id=:t AND summary=:s'
+                                     + live_only(c, 'interactions')),
                                 {'t': tenant, 's': 'Verification check-in'}).scalar_one_or_none()
         if interaction is None:
             interaction = c.execute(text(
@@ -205,6 +218,9 @@ with engine.begin() as c:
                       'interactions', 'contacts', 'projects', 'accounts', 'leads', 'clients',
                       'activity_logs', 'chat_messages', 'files', 'subscriptions'):
             c.execute(text(f'DELETE FROM public.{table} WHERE tenant_id=:t'), {'t': tenant})
+        # Present once mobile_change_feed is applied; its delete trigger just wrote these.
+        if c.execute(text("SELECT to_regclass('public.sync_purges')")).scalar() is not None:
+            c.execute(text('DELETE FROM public.sync_purges WHERE tenant_id=:t'), {'t': tenant})
         c.execute(text('DELETE FROM public.user_preferences WHERE user_id=:u'), {'u': uid})
         c.execute(text('DELETE FROM public.user_roles WHERE user_id=:u'), {'u': uid})
         c.execute(text('DELETE FROM public.users WHERE id=:u'), {'u': uid})
