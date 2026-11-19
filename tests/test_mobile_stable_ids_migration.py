@@ -93,7 +93,9 @@ def test_existing_uuid_column_aborts_without_changing_history_or_rows(legacy):
     with engine.begin() as c:
         c.execute(text(f'SET LOCAL search_path="{schema}"'))
         c.execute(text(f'ALTER TABLE {last} ADD COLUMN uuid text'))
+        c.execute(text(f"UPDATE {last} SET uuid = 'sentinel-' || id"))
         ids_before, columns_before = _ids(c), _columns(c, schema)
+        sentinels_before = sorted(c.execute(text(f'SELECT id, uuid FROM {last}')).all())
 
     with pytest.raises(RuntimeError, match='Existing uuid column'):
         upgrade(engine, schema)
@@ -103,6 +105,7 @@ def test_existing_uuid_column_aborts_without_changing_history_or_rows(legacy):
         assert c.execute(text('SELECT version_num FROM alembic_version')).scalar_one() == down_revision
         assert _ids(c) == ids_before
         assert _columns(c, schema) == columns_before
+        assert sorted(c.execute(text(f'SELECT id, uuid FROM {last}')).all()) == sentinels_before
 
 
 def test_existing_grants_and_tenant_policy_cover_uuid_after_migration(legacy):
@@ -137,8 +140,10 @@ def test_existing_grants_and_tenant_policy_cover_uuid_after_migration(legacy):
         inserted = c.execute(text('INSERT INTO clients (id, tenant_id) VALUES (:id, 1) RETURNING uuid'),
                              {'id': 999}).scalar_one()
         assert inserted is not None and inserted not in {row.uuid for row in visible}
-        with c.begin_nested():
-            with pytest.raises(DBAPIError) as denied:
+        # raises outside begin_nested, so SQLAlchemy rolls the savepoint back
+        # instead of releasing it after PostgreSQL has aborted it
+        with pytest.raises(DBAPIError) as denied:
+            with c.begin_nested():
                 c.execute(text('INSERT INTO clients (id, tenant_id) VALUES (:id, 2)'), {'id': 1000})
         assert denied.value.orig.pgcode == '42501'
 
