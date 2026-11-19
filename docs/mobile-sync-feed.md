@@ -25,7 +25,7 @@ With no `cursor` (or an empty one), the request starts a full sync. With a curso
 - **`has_more: true`:** call again with `cursor` to continue the same round. Only the last page of a round is shorter than `limit`.
 - **`has_more: false`:** the round is complete. Store `cursor` and use it for the next sync.
 - **After a full sync:** when it completes, delete every local record it didn't deliver.
-- **Upserts:** replace the local record, keyed by `uuid`. `record` holds `id` and `uuid`, and each parent appears as both `<parent>_id` and `<parent>_uuid`.
+- **Upserts:** replace the local record, keyed by entity plus `uuid`. `record` holds `id` and `uuid`, and each parent appears as both `<parent>_id` and `<parent>_uuid`.
 - **Datetimes:** naive ISO 8601, stored exactly as the web app stores them. Most are UTC. Interaction `contact_date` and `follow_up` are wall-clock values as the user entered them; don't shift them by a time zone.
 - **Client conversion link:** clients don't include their source lead or conversion date. The web app shows that link only when the lead is visible too.
 - **Removes:** delete the local record. A remove can name a uuid the device never held; ignore it. It carries no content.
@@ -39,7 +39,7 @@ With no `cursor` (or an empty one), the request starts a full sync. With a curso
 | 400 | `invalid_cursor` | Corrupt or forged token, a cursor issued to another user or tenant, or a cursor from before a `SYNC_FEED_GENERATION` change. Start a full sync. |
 | 400 | `invalid_limit` | `limit` isn't an integer from 1 to 500. |
 | 401 | — | Not signed in. |
-| 410 | `resync_required` | Start a full sync. Sent when: the cursor's last completed round started more than 89 days ago; the user's admin role changed; the database's sync history was reset (restore or rebuild); or the cursor format changed. |
+| 410 | `resync_required` | Start a full sync. Sent when: the cursor's last completed round started more than 89 days ago; the user's admin role changed; the `sync_purges` table was recreated (restore or rebuild, detected by its table identity); or the cursor format changed. |
 | 501 | `unsupported_database` | Development SQLite only. |
 
 ## What a user sees
