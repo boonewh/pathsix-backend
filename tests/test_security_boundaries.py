@@ -628,14 +628,14 @@ def test_rls_raw_joins_writes_and_bypass_attempts(rls_runtime):
     with factory() as db:
         bind_principal(db, Principal(1, 1, frozenset({'admin'})))
         assert db.execute(text('SELECT c.id, u.tenant_id FROM clients c JOIN users u ON c.created_by=u.id')).all() == [(1, 1)]
-        for statement in (
-            "INSERT INTO clients (id,tenant_id,created_by,name) VALUES (99,2,2,'blocked')",
-            'UPDATE clients SET tenant_id=2 WHERE id=1',
+        for statement, pgcode in (
+            ("INSERT INTO clients (id,tenant_id,created_by,name) VALUES (99,2,2,'blocked')", '42501'),
+            ('UPDATE clients SET tenant_id=2 WHERE id=1', '23514'),
         ):
             with db.begin_nested() as sp:
                 with pytest.raises(DBAPIError) as exc:
                     db.execute(text(statement))
-                assert exc.value.orig.pgcode == '42501'
+                assert exc.value.orig.pgcode == pgcode
                 sp.rollback()
         assert db.execute(text("UPDATE clients SET name='Allowed' RETURNING id")).scalars().all() == [1]
         assert db.execute(text('DELETE FROM clients WHERE id=2')).rowcount == 0

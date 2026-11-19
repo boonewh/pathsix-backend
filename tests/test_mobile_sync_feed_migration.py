@@ -287,3 +287,51 @@ def test_runtime_role_selection_refuses_unsafe_ambiguous_and_ungranted_roles(leg
         c.execute(text(f'SET LOCAL search_path="{schema}"'))
         assert _version(c) == down_revision
         assert 'sync_purges' not in inspect(c).get_table_names(schema=schema)
+
+
+def test_reconcile_refuses_replication_runtime_role(legacy):
+    engine, schema = legacy
+    role = os.environ['SECURITY_TEST_ROLE']
+    unsafe = 'sync_feed_replication_' + uuid4().hex[:12]
+    with engine.begin() as c:
+        c.execute(text(f'SET LOCAL search_path="{schema}"'))
+        quote = c.dialect.identifier_preparer.quote
+        try:
+            c.execute(text(f'CREATE ROLE {quote(unsafe)} NOSUPERUSER NOCREATEDB NOCREATEROLE '
+                           'NOBYPASSRLS REPLICATION'))
+            c.execute(text(f'GRANT INSERT ON clients TO {quote(unsafe)}'))
+            with pytest.raises(RuntimeError, match='restricted runtime role'):
+                reconcile(c, schema, unsafe)
+            assert _version(c) == down_revision
+            assert 'sync_purges' not in inspect(c).get_table_names(schema=schema)
+        finally:
+            c.execute(text(f'REVOKE INSERT ON clients FROM {quote(unsafe)}'))
+            c.execute(text(f'DROP ROLE IF EXISTS {quote(unsafe)}'))
+
+
+def test_reconcile_refuses_writable_assumable_role(legacy):
+    engine, schema = legacy
+    role = os.environ['SECURITY_TEST_ROLE']
+    writer = 'sync_feed_writer_' + uuid4().hex[:12]
+    with engine.begin() as c:
+        c.execute(text(f'SET LOCAL search_path="{schema}"'))
+        quote = c.dialect.identifier_preparer.quote
+        owner = c.execute(text('SELECT current_user')).scalar_one()
+        defaults = (f'ALTER DEFAULT PRIVILEGES FOR ROLE {quote(owner)} '
+                    f'IN SCHEMA {quote(schema)} ')
+        try:
+            c.execute(text(f'CREATE ROLE {quote(writer)} NOSUPERUSER NOCREATEDB NOCREATEROLE '
+                           'NOBYPASSRLS NOREPLICATION'))
+            c.execute(text(f'GRANT {quote(writer)} TO {quote(role)}'))
+            # The migration-created ledger inherits INSERT for this role, so the
+            # runtime could write it after SET ROLE even though its own grant is SELECT.
+            c.execute(text(defaults + f'GRANT INSERT ON TABLES TO {quote(writer)}'))
+            with pytest.raises(RuntimeError, match='must be SELECT only'):
+                with c.begin_nested():
+                    reconcile(c, schema, role)
+            assert _version(c) == down_revision
+            assert 'sync_purges' not in inspect(c).get_table_names(schema=schema)
+        finally:
+            c.execute(text(defaults + f'REVOKE INSERT ON TABLES FROM {quote(writer)}'))
+            c.execute(text(f'REVOKE {quote(writer)} FROM {quote(role)}'))
+            c.execute(text(f'DROP ROLE IF EXISTS {quote(writer)}'))

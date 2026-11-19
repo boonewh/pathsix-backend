@@ -21,6 +21,7 @@ from uuid import uuid4
 
 import pytest
 from authlib.jose import jwt
+from itsdangerous import URLSafeTimedSerializer
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
@@ -35,6 +36,7 @@ from app.services.sync_feed import (
     encode_cursor,
 )
 from purge_fixture import crm as crm
+from test_project_archive import archive as archive
 from test_security_boundaries import rls_runtime as rls_runtime
 from test_verify_production_connector import remote_source
 
@@ -501,6 +503,89 @@ def test_reused_purge_uuid_is_reported_as_a_current_record_not_a_removal(crm):
     assert matching[0]['record']['id'] == 501
 
 
+def _purge_client_and_cursor(call, factory, record_id):
+    """Issue a user-3 cursor, then permanently delete one of their clients."""
+    from app.services.purge import PurgeService
+
+    with factory() as db:
+        db.add(Client(id=record_id, tenant_id=1, created_by=3, name='Purge rule source',
+                      deleted_at=datetime.utcnow(), deleted_by=3))
+        db.commit()
+        original = str(db.execute(text('SELECT uuid FROM clients WHERE id=:id'),
+                                  {'id': record_id}).scalar_one())
+    _, cursor, _ = _drain(call, limit=200, user=3)
+    with factory() as db:
+        assert PurgeService(db, ADMIN).purge('clients', [record_id])['deleted_ids'] == [record_id]
+        db.commit()
+    return original, cursor
+
+
+@pytest.mark.parametrize('replacement', ['visible_same', 'hidden_same', 'visible_other'])
+def test_purge_skip_only_applies_to_a_visible_same_entity_replacement(crm, replacement):
+    call, factory, _ = crm
+    _pg(factory)
+    original, cursor = _purge_client_and_cursor(call, factory, 600)
+
+    if replacement == 'visible_same':
+        with factory.begin() as c:
+            _insert(c, 'clients', id=601, tenant_id=1, created_by=3, uuid=original,
+                    name='Visible replacement')
+        expected = {('clients', original): 'upsert'}
+    elif replacement == 'hidden_same':
+        with factory.begin() as c:
+            _insert(c, 'clients', id=601, tenant_id=1, created_by=2, uuid=original,
+                    name='Hidden replacement')
+        expected = {('clients', original): 'remove'}
+    else:
+        with factory.begin() as c:
+            _insert(c, 'leads', id=601, tenant_id=1, created_by=3, uuid=original,
+                    name='Other entity replacement')
+        expected = {('clients', original): 'remove', ('leads', original): 'upsert'}
+
+    changes, _, _ = _drain(call, cursor=cursor, limit=200, user=3)
+    got = {}
+    for change in changes:
+        if change['uuid'] != original:
+            continue
+        key = (change['entity'], change['uuid'])
+        assert key in expected, (replacement, change)
+        assert key not in got, (replacement, got)
+        got[key] = change['op']
+    assert got == expected, (replacement, got)
+
+
+def test_archive_payload_omits_sync_columns_and_marker_updates_keep_fingerprint(archive):
+    call, factory, app = archive
+    _pg(factory)
+    signer = URLSafeTimedSerializer(app.config['SECRET_KEY'], salt='asfi-project-archive-v1')
+    status, body = call('GET', '/api/owner/project-archive/preview', user=4)
+    assert status == 200, body
+    preview = json.loads(body)
+    assert preview['projects']
+    assert all(not any(key.startswith('sync_') for key in project)
+               for project in preview['projects'])
+    before = signer.loads(preview['preview_token'])['fingerprint']
+
+    with factory.begin() as c:
+        c.execute(text('UPDATE projects SET sync_change_xid=sync_change_xid+1 WHERE id IN (1, 10)'))
+
+    status, body = call('GET', '/api/owner/project-archive/preview', user=4)
+    assert status == 200, body
+    after = signer.loads(json.loads(body)['preview_token'])['fingerprint']
+    assert after == before
+
+    status, body = call('POST', '/api/owner/project-archive/archive',
+                        {'preview_token': preview['preview_token'], 'confirmation': 'ARCHIVE 2'},
+                        user=4)
+    assert status == 200, body
+    status, body = call('GET', '/api/owner/project-archive', user=4)
+    assert status == 200, body
+    listing = json.loads(body)
+    assert listing['projects']
+    assert all(not any(key.startswith('sync_') for key in project)
+               for project in listing['projects'])
+
+
 # ---------------------------------------------------------------------------
 # 8. Concurrency: in-flight write crosses the cursor's base
 # ---------------------------------------------------------------------------
@@ -565,14 +650,26 @@ def test_bad_cursors_and_limits_are_refused(crm):
 
     status, payload = _request(call, cursor=tampered)
     assert status == 400 and payload['code'] == 'invalid_cursor', payload
+    # 'eB' decodes like canonical 'eA' but leaves non-zero padding bits.
+    status, payload = _request(call, cursor='eB.' + signature)
+    assert status == 400 and payload['code'] == 'invalid_cursor', payload
     for user in (2, 3):
         status, payload = _request(call, cursor=cursor, user=user)
         assert status == 400 and payload['code'] == 'invalid_cursor', (user, payload)
-    for limit in ('0', '-1', '501', 'abc', '1.5'):
+    for limit in ('0', '-1', '501', 'abc', '1.5', '１', '0500x'):
         status, payload = _request(call, limit=limit)
         assert status == 400 and payload['code'] == 'invalid_limit', (limit, payload)
     status, payload = _request(call, user=None)
     assert status == 401, payload
+
+
+def test_cursor_generation_change_is_refused(crm, monkeypatch):
+    call, factory, _ = crm
+    _pg(factory)
+    cursor = _page(call)['cursor']
+    monkeypatch.setenv('SYNC_FEED_GENERATION', '2')
+    status, payload = _request(call, cursor=cursor)
+    assert status == 400 and payload['code'] == 'invalid_cursor', payload
 
 
 def test_cursor_carries_purge_epoch_and_lower_watermark(crm):
@@ -818,6 +915,51 @@ def test_feed_and_purge_table_work_under_the_restricted_runtime_role(crm, rls_ru
         checked = verify_isolation_contract(db.connection(), schema,
                                             os.environ['SECURITY_TEST_ROLE'])
     assert checked['role_restricted'] and checked['policies'] >= 1
+
+
+@pytest.mark.isolation
+def test_purge_definer_cannot_be_executed_or_bound_by_runtime_but_delete_records(crm, rls_runtime):
+    _, _, _ = crm
+    factory, admin, schema = rls_runtime
+    from app.services.database_context import bind_principal
+    role = os.environ['SECURITY_TEST_ROLE']
+
+    with admin() as db:
+        quote = db.connection().dialect.identifier_preparer.quote
+        function = f'{quote(schema)}.{quote("sync_record_purge")}()'
+        assert not db.execute(text(
+            "SELECT has_function_privilege(:role, :function, 'EXECUTE')"),
+            {'role': role, 'function': function}).scalar_one()
+
+    with factory() as db:
+        bind_principal(db, Principal(1, 1, frozenset({'admin'})))
+        quote = db.connection().dialect.identifier_preparer.quote
+        function = f'{quote(schema)}.{quote("sync_record_purge")}()'
+        db.execute(text('CREATE TEMP TABLE purge_bind_probe (tenant_id integer, uuid uuid) '
+                        'ON COMMIT DROP'))
+        with db.begin_nested() as savepoint:
+            with pytest.raises(DBAPIError) as denied:
+                db.execute(text(
+                    f'CREATE TRIGGER purge_bind AFTER DELETE ON purge_bind_probe '
+                    f'FOR EACH ROW EXECUTE FUNCTION {function}'))
+            assert denied.value.orig.pgcode == '42501'
+            savepoint.rollback()
+
+    deleted_uuid = uuid4()
+    with admin() as db:
+        db.execute(text(
+            'INSERT INTO clients (id, tenant_id, created_by, uuid, name) '
+            "VALUES (701, 1, 1, :uuid, 'Runtime delete proof')"), {'uuid': deleted_uuid})
+        db.commit()
+    with factory() as db:
+        bind_principal(db, Principal(1, 1, frozenset({'admin'})))
+        assert db.execute(text('DELETE FROM clients WHERE id=701')).rowcount == 1
+        db.commit()
+    with admin() as db:
+        rows = db.execute(text(
+            'SELECT entity, record_uuid FROM sync_purges WHERE record_uuid=:uuid'),
+            {'uuid': deleted_uuid}).all()
+    assert [tuple(row) for row in rows] == [('clients', deleted_uuid)]
 
 
 # ---------------------------------------------------------------------------
