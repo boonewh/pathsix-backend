@@ -58,6 +58,8 @@ class PurgeService(TenantService):
             # Soft-deleted (trashed) projects and clients still block. Tombstoned
             # contacts, accounts and interactions are hidden here and removed with
             # their parent below: their record is already gone for every user.
+            # Purge leaves no trace of the parent or those children, so the change
+            # feed (mobile Phase 0 item 4) must record purges before devices sync.
             counts = self.session.query(parent_id, func.count(child.id)).filter(
                 child.tenant_id == self.principal.tenant_id,
                 parent_id.in_(selected_ids),

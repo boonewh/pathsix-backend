@@ -26,8 +26,14 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
 RETENTION_DAYS = 90
-TABLES = ('contacts', 'accounts', 'interactions')
-APPS = {'pathsixsolutions-backend-mobile', 'pathsixsolutions-backend-staging', 'pathsixsolutions-backend'}
+# Same table order as PurgeService (interactions, then contacts, then accounts),
+# so a concurrent purge and prune do not take these tables in opposite orders.
+TABLES = ('interactions', 'contacts', 'accounts')
+# Mobile only until tombstones are approved for staging or production.
+APPS = {'pathsixsolutions-backend-mobile'}
+# libpq lets query parameters such as host, port or dbname override the URL's own
+# fields, which would defeat the target check below. Only these are accepted.
+ALLOWED_QUERY = {'sslmode'}
 
 
 def prune(connection, now, apply):
@@ -47,6 +53,8 @@ def require_target(admin_url):
         raise SystemExit('Refusing to run outside a PathSix backend Fly app.')
     runtime = make_url(os.getenv('DATABASE_URL', '').replace('postgres://', 'postgresql://', 1))
     admin = make_url(admin_url)
+    if set(admin.query) - ALLOWED_QUERY:
+        raise SystemExit('Refusing an administrator URL with connection overrides in its query string.')
     if (admin.host, admin.port, admin.database) != (runtime.host, runtime.port, runtime.database):
         raise SystemExit("Refusing an administrator URL for a different database than this app's.")
     return admin
