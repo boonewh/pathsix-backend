@@ -700,7 +700,8 @@ class SyncPurge(Base):
 class WriteReceipt(Base):
     """First successful outcome of an Idempotency-Key write; kept 90 days (app/services/idempotency.py)."""
     __tablename__ = 'write_receipts'
-    id = Column(BigInteger, primary_key=True)
+    # SQLite autoincrements only an INTEGER primary key (development schemas).
+    id = Column(BigInteger().with_variant(Integer, 'sqlite'), primary_key=True)
     tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
     user_id = Column(Integer, nullable=False)
     request_key = Column(String(64), nullable=False)
