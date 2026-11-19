@@ -1,6 +1,7 @@
 """Fault injection and complete table inventory, in disposable schemas only."""
 import asyncio
 from datetime import datetime
+from uuid import uuid4
 
 import pytest
 from quart import request
@@ -18,6 +19,7 @@ from app.services.users import UserService
 from app.services.database_context import auth_lookup, bind_principal
 from app.services.principal import Principal
 from app.services.errors import RecordNotFound
+from app.utils.sync_markers import SYNC_TABLES
 from migrations.versions.tenant_rls_prepare import BUSINESS
 from ops.isolation_contract import TABLES, verify_isolation_contract, expected_policies
 
@@ -230,7 +232,7 @@ def populated_runtime(rls_runtime):
 
 @pytest.mark.parametrize('table', TABLES)
 def test_all_tables_deny_missing_context_and_foreign_reads_writes(populated_runtime, table):
-    runtime,_,_=populated_runtime
+    runtime,admin,_=populated_runtime
     # Chat is an intentionally unavailable feature: no table privileges at all.
     if table=='chat_messages':
         with runtime() as db:
@@ -239,12 +241,25 @@ def test_all_tables_deny_missing_context_and_foreign_reads_writes(populated_runt
             assert error.value.orig.pgcode=='42501'
         return
     column='id' if table=='tenants' else 'user_id' if table in ('user_roles','user_preferences') else 'tenant_id'
+    if table=='sync_purges':
+        # The runtime role reads the ledger but cannot write it; create a row
+        # through the real trigger with an operator-owned insert and delete.
+        with admin() as db:
+            db.execute(text(
+                'INSERT INTO clients (id, tenant_id, created_by, uuid, name) '
+                "VALUES (9001, 1, 1, :uuid, 'Purge seed')"), {'uuid': uuid4()})
+            db.execute(text('DELETE FROM clients WHERE id=9001'))
+            db.commit()
     with runtime() as db:
         assert db.execute(text(f'SELECT {column} FROM {table}')).all()==[]
     with runtime() as db:
         bind_principal(db,A)
         values=db.execute(text(f'SELECT {column} FROM {table}')).scalars().all()
         assert values and set(values)=={1}
+        if table=='sync_purges':
+            # Read and tenant isolation are checked above; writes are covered by
+            # the sync-feed tests because the runtime role is SELECT-only here.
+            return
         if table in ('ai_tool_audits','ai_write_actions'):
             for verb in ((f'UPDATE {table} SET tenant_id=tenant_id',f'DELETE FROM {table}')
                          if table=='ai_write_actions' else ('UPDATE ai_tool_audits SET result_count=0','DELETE FROM ai_tool_audits')):
@@ -262,7 +277,10 @@ def test_all_tables_deny_missing_context_and_foreign_reads_writes(populated_runt
             with db.begin_nested() as savepoint:
                 with pytest.raises(DBAPIError) as error:
                     db.execute(text(f'UPDATE {table} SET {column}=2 WHERE {column}=1'))
-                assert error.value.orig.pgcode in ({'23514','42501'} if table in ('ai_connections','oauth_credentials') else {'42501'})
+                if table in SYNC_TABLES:
+                    assert error.value.orig.pgcode=='23514'
+                else:
+                    assert error.value.orig.pgcode in ({'23514','42501'} if table in ('ai_connections','oauth_credentials') else {'42501'})
                 savepoint.rollback()
         db.rollback()
 

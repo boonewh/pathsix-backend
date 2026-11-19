@@ -183,7 +183,16 @@ run first, from Git Bash:
       flyctl ssh console --app pathsixsolutions-backend-mobile -C "python scripts/prune_tombstones.py"
 
 Add `--apply` to delete. It refuses an administrator login that cannot bypass
-row security or that points at a different database than the app's own.
+row security or that points at a different database than the app's own. Since
+`mobile_change_feed` (item 4) it also removes `sync_purges` rows (the change
+feed's permanent-delete records) older than 90 days; the change feed refuses
+cursors older than 89 days, so devices offline longer fully resync.
+
+Change feed (mobile Phase 0, item 4): `GET /api/sync/changes`, described in
+`docs/mobile-sync-feed.md`. The `mobile_change_feed` migration grants the new
+`sync_purges` table to the runtime role, which it finds as the single
+restricted role holding INSERT on `clients`, so the migration command above
+needs no extra argument.
 
 To put the environment to sleep, cordon then stop, as staging does; cordoning is
 what prevents the Fly proxy from waking it. To throw it away entirely:

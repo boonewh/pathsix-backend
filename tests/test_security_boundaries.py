@@ -49,7 +49,7 @@ def crm(tmp_path, monkeypatch, request):
         engine = create_engine(f"sqlite:///{tmp_path / 'security.db'}")
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine)
-    for name in ('accounts', 'activity', 'subscriptions', 'contacts', 'projects', 'interactions', 'clients', 'leads', 'auth', 'reports', 'imports', 'users', 'search', 'storage', 'user_preferences', 'ai_connections', 'oauth', 'ai_actions'):
+    for name in ('accounts', 'activity', 'subscriptions', 'contacts', 'projects', 'interactions', 'clients', 'leads', 'auth', 'reports', 'imports', 'users', 'search', 'storage', 'user_preferences', 'ai_connections', 'oauth', 'ai_actions', 'sync'):
         monkeypatch.setattr(importlib.import_module(f'app.routes.{name}'), 'SessionLocal', factory)
     monkeypatch.setattr(auth_utils, 'SessionLocal', factory)
     monkeypatch.setattr(importlib.import_module('app.mcp_server'),'SessionLocal',factory)
@@ -107,12 +107,14 @@ def crm(tmp_path, monkeypatch, request):
                 secure_creation(connection,schema,runtime_role)
                 from migrations.versions.mcp_record_updates import secure as secure_updates
                 secure_updates(connection,schema,runtime_role)
+                from migrations.versions.mobile_change_feed import secure as secure_sync
+                secure_sync(connection,schema,runtime_role)
         runtime_factory = sessionmaker(bind=engine)
         @event.listens_for(runtime_factory, 'after_begin')
         def set_runtime_role(session, transaction, connection):
             role_sql = connection.dialect.identifier_preparer.quote(runtime_role)
             connection.execute(text(f'SET LOCAL ROLE {role_sql}'))
-        for name in ('accounts', 'activity', 'subscriptions', 'contacts', 'projects', 'interactions', 'clients', 'leads', 'auth', 'reports', 'imports', 'users', 'search', 'storage', 'user_preferences', 'ai_connections', 'oauth', 'ai_actions'):
+        for name in ('accounts', 'activity', 'subscriptions', 'contacts', 'projects', 'interactions', 'clients', 'leads', 'auth', 'reports', 'imports', 'users', 'search', 'storage', 'user_preferences', 'ai_connections', 'oauth', 'ai_actions', 'sync'):
             monkeypatch.setattr(importlib.import_module(f'app.routes.{name}'), 'SessionLocal', runtime_factory)
         monkeypatch.setattr(auth_utils, 'SessionLocal', runtime_factory)
         monkeypatch.setattr(importlib.import_module('app.mcp_server'),'SessionLocal',runtime_factory)
@@ -626,14 +628,14 @@ def test_rls_raw_joins_writes_and_bypass_attempts(rls_runtime):
     with factory() as db:
         bind_principal(db, Principal(1, 1, frozenset({'admin'})))
         assert db.execute(text('SELECT c.id, u.tenant_id FROM clients c JOIN users u ON c.created_by=u.id')).all() == [(1, 1)]
-        for statement in (
-            "INSERT INTO clients (id,tenant_id,created_by,name) VALUES (99,2,2,'blocked')",
-            'UPDATE clients SET tenant_id=2 WHERE id=1',
+        for statement, pgcode in (
+            ("INSERT INTO clients (id,tenant_id,created_by,name) VALUES (99,2,2,'blocked')", '42501'),
+            ('UPDATE clients SET tenant_id=2 WHERE id=1', '23514'),
         ):
             with db.begin_nested() as sp:
                 with pytest.raises(DBAPIError) as exc:
                     db.execute(text(statement))
-                assert exc.value.orig.pgcode == '42501'
+                assert exc.value.orig.pgcode == pgcode
                 sp.rollback()
         assert db.execute(text("UPDATE clients SET name='Allowed' RETURNING id")).scalars().all() == [1]
         assert db.execute(text('DELETE FROM clients WHERE id=2')).rowcount == 0

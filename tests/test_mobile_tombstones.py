@@ -657,7 +657,7 @@ def test_prune_dry_run_and_apply_keep_young_tombstones_and_live_rows(crm):
         db.commit()
 
         counts = prune_tombstones.prune(db.connection(), now, apply=False)
-        assert counts == {'interactions': 1, 'contacts': 1, 'accounts': 1}
+        assert counts == {'interactions': 1, 'contacts': 1, 'accounts': 1, 'sync_purges': 0}
         db.commit()
         # A dry run deletes nothing in any of the three tables.
         for table in TOMBSTONE_TABLES:
@@ -895,7 +895,7 @@ def test_prune_apply_skips_a_tombstone_locked_by_another_transaction(crm):
         # A regression that waits on the locked row fails in one second instead of hanging.
         db.execute(text("SET LOCAL lock_timeout='1s'"))
         counts = prune_tombstones.prune(db.connection(), now, apply=True)
-        assert counts == {'interactions': 0, 'contacts': 1, 'accounts': 0}
+        assert counts == {'interactions': 0, 'contacts': 1, 'accounts': 0, 'sync_purges': 0}
         db.commit()
         locked.rollback()
 

@@ -22,7 +22,7 @@ def serialize(record):
         return v.value if hasattr(v, 'value') else v
     # Columns added for mobile sync are not part of the archive's response or
     # preview fingerprint; leaving them out keeps both unchanged.
-    skip = SYNC_ONLY.get(record.__table__.name, set()) | {'uuid'}
+    skip = SYNC_ONLY.get(record.__table__.name, set()) | {'uuid', 'sync_change_xid', 'sync_access_xid'}
     return {column.name: value(getattr(record, column.name)) for column in record.__table__.columns
             if column.name not in skip}
 

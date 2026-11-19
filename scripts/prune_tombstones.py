@@ -1,4 +1,6 @@
-"""Retention for tombstones (deleted contacts, accounts, interactions). Dry run unless --apply.
+"""Retention for tombstones (deleted contacts, accounts, interactions) and sync_purges.
+
+Dry run unless --apply.
 
 Run on the app's own Fly machine with the administrator URL on stdin (never as
 an argument), for example from the operator workstation:
@@ -8,7 +10,7 @@ an argument), for example from the operator workstation:
 A tombstone tells offline devices that a record was deleted, so it is kept for
 RETENTION_DAYS after deletion (times are naive UTC, as stored) and then removed.
 A device offline for longer must resynchronize from scratch, which the change
-feed (mobile Phase 0 item 4) has to enforce. Standalone on purpose: importing the
+feed (mobile Phase 0 item 4) enforces by refusing cursors older than 89 days. Standalone on purpose: importing the
 app would open its runtime database engine. Keep RETENTION_DAYS equal to
 app/utils/tombstones.py. Live records are never touched. Nothing references these three
 tables, so deleting a tombstone cannot cascade.
@@ -29,6 +31,8 @@ RETENTION_DAYS = 90
 # Same table order as PurgeService (interactions, then contacts, then accounts),
 # so a concurrent purge and prune do not take these tables in opposite orders.
 TABLES = ('interactions', 'contacts', 'accounts')
+# Written by the change feed's delete trigger; same retention as tombstones.
+PURGES = 'sync_purges'
 # Mobile only until tombstones are approved for staging or production.
 APPS = {'pathsixsolutions-backend-mobile'}
 # libpq lets query parameters such as host, port or dbname override the URL's own
@@ -50,6 +54,13 @@ def prune(connection, now, apply):
                 f'(SELECT id FROM {target} ORDER BY id FOR UPDATE SKIP LOCKED)'), params).rowcount
         else:
             counts[table] = connection.execute(text(f'SELECT count(*) FROM {target}'), params).scalar()
+    # Permanent-delete records for the change feed (mobile_change_feed). The delete
+    # trigger records the tombstones removed above too; those age out in a later run.
+    target = f'{PURGES} WHERE purged_at < :before'
+    if apply:
+        counts[PURGES] = connection.execute(text(f'DELETE FROM {target}'), params).rowcount
+    else:
+        counts[PURGES] = connection.execute(text(f'SELECT count(*) FROM {target}'), params).scalar()
     return counts
 
 
