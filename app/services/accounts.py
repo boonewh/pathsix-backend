@@ -8,6 +8,7 @@ from app.schemas.accounts import AccountCreateSchema, AccountUpdateSchema
 from app.services.base import TenantService
 from app.services.access import owned_record_filter
 from app.services.errors import RecordNotFound
+from app.utils.tombstones import bury
 
 
 class AccountService(TenantService):
@@ -104,5 +105,5 @@ class AccountService(TenantService):
         return self._serialize(account)
 
     def delete(self, account_id):
-        self.session.delete(self._get(account_id))
+        bury(self._get(account_id), self.principal.user_id)
         self.session.flush()

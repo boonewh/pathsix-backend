@@ -174,6 +174,17 @@ It refuses to print to a terminal and refuses any target but the mobile
 database, mirroring the staging and production helpers. Never add it as a second
 app secret.
 
+Tombstone retention (mobile Phase 0, item 3). Deleted contacts, accounts and
+interactions stay as hidden rows for 90 days so offline devices learn about the
+deletion; `scripts/prune_tombstones.py` then removes them. Run it monthly, dry
+run first, from Git Bash:
+
+    powershell -NoProfile -File G:/Projects/tools/pathsix-mobile-admin-url.ps1 | tr -d '\r' | \
+      flyctl ssh console --app pathsixsolutions-backend-mobile -C "python scripts/prune_tombstones.py"
+
+Add `--apply` to delete. It refuses an administrator login that cannot bypass
+row security or that points at a different database than the app's own.
+
 To put the environment to sleep, cordon then stop, as staging does; cordoning is
 what prevents the Fly proxy from waking it. To throw it away entirely:
 

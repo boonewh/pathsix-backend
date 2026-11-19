@@ -3,7 +3,7 @@ from sqlalchemy.orm import relationship, backref
 from datetime import datetime
 from uuid import uuid4
 from app.database import Base
-from sqlalchemy import Enum, Index, UniqueConstraint, JSON, ForeignKeyConstraint, CheckConstraint, DDL, event
+from sqlalchemy import Enum, Index, UniqueConstraint, JSON, ForeignKeyConstraint, CheckConstraint, DDL, event, text
 import enum
 
 # Association table for many-to-many User ↔ Role
@@ -260,11 +260,20 @@ class Account(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     client_id = Column(Integer, ForeignKey('clients.id'), nullable=False)
     tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
-    account_number = Column(String(100), nullable=False, unique=True)
+    account_number = Column(String(100), nullable=False)
     account_name = Column(String(255), nullable=True)
     status = Column(String(50), default="active")
     opened_on = Column(DateTime, default=datetime.utcnow)
     notes = Column(Text)
+    # Tombstone: hidden from every read, kept for offline devices (app/utils/tombstones.py).
+    deleted_at = Column(DateTime, nullable=True)
+    deleted_by = Column(Integer, ForeignKey('users.id'), nullable=True)
+
+    # Unique among live accounts only, so a deleted account's number can be reused.
+    __table_args__ = (
+        Index('uq_accounts_account_number_live', 'account_number', unique=True,
+              postgresql_where=text('deleted_at IS NULL'), sqlite_where=text('deleted_at IS NULL')),
+    )
 
     client = relationship("Client", backref="accounts")
 
@@ -331,6 +340,9 @@ class Contact(Base):
     notes = Column(Text)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # Tombstone: hidden from every read, kept for offline devices (app/utils/tombstones.py).
+    deleted_at = Column(DateTime, nullable=True)
+    deleted_by = Column(Integer, ForeignKey('users.id'), nullable=True)
 
     client = relationship("Client", backref="contacts")
     lead = relationship("Lead", backref="contacts")
@@ -413,6 +425,9 @@ class Interaction(Base):
     follow_up = Column(DateTime, nullable=True)
     followup_status = Column(Enum(FollowUpStatus), default=FollowUpStatus.pending, nullable=False)
     summary = Column(String(255))
+    # Tombstone: hidden from every read, kept for offline devices (app/utils/tombstones.py).
+    deleted_at = Column(DateTime, nullable=True)
+    deleted_by = Column(Integer, ForeignKey('users.id'), nullable=True)
 
     # Relationships
     lead = relationship("Lead", backref="interactions")
