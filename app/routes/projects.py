@@ -2,6 +2,7 @@ from app.routes.purge import purge_response
 from quart import Blueprint, request, jsonify, Response
 from pydantic import ValidationError
 from app.database import SessionLocal
+from app.services.idempotency import idempotent_write
 from app.utils.auth_utils import requires_auth
 from app.services.projects import ProjectService, RecordNotFound
 from app.schemas.projects import (
@@ -71,12 +72,8 @@ async def create_project():
         return jsonify({"error": "Validation failed", "details": exc.errors()}), 400
     with SessionLocal() as session:
         try:
-            service = ProjectService(session, request.principal)
-            result = service.create(data)
-            session.commit()
-            response = jsonify(result)
-            response.headers["Cache-Control"] = "no-store"
-            return response, 201
+            return idempotent_write(session, request.principal, raw, lambda: ProjectService(
+                session, request.principal).create(data), 201, no_store=True)
         except RecordNotFound as exc:
             return jsonify({"error": str(exc)}), 404
         except PermissionError as exc:
@@ -97,12 +94,8 @@ async def update_project(project_id):
         return jsonify({"error": "Validation failed", "details": exc.errors()}), 400
     with SessionLocal() as session:
         try:
-            service = ProjectService(session, request.principal)
-            result = service.update(project_id, data)
-            session.commit()
-            response = jsonify(result)
-            response.headers["Cache-Control"] = "no-store"
-            return response
+            return idempotent_write(session, request.principal, raw, lambda: ProjectService(
+                session, request.principal).update(project_id, data), no_store=True)
         except RecordNotFound as exc:
             return jsonify({"error": str(exc)}), 404
         except PermissionError as exc:

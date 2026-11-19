@@ -2,6 +2,7 @@ from app.routes.purge import purge_response
 from quart import Blueprint, request, jsonify
 from pydantic import ValidationError
 from app.database import SessionLocal
+from app.services.idempotency import idempotent_write
 from app.services.leads import LeadService, RecordNotFound
 from app.utils.auth_utils import requires_auth
 from app.utils.email_utils import send_assignment_notification
@@ -40,9 +41,11 @@ async def create_lead():
     except ValidationError as exc:
         return jsonify({"error": "Validation failed", "details": exc.errors()}), 400
     with SessionLocal() as session:
-        lead_id = LeadService(session, request.principal).create(data)
-        session.commit()
-        return jsonify({"id": lead_id}), 201
+        try:
+            return idempotent_write(session, request.principal, raw_data, lambda: {
+                "id": LeadService(session, request.principal).create(data)}, 201)
+        except ValueError as exc:  # an invalid Idempotency-Key
+            return jsonify({"error": str(exc)}), 400
 
 
 @leads_bp.route("/<int:lead_id>", methods=["GET"])
@@ -73,9 +76,8 @@ async def update_lead(lead_id):
         return jsonify({"error": "Validation failed", "details": exc.errors()}), 400
     with SessionLocal() as session:
         try:
-            result = LeadService(session, request.principal).update(lead_id, data)
-            session.commit()
-            return jsonify({"id": result})
+            return idempotent_write(session, request.principal, raw_data, lambda: {
+                "id": LeadService(session, request.principal).update(lead_id, data)})
         except RecordNotFound as exc:
             return jsonify({"error": str(exc)}), 404
         except ValueError as exc:

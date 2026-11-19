@@ -46,7 +46,8 @@ def bind_principal(session, principal, *, _transaction_start=False):
             table = state.mapper.local_table.name
             if ((tenant is not None and tenant != principal.tenant_id)
                     or (table == 'tenants' and state.dict.get('id') != principal.tenant_id)
-                    or (table in ('user_preferences', 'ai_connections', 'oauth_credentials', 'ai_tool_audits', 'ai_write_actions')
+                    or (table in ('user_preferences', 'ai_connections', 'oauth_credentials', 'ai_tool_audits', 'ai_write_actions',
+                                  'write_receipts')
                         and state.dict.get('user_id') != principal.user_id)):
                 raise ValueError('A tenant session cannot adopt foreign cached records')
     session.info['principal'] = principal

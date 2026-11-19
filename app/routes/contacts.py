@@ -1,6 +1,7 @@
 from quart import Blueprint, request, jsonify
 from pydantic import ValidationError
 from app.database import SessionLocal
+from app.services.idempotency import idempotent_write
 from app.utils.auth_utils import requires_auth
 from app.schemas.contacts import ContactCreateSchema, ContactUpdateSchema
 from app.services.contacts import ContactService, RecordNotFound
@@ -36,9 +37,8 @@ async def create_contact():
         return jsonify({'error': 'Validation failed', 'details': exc.errors()}), 400
     with SessionLocal() as session:
         try:
-            contact_id = ContactService(session, request.principal).create(data)
-            session.commit()
-            return jsonify({'id': contact_id}), 201
+            return idempotent_write(session, request.principal, raw_data, lambda: {
+                'id': ContactService(session, request.principal).create(data)}, 201)
         except RecordNotFound as exc:
             return jsonify({'error': str(exc)}), 404
         except ValueError as exc:
@@ -57,9 +57,10 @@ async def update_contact(contact_id):
         return jsonify({'error': 'Validation failed', 'details': exc.errors()}), 400
     with SessionLocal() as session:
         try:
-            ContactService(session, request.principal).update(contact_id, data)
-            session.commit()
-            return jsonify({'message': 'Contact updated'})
+            def perform():
+                ContactService(session, request.principal).update(contact_id, data)
+                return {'message': 'Contact updated'}
+            return idempotent_write(session, request.principal, raw_data, perform)
         except RecordNotFound as exc:
             return jsonify({'error': str(exc)}), 404
         except ValueError as exc:

@@ -109,6 +109,8 @@ def crm(tmp_path, monkeypatch, request):
                 secure_updates(connection,schema,runtime_role)
                 from migrations.versions.mobile_change_feed import secure as secure_sync
                 secure_sync(connection,schema,runtime_role)
+                from migrations.versions.mobile_idempotent_writes import secure as secure_receipts
+                secure_receipts(connection,schema,runtime_role)
         runtime_factory = sessionmaker(bind=engine)
         @event.listens_for(runtime_factory, 'after_begin')
         def set_runtime_role(session, transaction, connection):

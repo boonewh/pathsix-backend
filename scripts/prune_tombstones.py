@@ -33,6 +33,8 @@ RETENTION_DAYS = 90
 TABLES = ('interactions', 'contacts', 'accounts')
 # Written by the change feed's delete trigger; same retention as tombstones.
 PURGES = 'sync_purges'
+# Idempotency receipts (mobile_idempotent_writes); a key reused after this writes again.
+RECEIPTS = 'write_receipts'
 # Mobile only until tombstones are approved for staging or production.
 APPS = {'pathsixsolutions-backend-mobile'}
 # libpq lets query parameters such as host, port or dbname override the URL's own
@@ -61,6 +63,11 @@ def prune(connection, now, apply):
         counts[PURGES] = connection.execute(text(f'DELETE FROM {target}'), params).rowcount
     else:
         counts[PURGES] = connection.execute(text(f'SELECT count(*) FROM {target}'), params).scalar()
+    target = f'{RECEIPTS} WHERE created_at < :before'
+    if apply:
+        counts[RECEIPTS] = connection.execute(text(f'DELETE FROM {target}'), params).rowcount
+    else:
+        counts[RECEIPTS] = connection.execute(text(f'SELECT count(*) FROM {target}'), params).scalar()
     return counts
 
 

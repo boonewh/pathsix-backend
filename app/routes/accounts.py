@@ -1,6 +1,7 @@
 from quart import Blueprint, request, jsonify
 from pydantic import ValidationError
 from app.database import SessionLocal
+from app.services.idempotency import idempotent_write
 from app.utils.auth_utils import requires_auth
 from app.schemas.accounts import AccountCreateSchema, AccountUpdateSchema
 from app.services.accounts import AccountService
@@ -25,6 +26,10 @@ async def _operation(method, account_id=None, schema=None):
             args = ([] if account_id is None else [account_id]) + (
                 [] if data is None else [data]
             )
+            if method in ("create", "update"):
+                return idempotent_write(session, request.principal, raw,
+                                        lambda: getattr(service, method)(*args),
+                                        201 if method == "create" else 200)
             result = getattr(service, method)(*args)
             if method == "detail":
                 service.record_view(account_id)
