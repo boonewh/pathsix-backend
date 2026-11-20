@@ -34,7 +34,7 @@ A device token stops working when any of these happens:
 - the user's password changes or is reset;
 - the user or tenant is deactivated.
 
-It takes effect on the next request checked after the change commits; a request already admitted may finish. Refresh and the change feed recheck the device and account under their own locks. A revoked device or changed password gives 401 `{"code": "device_revoked"}`. An inactive user or tenant gets the existing sign-in errors: 401 `User not found` or 403 `Tenant is inactive`.
+It takes effect on the next request checked after the change commits; a request already admitted may finish. Refresh and the change feed recheck the device and account under their own locks. A revoked device, a changed password, or a deactivated user or tenant gives a still-valid device token, or a proved refresh token, 401 `{"code": "device_revoked"}`. An expired or unsigned token fails token validation first (401 `Invalid token`). Web tokens keep the existing errors for an inactive user or tenant: 401 `User not found` and 403 `Tenant is inactive`.
 
 - **Deactivating a user** revokes all of their devices, so reactivating the account doesn't restore them.
 - **Reuse detection covers one generation:** the secret just before the current one. Within a fixed 2 minutes of the rotation that superseded it, presenting it issues a new successor (retries don't extend that deadline): this covers a lost response or a duplicate request, and the losing response's refresh token stops working. After that, presenting it revokes the device. An older or unknown secret just fails, with 401 `refresh_invalid`, and revokes nothing.
