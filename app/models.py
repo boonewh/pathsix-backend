@@ -714,6 +714,31 @@ class WriteReceipt(Base):
                       Index('ix_write_receipts_created', 'created_at'))
 
 
+
+class Device(Base):
+    """A registered mobile device and its rotating refresh token (app/services/devices.py)."""
+    __tablename__ = 'devices'
+    __table_args__ = (
+        ForeignKeyConstraint(['tenant_id', 'user_id'], ['users.tenant_id', 'users.id'],
+                             name='fk_devices_user_same_tenant'),
+        Index('ix_devices_tenant_user', 'tenant_id', 'user_id'),
+    )
+    id = Column(Uuid, primary_key=True, default=uuid4)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
+    user_id = Column(Integer, nullable=False)
+    name = Column(String(100), nullable=False)
+    platform = Column(String(20), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    last_seen_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    refresh_hash = Column(String(64), nullable=False)
+    previous_refresh_hash = Column(String(64), nullable=True)
+    refreshed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    refresh_expires_at = Column(DateTime, nullable=False)
+    credential_marker = Column(String(64), nullable=False)
+    revoked_at = Column(DateTime, nullable=True)
+    revoked_by = Column(Integer, nullable=True)
+
+
 # Change-feed indexes and triggers (mobile_change_feed migration).
 from app.utils.sync_markers import install_sync_ddl  # noqa: E402
 for _synced in (Client, Lead, Project, Contact, Interaction, Account):
