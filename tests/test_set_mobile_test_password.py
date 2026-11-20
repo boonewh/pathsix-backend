@@ -29,7 +29,9 @@ MOBILE_URL = (f"postgresql://{MOBILE_SPEC['runtime_role']}:pw@"
 WRONG_DATABASE_MESSAGE = 'Refusing: DATABASE_URL is not the mobile database as its restricted runtime login.'
 OVERRIDE_MESSAGE = 'Refusing a database URL with connection overrides.'
 UNSAFE_CONNECTION_MESSAGE = 'Refusing: the connection is not the restricted mobile runtime login with row security.'
-FIXED_ERROR_MESSAGE = 'Database error; nothing was changed.'
+FIXED_ERROR_MESSAGE = 'Database error: the password change could not be confirmed.'
+MALFORMED_MESSAGE = 'Refusing: DATABASE_URL is missing or malformed.'
+NOT_POSTGRES_MESSAGE = 'Refusing: DATABASE_URL is not a PostgreSQL URL.'
 
 
 def _mobile_url(*, host=None, database=None, user=None, query=''):
@@ -66,6 +68,10 @@ def test_refuses_outside_the_mobile_app(monkeypatch, capsys, app):
     (_mobile_url(user=MOBILE_SPEC['admin_user']), WRONG_DATABASE_MESSAGE),
     (_mobile_url(query='?options=-csearch_path%3Dpublic'), OVERRIDE_MESSAGE),
     (_mobile_url(query='?host=/tmp'), OVERRIDE_MESSAGE),
+    ('', MALFORMED_MESSAGE),
+    ('not a url', MALFORMED_MESSAGE),
+    (_mobile_url().replace(':5432/', ':port/'), MALFORMED_MESSAGE),
+    (_mobile_url().replace('postgresql://', 'mysql://', 1), NOT_POSTGRES_MESSAGE),
 ])
 def test_main_refuses_wrong_mobile_database_target(monkeypatch, capsys, url, message):
     monkeypatch.setenv('FLY_APP_NAME', bootstrap.APP)

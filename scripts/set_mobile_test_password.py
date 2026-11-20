@@ -41,7 +41,13 @@ def checked_runtime_url(raw):
     """The app's DATABASE_URL, only if it is the mobile database as the runtime login."""
     from sqlalchemy.engine import make_url
     spec = mobile_target()
-    url = make_url(raw.strip().replace('postgres://', 'postgresql://', 1))
+    try:
+        url = make_url(raw.strip().replace('postgres://', 'postgresql://', 1))
+        url.port  # noqa: B018 - parses the port, which raises on a malformed value
+    except Exception:
+        raise Refused('Refusing: DATABASE_URL is missing or malformed.') from None
+    if url.drivername not in ('postgresql', 'postgresql+psycopg2'):
+        raise Refused('Refusing: DATABASE_URL is not a PostgreSQL URL.')
     if set(url.query) - ALLOWED_QUERY:
         raise Refused('Refusing a database URL with connection overrides.')
     if url.host not in spec['hosts'] or url.database != spec['database'] or url.username != spec['runtime_role']:
@@ -110,7 +116,9 @@ def main(argv=None, stdin=sys.stdin):
             user_id = set_password(connection, args.email.strip().lower(), hash_password(password))
     except SQLAlchemyError:
         # Driver errors can carry statement text or row values: report none of it.
-        raise SystemExit('Database error; nothing was changed.') from None
+        # The error may come from the COMMIT itself, so the outcome is unknown.
+        raise SystemExit('Database error: the password change could not be confirmed. '
+                         'Run the script again to be sure.') from None
     finally:
         engine.dispose()
     if user_id is None:
