@@ -10,6 +10,20 @@ below remains historical; this scope update does not establish a newer deploymen
 
 ## MVP scope lock and agent working rules
 
+**November 20, 2026 — AI connector released as beta; scope lock lifted.** The
+user declared the AI connector a **beta in production**
+(`https://api.pathsix.app/mcp`, released November 16 as `release-94ffe3c`,
+verified end to end in Phase 8). The scope lock below is no longer in force: the
+connector is no longer the only planned build, and new web CRM work (starting
+with a unified Contacts page) may begin on `staging`. Unchecked items in
+[Definition of MVP build completion](#definition-of-mvp-build-completion) and
+the open Gate 7 items (manual desktop/phone walkthrough, Gemini and local
+client checks, retention and restore drills, the OpenAI submission package)
+carry over as beta follow-up work, not blockers. Submission, OpenAI's review
+decision and publication remain separate statuses and have not happened.
+Production deploys still need the user's explicit decision. The rules and
+checklists below are kept as history.
+
 **October 29 security maintenance:** the user separately authorized Python/Quart
 backend dependency/runtime upgrades after SessionLoom, Rexco and Permian Alliance.
 The isolated `codex/mvp-security-upgrades` backport changes dependencies, CA trust,
@@ -18,7 +32,8 @@ capabilities and closes none of the outstanding manual/host acceptance gates.
 The active original worktree and its unpublished readiness updates are preserved.
 See `docs/security-upgrade-2026-10-29.md` for scope and evidence boundaries.
 
-**Status: scope locked by the user on October 6, 2026; build incomplete.**
+**Status (historical): scope locked by the user on October 6, 2026; lifted
+November 20, 2026 when the connector shipped as a production beta.**
 This MVP is the only planned product build until its completion criteria are met.
 The approved workflow table, implementation steps and completion checklist below
 define the work. Older roadmaps and historical gaps in this document do not add
