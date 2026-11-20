@@ -29,7 +29,8 @@ MOBILE_URL = (f"postgresql://{MOBILE_SPEC['runtime_role']}:pw@"
 WRONG_DATABASE_MESSAGE = 'Refusing: DATABASE_URL is not the mobile database as its restricted runtime login.'
 OVERRIDE_MESSAGE = 'Refusing a database URL with connection overrides.'
 UNSAFE_CONNECTION_MESSAGE = 'Refusing: the connection is not the restricted mobile runtime login with row security.'
-FIXED_ERROR_MESSAGE = 'Database error: the password change could not be confirmed.'
+FIXED_ERROR_MESSAGE = ('Database error: the password change could not be confirmed. '
+                       'Run the script again to be sure.')
 MALFORMED_MESSAGE = 'Refusing: DATABASE_URL is missing or malformed.'
 NOT_POSTGRES_MESSAGE = 'Refusing: DATABASE_URL is not a PostgreSQL URL.'
 
