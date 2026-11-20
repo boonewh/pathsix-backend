@@ -275,6 +275,7 @@ def test_every_data_route_requires_authentication(crm):
     import re
     call, _, app = crm
     public = {'auth.login', 'auth.forgot_password', 'auth.reset_password', 'static',
+              'devices.register', 'devices.refresh',  # mobile device sign-in: credentials or a refresh token
                   'oauth.static', 'oauth.metadata', 'oauth.authorize', 'oauth.connections',
                   'oauth.token', 'oauth.revoke', 'oauth.register', 'oauth.connect_ai', 'mcp_metadata.metadata',
                   'ai_actions.page'}  # Public shells; credential/CSRF/data proofs cover OAuth and action endpoints.

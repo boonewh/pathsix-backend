@@ -15,6 +15,7 @@
 """
 import hashlib
 import os
+import re
 import secrets
 import time
 from datetime import datetime, timedelta
@@ -61,6 +62,7 @@ def access_token(user_id, device_id, now=None):
 
 
 MAX_ID = 2_147_483_647  # PostgreSQL integer
+SECRET = re.compile(r'[A-Za-z0-9_-]{43}')  # secrets.token_urlsafe(32)
 
 
 def valid_id(raw):
@@ -74,7 +76,7 @@ def parse_refresh(token):
     parts = token.split('.') if isinstance(token, str) and len(token) <= 200 else []
     try:
         user_id, device_id, secret = parts
-        if not valid_id(user_id) or len(secret) < 32:
+        if not valid_id(user_id) or not SECRET.fullmatch(secret):
             raise ValueError
         return int(user_id), UUID(device_id), secret
     except ValueError:

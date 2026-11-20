@@ -33,7 +33,7 @@ def test_relationship_inventory_covers_declared_tenant_foreign_keys():
     # New consent table declares its composite owner FK in its own revision, as
     # mobile_change_tracking does for interactions.created_by and
     # mobile_tombstones for the deleted_by columns.
-    assert set(EDGES) | {('interactions', 'created_by', 'users'), ('contacts', 'deleted_by', 'users'), ('accounts', 'deleted_by', 'users'), ('interactions', 'deleted_by', 'users'), ('ai_connections', 'user_id', 'users'), ('oauth_credentials', 'user_id', 'ai_connections'), ('oauth_credentials', 'connection_id', 'ai_connections'), ('ai_tool_audits', 'user_id', 'ai_connections'), ('ai_tool_audits', 'connection_id', 'ai_connections'), ('ai_write_actions', 'user_id', 'ai_connections'), ('ai_write_actions', 'connection_id', 'ai_connections')} == expected
+    assert set(EDGES) | {('interactions', 'created_by', 'users'), ('contacts', 'deleted_by', 'users'), ('accounts', 'deleted_by', 'users'), ('interactions', 'deleted_by', 'users'), ('ai_connections', 'user_id', 'users'), ('oauth_credentials', 'user_id', 'ai_connections'), ('oauth_credentials', 'connection_id', 'ai_connections'), ('ai_tool_audits', 'user_id', 'ai_connections'), ('ai_tool_audits', 'connection_id', 'ai_connections'), ('ai_write_actions', 'user_id', 'ai_connections'), ('ai_write_actions', 'connection_id', 'ai_connections'), ('devices', 'user_id', 'users'), ('device_holdings', 'device_id', 'devices')} == expected
     assert ScriptDirectory.from_config(config()).get_revision(revision).down_revision == down_revision
 
 
