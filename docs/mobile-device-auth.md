@@ -34,7 +34,7 @@ A device token stops working when any of these happens:
 - the user's password changes or is reset;
 - the user or tenant is deactivated.
 
-It takes effect on the next request checked after the change commits; a request already admitted may finish. Refresh and the change feed recheck the device and account under their own locks. A revoked device or changed password gives 401 `{"code": "device_revoked"}`. An inactive user or tenant gets the existing sign-in errors: 401 `User not found` or 403 `Tenant is inactive`.
+It takes effect on the next request checked after the change commits; a request already admitted may finish. Refresh and the change feed recheck the device and account under their own locks. A revoked device, a changed password, or a deactivated user or tenant gives a still-valid device token, or a proved refresh token, 401 `{"code": "device_revoked"}`. An expired or unsigned token fails token validation first (401 `Invalid token`). Web tokens keep the existing errors for an inactive user or tenant: 401 `User not found` and 403 `Tenant is inactive`.
 
 - **Deactivating a user** revokes all of their devices, so reactivating the account doesn't restore them.
 - **Reuse detection covers one generation:** the secret just before the current one. Within a fixed 2 minutes of the rotation that superseded it, presenting it issues a new successor (retries don't extend that deadline): this covers a lost response or a duplicate request, and the losing response's refresh token stops working. After that, presenting it revokes the device. An older or unknown secret just fails, with 401 `refresh_invalid`, and revokes nothing.
@@ -42,7 +42,13 @@ It takes effect on the next request checked after the change commits; a request 
 
 ## Offline grace period
 
-This is how long the app keeps working with no successful contact with the server. It is **not yet defined**, because the duration is the owner's decision. Once decided, the server will return it with the tokens, so the app doesn't hard-code it.
+**Seven days**, decided by the owner on November 19, 2026. Every token response from register and refresh includes `offline_grace_seconds` (604800 by default; set by `DEVICE_OFFLINE_GRACE_DAYS`, 1–30, never more than the refresh lifetime). The app uses the latest value it received and doesn't hard-code one.
+
+The iPhone app enforces the policy:
+- **Face ID or passcode** every time the app opens.
+- **Read-only cache:** cached data can't be edited offline.
+- **Lock:** after `offline_grace_seconds` with no successful refresh, the app locks. It keeps its encrypted local data until the user signs in online again.
+- **Wipe:** when the server answers a refresh or API call with `device_revoked`, the app wipes its local data. That covers a revoked device, a changed password, and a deactivated user or tenant: a still-valid signed device token, or a proved refresh token, for them gets `device_revoked`. As defence in depth, the app also wipes on any other terminal refresh failure (`refresh_invalid`, `refresh_expired`), because it can't sync again without signing in.
 
 ## Restoring the database
 

@@ -82,9 +82,14 @@ def requires_auth(roles: list = None):
                         .filter(User.id == payload["sub"], User.is_active == True)\
                         .first()
 
+                    device_token = payload.get('typ') == 'device' or 'did' in payload
                     if not user:
+                        if device_token:  # a signed device token: the account was deactivated
+                            return jsonify({"error": "This device has been signed out", "code": "device_revoked"}), 401
                         return jsonify({"error": "User not found"}), 401
                     if not user.tenant or not user.tenant.is_active:
+                        if device_token:
+                            return jsonify({"error": "This device has been signed out", "code": "device_revoked"}), 401
                         return jsonify({"error": "Tenant is inactive"}), 403
                     if roles and not any(role.name in roles for role in user.roles):
                         return jsonify({"error": "Forbidden"}), 403
