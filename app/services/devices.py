@@ -11,7 +11,8 @@
   matches the user's current password hash: a password change or reset cuts off
   every device without any write.
 - The offline grace period (how long the app may work without contacting the
-  server) is the owner's decision and is not defined here yet.
+  server) was set by the owner to seven days. The server returns it as
+  offline_grace_seconds with every token response; the app enforces it.
 """
 import hashlib
 import os
@@ -33,6 +34,18 @@ from app.services.errors import RecordNotFound
 ACCESS_SECONDS = 15 * 60
 REUSE_LEEWAY = timedelta(minutes=2)
 TOKEN_TYPE = 'device'
+
+
+def offline_grace_days():
+    """How long the app may keep working without a successful refresh (owner decision: 7 days).
+
+    The server only states the policy; the iPhone app enforces it (lock after the
+    window, Face ID or passcode on every opening, read-only cache, wipe on revocation).
+    It must stay within the refresh token's idle lifetime.
+    """
+    raw = os.getenv('DEVICE_OFFLINE_GRACE_DAYS', '7')
+    days = int(raw) if raw.isascii() and raw.isdigit() and 1 <= int(raw) <= 30 else 7
+    return min(days, refresh_days())
 
 
 def refresh_days():
@@ -146,6 +159,7 @@ class DeviceService(TenantService):
             'access_expires_in': ACCESS_SECONDS,
             'refresh_token': f'{user.id}.{device.id}.{secret}',
             'refresh_expires_at': device.refresh_expires_at.isoformat() + 'Z',
+            'offline_grace_seconds': offline_grace_days() * 86400,
             'device': self.describe(device),
         }
 

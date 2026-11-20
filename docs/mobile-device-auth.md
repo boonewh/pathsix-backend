@@ -42,7 +42,13 @@ It takes effect on the next request checked after the change commits; a request 
 
 ## Offline grace period
 
-This is how long the app keeps working with no successful contact with the server. It is **not yet defined**, because the duration is the owner's decision. Once decided, the server will return it with the tokens, so the app doesn't hard-code it.
+**Seven days**, decided by the owner on November 19, 2026. Every token response from register and refresh includes `offline_grace_seconds` (604800 by default; set by `DEVICE_OFFLINE_GRACE_DAYS`, 1–30, never more than the refresh lifetime). The app uses the latest value it received and doesn't hard-code one.
+
+The iPhone app enforces the policy:
+- **Face ID or passcode** every time the app opens.
+- **Read-only cache:** cached data can't be edited offline.
+- **Lock:** after `offline_grace_seconds` with no successful refresh, the app locks. It keeps its encrypted local data until the user signs in online again.
+- **Wipe:** when the server answers a refresh or API call with `device_revoked`, the app wipes its local data.
 
 ## Restoring the database
 
