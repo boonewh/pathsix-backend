@@ -107,9 +107,13 @@ class UserService(TenantService):
             # account must not quietly restore phones that were cut off.
             from datetime import datetime
             from app.models import Device
-            self._query(Device).filter(Device.user_id == target.id, Device.revoked_at.is_(None)).update(
-                {'revoked_at': datetime.utcnow(), 'revoked_by': self.principal.user_id},
-                synchronize_session=False)
+            from app.services.devices import forget_holdings
+            # Lock the devices first, as the change feed does, then revoke.
+            devices = self._query(Device).filter(Device.user_id == target.id, Device.revoked_at.is_(None))                 .order_by(Device.id).with_for_update().all()
+            now = datetime.utcnow()
+            for device in devices:
+                device.revoked_at, device.revoked_by = now, self.principal.user_id
+            forget_holdings(self.session, self.principal.tenant_id, [d.id for d in devices])
         self.session.flush()
         return {'id': target.id, 'is_active': target.is_active}
 

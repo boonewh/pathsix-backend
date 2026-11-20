@@ -6,7 +6,7 @@ This is how the mobile app keeps a local copy of the CRM records a user can see,
 
 ```
 GET /api/sync/changes?cursor=<token>&limit=<1-500, default 200>
-Authorization: Bearer <access token>
+Authorization: Bearer <device access token>   (docs/mobile-device-auth.md; web tokens get 403 device_token_required)
 ```
 
 With no `cursor` (or an empty one), the request starts a full sync. With a cursor, always send the `cursor` from the previous response, unchanged.
@@ -24,11 +24,12 @@ With no `cursor` (or an empty one), the request starts a full sync. With a curso
 - **Entity order:** `clients`, `leads`, `projects`, `accounts`, `contacts`, `interactions`.
 - **`has_more: true`:** call again with `cursor` to continue the same round. Only the last page of a round is shorter than `limit`.
 - **`has_more: false`:** the round is complete. Store `cursor` and use it for the next sync.
-- **After a full sync:** when it completes, delete every local record it didn't deliver.
+- **Full sync:** when you start one, discard the local copy first, then apply the full sync's pages.
+- **Apply pages atomically:** apply each page and store its `cursor` together, in one local transaction. Presenting a page's `cursor` tells the server you applied that page. If a response is lost, send the previous cursor again: you get that page again, recomputed, with any removals still pending. Any older cursor of the device gets 410, which means start a full sync.
 - **Upserts:** replace the local record, keyed by entity plus `uuid`. `record` holds `id` and `uuid`, and each parent appears as both `<parent>_id` and `<parent>_uuid`.
 - **Datetimes:** naive ISO 8601, stored exactly as the web app stores them. Most are UTC. Interaction `contact_date` and `follow_up` are wall-clock values as the user entered them; don't shift them by a time zone.
 - **Client conversion link:** clients don't include their source lead or conversion date. The web app shows that link only when the lead is visible too.
-- **Removes:** delete the local record. A remove can name a uuid the device never held; ignore it. It carries no content.
+- **Removes:** delete the local record. Removes are sent only for records this device was sent and still holds. They carry no content.
 - **Local identity:** key local records by entity plus `uuid`. Uniqueness is per table.
 - **Repeated changes:** the same change can arrive in more than one round, so apply changes idempotently. A child can arrive before its parent; the parent follows in the same round or the next one.
 
@@ -38,8 +39,9 @@ With no `cursor` (or an empty one), the request starts a full sync. With a curso
 |---|---|---|
 | 400 | `invalid_cursor` | Corrupt or forged token, a cursor issued to another user or tenant, or a cursor from before a `SYNC_FEED_GENERATION` change. Start a full sync. |
 | 400 | `invalid_limit` | `limit` isn't an integer from 1 to 500. |
-| 401 | — | Not signed in. |
-| 410 | `resync_required` | Start a full sync. Sent when: the cursor's last completed round started more than 89 days ago; the user's admin role changed; the `sync_purges` table was recreated (restore or rebuild, detected by its table identity); or the cursor format changed. |
+| 401 | — or `device_revoked` | Not signed in, or this device was signed out. |
+| 403 | `device_token_required` | The feed needs a mobile device token. |
+| 410 | `resync_required` | Start a full sync. Sent when: the cursor's last completed round started more than 89 days ago; the user's admin role changed; the `sync_purges` table was recreated (restore or rebuild, detected by its table identity); the cursor format changed; this device started a newer full sync; or the cursor was superseded (not this device's latest or previous page). |
 | 501 | `unsupported_database` | Development SQLite only. |
 
 ## What a user sees
@@ -85,6 +87,6 @@ Deleted contacts, accounts and interactions (tombstones) are never sent as recor
 
 ## Known limits
 
-- **Possible uuid disclosure.** A removal can disclose the uuid of a record the caller can't see, for example after a reassignment between two other users. Only the entity and uuid are disclosed, never content. A content edit or insert of an invisible record produces nothing, unless the record or one of its ancestors also had an access change since the cursor. Scoping removals to the devices that held the record is tracked as Solo todo 26, with device registration (item 6).
+- **Device-scoped removals (Phase 0 item 6, todo 26).** `device_holdings` records what the feed has sent each device. Upserts count as held as soon as they're sent. A held record's removal is retired only when the device acknowledges the page that carried it. Removals never name records the device wasn't sent. Revoking a device deletes its holdings; the feed locks the device row first, as revocation does.
 - **Responses are not cached:** they are sent with `Cache-Control: no-store`.
 - **Archive owners.** Archived projects are invisible here, even to archive owners. The private archive has its own endpoint.

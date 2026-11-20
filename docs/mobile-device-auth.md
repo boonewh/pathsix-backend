@@ -37,7 +37,7 @@ A device token stops working when any of these happens:
 It takes effect on the next request checked after the change commits; a request already admitted may finish. An API call with such a token returns 401 `{"code": "device_revoked"}`.
 
 - **Deactivating a user** revokes all of their devices, so reactivating the account doesn't restore them.
-- **Reuse detection covers one generation:** the secret just before the current one. Within 2 minutes of a rotation, presenting it rotates again: this covers a lost response or a duplicate request, and the losing response's tokens stop working. After that, presenting it revokes the device. An older or unknown secret just fails, with 401 `refresh_invalid`, and revokes nothing.
+- **Reuse detection covers one generation:** the secret just before the current one. Within 2 minutes of a rotation, presenting it rotates again: this covers a lost response or a duplicate request, and the losing response's refresh token stops working. After that, presenting it revokes the device. An older or unknown secret just fails, with 401 `refresh_invalid`, and revokes nothing.
 - **One refresh at a time:** the app should keep only one refresh in flight per device.
 
 ## Offline grace period

@@ -23,7 +23,9 @@ from uuid import UUID
 from authlib.jose import jwt
 from quart import current_app
 
-from app.models import Device, User
+from sqlalchemy import delete
+
+from app.models import Device, DeviceHolding, User
 from app.services.base import TenantService
 from app.services.errors import RecordNotFound
 
@@ -80,6 +82,13 @@ def device_is_valid(session, user, device_id):
                                           Device.tenant_id == user.tenant_id).first()
     return (device is not None and device.revoked_at is None
             and secrets.compare_digest(device.credential_marker, credential_marker(user)))
+
+
+def forget_holdings(session, tenant_id, device_ids):
+    """A revoked device holds nothing the feed must track (call with the device row locked)."""
+    if device_ids:
+        session.execute(delete(DeviceHolding).where(DeviceHolding.tenant_id == tenant_id,
+                                                    DeviceHolding.device_id.in_(list(device_ids))))
 
 
 class DeviceService(TenantService):
@@ -150,6 +159,7 @@ class DeviceService(TenantService):
                 self.session.flush()
                 return result
             device.revoked_at = now  # a superseded secret used later: assume theft
+            forget_holdings(self.session, device.tenant_id, [device.id])
             self.session.flush()
             raise DeviceAuthError('device_revoked', 'Refresh token reuse detected; this device was signed out')
         raise DeviceAuthError('refresh_invalid', 'Invalid refresh token')
@@ -169,6 +179,7 @@ class DeviceService(TenantService):
         if device.revoked_at is None:
             device.revoked_at = datetime.utcnow()
             device.revoked_by = self.principal.user_id
+            forget_holdings(self.session, device.tenant_id, [device.id])
             self.session.flush()
         return self.describe(device)
 

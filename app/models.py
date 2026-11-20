@@ -721,6 +721,7 @@ class Device(Base):
     __table_args__ = (
         ForeignKeyConstraint(['tenant_id', 'user_id'], ['users.tenant_id', 'users.id'],
                              name='fk_devices_user_same_tenant'),
+        UniqueConstraint('tenant_id', 'id', name='uq_devices_tenant_id_id'),
         Index('ix_devices_tenant_user', 'tenant_id', 'user_id'),
     )
     id = Column(Uuid, primary_key=True, default=uuid4)
@@ -737,6 +738,24 @@ class Device(Base):
     credential_marker = Column(String(64), nullable=False)
     revoked_at = Column(DateTime, nullable=True)
     revoked_by = Column(Integer, nullable=True)
+    # Change-feed acknowledgement state (app/services/sync_feed.py, device mode).
+    sync_generation = Column(Integer, nullable=False, default=0, server_default=text('0'))
+    sync_acked_seq = Column(BigInteger, nullable=False, default=0, server_default=text('0'))
+    sync_pending_seq = Column(BigInteger, nullable=True)
+    sync_pending_removals = Column(JSON, nullable=True)
+
+
+class DeviceHolding(Base):
+    """A record the change feed has sent to a device and not yet seen it acknowledge removing."""
+    __tablename__ = 'device_holdings'
+    __table_args__ = (
+        ForeignKeyConstraint(['tenant_id', 'device_id'], ['devices.tenant_id', 'devices.id'],
+                             name='fk_device_holdings_device'),
+    )
+    device_id = Column(Uuid, primary_key=True)
+    entity = Column(String(20), primary_key=True)
+    record_uuid = Column(Uuid, primary_key=True)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
 
 
 # Change-feed indexes and triggers (mobile_change_feed migration).

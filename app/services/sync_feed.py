@@ -12,10 +12,21 @@ Contract: docs/mobile-sync-feed.md. Design notes:
 - Visibility is computed explicitly from the shared access predicates. Queries
   run on the session's Connection, outside the ORM tombstone and archive filters,
   so records that left the caller's view can be reported as removals.
-- A removal names only entity and uuid. It is emitted for any record whose own or
-  an ancestor's access fields changed since the cursor and that the caller cannot
-  see now, so it can name a record the caller never held (accepted disclosure:
-  no content). Content edits and inserts of invisible records emit nothing.
+- A removal names only entity and uuid. Without a device it is emitted for any
+  record whose own or an ancestor's access fields changed since the cursor and
+  that the caller cannot see now, so it can name a record the caller never held.
+- Device mode (the HTTP route always uses it; mobile Phase 0 item 6). The cursor
+  is bound to the device, its sync generation and the page sequence number it
+  was issued with. device_holdings lists what the feed has sent the device;
+  a removal is emitted only for a held record. One page is outstanding at a
+  time: presenting that page's cursor acknowledges it (its removals' holdings
+  are dropped); presenting the previous cursor again means the page was lost,
+  so it is recomputed and its removals are still held and re-emitted. Any other
+  cursor of the device is stale and needs a full resync. Upserts become holdings
+  as soon as they are sent, since the server cannot know whether they arrived.
+  A full sync starts a new generation and clears the holdings; the client must
+  discard its local data when it starts one. The device row is locked first, as
+  revocation does, so a revoked device's holdings cannot be recreated.
 """
 import base64
 import hashlib
@@ -24,10 +35,13 @@ import json
 import os
 import re
 import time
+from uuid import UUID
 
-from sqlalchemy import and_, case, false, or_, select, text
+from sqlalchemy import and_, case, delete, false, or_, select, text, true
 
-from app.models import Account, Client, Contact, Interaction, Lead, Project, SyncPurge
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from app.models import Account, Client, Contact, Device, DeviceHolding, Interaction, Lead, Project, SyncPurge
 from app.services.access import interaction_access_filter, owned_record_filter, project_access_filter
 from app.services.database_context import bind_principal
 from app.services.principal import Principal
@@ -85,6 +99,10 @@ class ResyncRequired(Exception):
 
 class UnsupportedDatabase(Exception):
     code = 'unsupported_database'
+
+
+class DeviceRevoked(Exception):
+    code = 'device_revoked'
 
 
 def _b64(data):
@@ -175,7 +193,7 @@ class SyncFeedService:
         bind_principal(session, principal)
 
     # -- cursor ---------------------------------------------------------
-    def _state(self, cursor, secret, now, epoch):
+    def _state(self, cursor, secret, now, epoch, device=None):
         p = self.principal
         if cursor is None:
             return None
@@ -184,6 +202,10 @@ class SyncFeedService:
             raise ResyncRequired('Cursor version is no longer supported')
         if payload.get('t') != p.tenant_id or payload.get('u') != p.user_id:
             raise InvalidCursor('Cursor belongs to another account')
+        if payload.get('d') != (str(device.id) if device is not None else None):
+            raise InvalidCursor('Cursor belongs to another device')
+        if device is not None and (payload.get('g') != device.sync_generation or not _int(payload.get('q'), minimum=1)):
+            raise ResyncRequired('This device started a newer sync; start a full sync')
         mode, since, base, issued = payload.get('m'), payload.get('s'), payload.get('b'), payload.get('i')
         key, watermark = payload.get('k'), payload.get('w')
         if (mode not in ('full', 'inc') or not _int(base) or not _int(issued)
@@ -207,15 +229,22 @@ class SyncFeedService:
         if oldest < now - CURSOR_MAX_AGE_DAYS * 86400 or issued > now + 300:
             raise ResyncRequired('Cursor is too old')
         return {'mode': mode, 'since': since, 'base': base, 'issued': issued, 'watermark': watermark,
-                'key': tuple(key) if key is not None else None}
+                'key': tuple(key) if key is not None else None, 'seq': payload.get('q')}
 
-    def _token(self, state, secret, epoch):
+    def _token(self, state, secret, epoch, device=None, seq=None):
         p = self.principal
-        return encode_cursor({'v': CURSOR_VERSION, 't': p.tenant_id, 'u': p.user_id, 'a': p.is_admin,
-                              'e': epoch, 'm': state['mode'], 's': state['since'], 'b': state['base'],
-                              'i': state['issued'], 'w': state['watermark'],
-                              'k': list(state['key']) if state['key'] else None},
-                             secret)
+        payload = {'v': CURSOR_VERSION, 't': p.tenant_id, 'u': p.user_id, 'a': p.is_admin,
+                   'e': epoch, 'm': state['mode'], 's': state['since'], 'b': state['base'],
+                   'i': state['issued'], 'w': state['watermark'],
+                   'k': list(state['key']) if state['key'] else None, 'd': None}
+        if device is not None:
+            payload.update(d=str(device.id), g=device.sync_generation, q=seq)
+        return encode_cursor(payload, secret)
+
+    def _held(self, entity, uuid_column):
+        return select(DeviceHolding.device_id).where(
+            DeviceHolding.device_id == self.device.id, DeviceHolding.tenant_id == self.principal.tenant_id,
+            DeviceHolding.entity == entity, DeviceHolding.record_uuid == uuid_column).exists()
 
     # -- predicates -----------------------------------------------------
     def _visible(self, entity):
@@ -274,7 +303,8 @@ class SyncFeedService:
             since = state['since']
             changed = self._access_changed(entity, since)
             flag = case((visible, True), else_=False)
-            where = or_(and_(visible, model.sync_change_xid >= since), changed)
+            hidden = changed if self.device is None else and_(changed, self._held(entity, model.uuid))
+            where = or_(and_(visible, model.sync_change_xid >= since), hidden)
         stmt = (select(*columns, flag.label('_visible'))
                 .where(model.tenant_id == self.principal.tenant_id, model.id > after_id, where)
                 .order_by(model.id).limit(limit))
@@ -297,22 +327,70 @@ class SyncFeedService:
                        ~or_(*(and_(SyncPurge.entity == entity, select(model.id).where(
                            model.tenant_id == self.principal.tenant_id,
                            model.uuid == SyncPurge.record_uuid, self._visible(entity)).exists())
-                              for entity, model in MODELS.items())))
+                              for entity, model in MODELS.items())),
+                       true() if self.device is None else or_(*(
+                           and_(SyncPurge.entity == entity, self._held(entity, SyncPurge.record_uuid))
+                           for entity in ENTITIES)))
                 .order_by(SyncPurge.id).limit(limit))
         return [(row.id, {'entity': row.entity, 'op': 'remove', 'uuid': _value(row.record_uuid)})
                 for row in self.connection.execute(stmt)]
 
-    def page(self, cursor=None, limit=None, *, secret, now=None):
+    def _lock_device(self, device_id, user):
+        device = self.session.query(Device).populate_existing().filter(
+            Device.id == device_id, Device.tenant_id == self.principal.tenant_id,
+            Device.user_id == self.principal.user_id).with_for_update().first()
+        from app.services.devices import credential_marker
+        if (device is None or device.revoked_at is not None
+                or (user is not None and device.credential_marker != credential_marker(user))):
+            raise DeviceRevoked('This device has been signed out')
+        return device
+
+    def _advance(self, state):
+        """Apply the presented cursor's acknowledgement; return the new page's sequence number."""
+        d = self.device
+        if state is None:  # full sync: new generation, nothing held
+            d.sync_generation += 1
+            self.session.execute(delete(DeviceHolding).where(DeviceHolding.device_id == d.id,
+                                                             DeviceHolding.tenant_id == d.tenant_id))
+            d.sync_acked_seq, d.sync_pending_seq, d.sync_pending_removals = 0, None, None
+            return 1
+        seq = state['seq']
+        if d.sync_pending_seq is not None and seq == d.sync_pending_seq:
+            # The device applied that page: its removals are no longer held.
+            for entity, uuid in d.sync_pending_removals or []:
+                self.session.execute(delete(DeviceHolding).where(
+                    DeviceHolding.device_id == d.id, DeviceHolding.tenant_id == d.tenant_id,
+                    DeviceHolding.entity == entity, DeviceHolding.record_uuid == UUID(uuid)))
+            d.sync_acked_seq, d.sync_pending_seq, d.sync_pending_removals = seq, None, None
+        elif seq != d.sync_acked_seq:
+            raise ResyncRequired('This cursor was superseded; start a full sync')
+        # seq == acked: the outstanding page (if any) was lost; recompute it.
+        return max(d.sync_acked_seq, d.sync_pending_seq or 0) + 1
+
+    def _record(self, changes, seq):
+        d = self.device
+        held = [{'device_id': d.id, 'tenant_id': d.tenant_id, 'entity': c['entity'], 'record_uuid': UUID(c['uuid'])}
+                for c in changes if c['op'] == 'upsert']
+        if held:
+            self.session.execute(pg_insert(DeviceHolding).values(held).on_conflict_do_nothing())
+        d.sync_pending_seq = seq
+        d.sync_pending_removals = [[c['entity'], c['uuid']] for c in changes if c['op'] == 'remove']
+        self.session.flush()
+
+    def page(self, cursor=None, limit=None, *, secret, now=None, device_id=None, user=None):
         limit = _limit(limit)
         now = int(time.time() if now is None else now)
         if self.session.get_bind().dialect.name != 'postgresql':
             raise UnsupportedDatabase('The change feed requires PostgreSQL')
         self.connection = self.session.connection()
+        # Device first, as revocation locks it: serializes with sign-out.
+        self.device = None if device_id is None else self._lock_device(UUID(str(device_id)), user)
         epoch = self.connection.execute(
             text("SELECT to_regclass('sync_purges')::oid::bigint")).scalar_one()
         if epoch is None:
             raise UnsupportedDatabase('Change feed storage is not installed')
-        state = self._state(cursor, secret, now, epoch)
+        state = self._state(cursor, secret, now, epoch, self.device)
+        seq = self._advance(state) if self.device is not None else None
         if state is None or state['key'] is None:
             # A new round: take its base before any data query (see module docstring).
             base = self.connection.execute(
@@ -342,5 +420,7 @@ class SyncFeedService:
             # Round complete: the next round asks for everything since this base.
             next_state = {'mode': 'inc', 'since': state['base'], 'base': state['base'],
                           'issued': state['issued'], 'watermark': state['issued'], 'key': None}
+        if self.device is not None:
+            self._record(changes, seq)
         return {'mode': 'full' if state['mode'] == 'full' else 'incremental', 'changes': changes,
-                'cursor': self._token(next_state, secret, epoch), 'has_more': has_more}
+                'cursor': self._token(next_state, secret, epoch, self.device, seq), 'has_more': has_more}
