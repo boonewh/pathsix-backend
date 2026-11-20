@@ -341,6 +341,7 @@ def test_previous_secret_rotates_again_within_a_fixed_reuse_deadline(api):
     deadline = device.previous_valid_until
     previous_hash = device.previous_refresh_hash
     assert deadline is not None and previous_hash == original_hash
+    assert device.refresh_hash != original_hash
     assert datetime.utcnow() < deadline < datetime.utcnow() + device_service.REUSE_LEEWAY + timedelta(seconds=1)
 
     retried = refresh(call, first['refresh_token'])
@@ -353,6 +354,7 @@ def test_previous_secret_rotates_again_within_a_fixed_reuse_deadline(api):
     # A grace reissue does not extend the previous secret's original deadline.
     assert device.previous_valid_until == deadline
     assert device.previous_refresh_hash == original_hash
+    assert device.refresh_hash != original_hash
     # The lost rotation's secret is no longer either stored hash.
     assert refresh(call, second['refresh_token']).status == 401
 
@@ -478,6 +480,29 @@ def test_unproved_refresh_tokens_are_indistinguishable(api, monkeypatch, case):
     assert_no_store(result)
     assert len(device_rows(factory)) == 1
     assert device_by_id(factory, registered['device']['id']).revoked_at is None
+
+
+@pytest.mark.parametrize('label,secret', [
+    ('short', 'a' * 42),
+    ('punctuation', '!' * 43),
+    ('non_ascii', 'é' * 43),
+    ('long', 'a' * 44),
+])
+def test_malformed_refresh_secret_gets_generic_401(api, label, secret):
+    call, factory, _ = api
+    set_password(factory, 3)
+    registered = body(register(call))
+    user_id, device_id, _ = refresh_parts(registered['refresh_token'])
+    original_hash = device_by_id(factory, registered['device']['id']).refresh_hash
+
+    result = refresh(call, f'{user_id}.{device_id}.{secret}')
+
+    assert result.status == 401, (label, result.text)
+    assert body(result) == {'code': 'refresh_invalid', 'error': 'Invalid refresh token'}
+    assert_no_store(result)
+    after = device_by_id(factory, registered['device']['id'])
+    assert after.revoked_at is None
+    assert after.refresh_hash == original_hash
 
 
 @pytest.mark.parametrize('raw', ['0', '2147483648', '99999999999'])
