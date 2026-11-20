@@ -97,12 +97,16 @@ async def refresh():
         auth_lookup(session, user_id=user_id)
         user = session.query(User).options(joinedload(User.tenant), joinedload(User.roles)) \
             .filter_by(id=user_id).first()
-        proved = (user is not None and user.is_active and user.tenant is not None and user.tenant.is_active
-                  and prove_refresh(session, user, device_id, secret))
+        proved = user is not None and prove_refresh(session, user, device_id, secret)
+        active = proved and user.is_active and user.tenant is not None and user.tenant.is_active
         if proved:
             session.expunge(user)
     if not proved:
         return _private(INVALID, 401)
+    if not active:
+        # A proved credential for a deactivated account or tenant: tell the device
+        # plainly, so it wipes its data (docs/mobile-device-auth.md).
+        return _private({'code': 'device_revoked', 'error': 'This device has been signed out'}, 401)
     with SessionLocal() as session:
         try:
             result = DeviceService(session, _principal(user)).refresh(user.id, device_id, secret)

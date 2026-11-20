@@ -48,7 +48,7 @@ The iPhone app enforces the policy:
 - **Face ID or passcode** every time the app opens.
 - **Read-only cache:** cached data can't be edited offline.
 - **Lock:** after `offline_grace_seconds` with no successful refresh, the app locks. It keeps its encrypted local data until the user signs in online again.
-- **Wipe:** when the server answers a refresh or API call with `device_revoked`, the app wipes its local data.
+- **Wipe:** when the server answers a refresh or API call with `device_revoked`, the app wipes its local data. That covers a revoked device, a changed password, and a deactivated user or tenant: a signed device token or a proved refresh token for them always gets `device_revoked`. As defence in depth, the app also wipes on any other terminal refresh failure (`refresh_invalid`, `refresh_expired`), because it can't sync again without signing in.
 
 ## Restoring the database
 

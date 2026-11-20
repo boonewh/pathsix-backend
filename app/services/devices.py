@@ -44,7 +44,7 @@ def offline_grace_days():
     It must stay within the refresh token's idle lifetime.
     """
     raw = os.getenv('DEVICE_OFFLINE_GRACE_DAYS', '7')
-    days = int(raw) if raw.isascii() and raw.isdigit() and 1 <= int(raw) <= 30 else 7
+    days = int(raw) if len(raw) <= 2 and raw.isascii() and raw.isdigit() and 1 <= int(raw) <= 30 else 7
     return min(days, refresh_days())
 
 
