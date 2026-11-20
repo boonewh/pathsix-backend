@@ -59,6 +59,8 @@ def verify_connection(connection):
         " WHERE oid = to_regclass('users'))")).one()
     if database != spec['database'] or user != spec['runtime_role'] or bypass or not rls:
         raise Refused('Refusing: the connection is not the restricted mobile runtime login with row security.')
+
+
 MIN_LENGTH = 12
 MAX_BYTES = 72  # bcrypt's limit, as UserService enforces
 
