@@ -188,6 +188,14 @@ row security or that points at a different database than the app's own. Since
 feed's permanent-delete records) older than 90 days; the change feed refuses
 cursors older than 89 days, so devices offline longer fully resync.
 
+Test sign-in for the iPhone app (mobile Phase 1). To give a synthetic user a
+password the owner knows, pipe it in on stdin; it never appears in an argument,
+prompt or log, and the script refuses to run on any other app:
+
+    <password source> | tr -d '' | flyctl ssh console --app pathsixsolutions-backend-mobile       -C "python scripts/set_mobile_test_password.py --email <synthetic user email>"
+
+At least 12 characters. Setting it signs out that user's existing phones.
+
 Change feed (mobile Phase 0, item 4): `GET /api/sync/changes`, described in
 `docs/mobile-sync-feed.md`. The `mobile_change_feed` migration grants the new
 `sync_purges` table to the runtime role, which it finds as the single
