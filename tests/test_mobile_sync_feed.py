@@ -25,7 +25,8 @@ from itsdangerous import URLSafeTimedSerializer
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
-from app.models import Account, Client, Contact, Interaction, Lead, Project
+from app.models import Account, Client, Contact, Device, Interaction, Lead, Project, User
+from app.services.devices import credential_marker
 from app.services.principal import Principal
 from app.services.sync_feed import (
     CURSOR_MAX_AGE_DAYS,
@@ -35,7 +36,7 @@ from app.services.sync_feed import (
     SyncFeedService,
     encode_cursor,
 )
-from purge_fixture import crm as crm
+from purge_fixture import crm as base_crm
 from test_project_archive import archive as archive
 from test_security_boundaries import rls_runtime as rls_runtime
 from test_verify_production_connector import remote_source
@@ -142,15 +143,64 @@ def _service_page(factory, principal, secret, cursor=None, limit=None, now=None)
         return SyncFeedService(db, principal).page(cursor, limit, secret=secret, now=now)
 
 
-def _response(app, path, user=1):
-    """A real HTTP response, so response headers can be checked."""
-    payload = {'sub': user, 'exp': int(time.time()) + 300, 'roles': ['admin']}
+def _response(app, factory, path, user=1):
+    """A real HTTP response with a device token, so response headers can be checked."""
+    with factory() as db:
+        account = db.get(User, user)
+        device = Device(id=uuid4(), tenant_id=account.tenant_id, user_id=account.id,
+                        name='Feed response probe', platform='ios',
+                        created_at=datetime.utcnow(), last_seen_at=datetime.utcnow(),
+                        refresh_hash='a' * 64,
+                        refresh_expires_at=datetime.utcnow() + timedelta(days=30),
+                        credential_marker=credential_marker(account))
+        db.add(device)
+        db.commit()
+        device_id = device.id
+    payload = {'sub': user, 'exp': int(time.time()) + 300, 'roles': ['admin'],
+               'did': str(device_id), 'typ': 'device'}
     token = jwt.encode({'alg': 'HS256'}, payload, app.config['SECRET_KEY']).decode()
 
     async def run():
         return await app.test_client().open(path, headers={'Authorization': f'Bearer {token}'})
 
     return asyncio.run(run())
+
+
+@pytest.fixture
+def crm(base_crm):
+    """F-4's schema and helper, with device tokens for the feed endpoint.
+
+    Only /api/sync/changes is switched: record mutations in these tests still
+    use the ordinary web-token caller. One device per user is enough because a
+    cursor is bound to its device; direct SyncFeedService cases call `page`
+    without a device_id and keep the legacy web behaviour.
+    """
+    base_call, factory, app = base_crm
+    devices = {}
+
+    def device_for(user_id):
+        if user_id not in devices:
+            with factory() as db:
+                account = db.get(User, user_id)
+                device = Device(id=uuid4(), tenant_id=account.tenant_id, user_id=account.id,
+                                name=f'Feed device {user_id}', platform='ios',
+                                created_at=datetime.utcnow(), last_seen_at=datetime.utcnow(),
+                                refresh_hash='a' * 64,
+                                refresh_expires_at=datetime.utcnow() + timedelta(days=30),
+                                credential_marker=credential_marker(account))
+                db.add(device)
+                db.commit()
+                devices[user_id] = device.id
+        return devices[user_id]
+
+    def call(method, path, body=None, user=1, claims=None):
+        if path.startswith('/api/sync/changes') and user:
+            claims = dict(claims or {})
+            claims.setdefault('did', str(device_for(user)))
+            claims.setdefault('typ', 'device')
+        return base_call(method, path, body, user=user, claims=claims)
+
+    return call, factory, app
 
 
 @pytest.fixture
@@ -412,29 +462,20 @@ def test_archiving_a_project_removes_it_and_its_interactions(crm):
 def test_purge_records_deletes_on_all_six_tables_and_feeds_removals(crm):
     call, factory, _ = crm
     _pg(factory)
-    deleted = datetime.utcnow()
     from app.services.purge import PurgeService
 
     with factory() as db:
         db.add_all([
-            Client(id=400, tenant_id=1, created_by=1, name='Purged client',
-                   deleted_at=deleted, deleted_by=1),
-            Account(id=400, tenant_id=1, client_id=400, account_number='PURGE-1',
-                    deleted_at=deleted, deleted_by=1),
-            Contact(id=400, tenant_id=1, client_id=400, first_name='Purged contact',
-                    deleted_at=deleted, deleted_by=1),
-            Interaction(id=400, tenant_id=1, client_id=400, summary='Purged interaction',
-                        deleted_at=deleted, deleted_by=1),
-            Lead(id=400, tenant_id=1, created_by=1, name='Purged lead',
-                 deleted_at=deleted, deleted_by=1),
-            Contact(id=401, tenant_id=1, lead_id=400, first_name='Purged lead contact',
-                    deleted_at=deleted, deleted_by=1),
-            Interaction(id=401, tenant_id=1, lead_id=400, summary='Purged lead interaction',
-                        deleted_at=deleted, deleted_by=1),
+            Client(id=400, tenant_id=1, created_by=1, name='Purged client'),
+            Account(id=400, tenant_id=1, client_id=400, account_number='PURGE-1'),
+            Contact(id=400, tenant_id=1, client_id=400, first_name='Purged contact'),
+            Interaction(id=400, tenant_id=1, client_id=400, summary='Purged interaction'),
+            Lead(id=400, tenant_id=1, created_by=1, name='Purged lead'),
+            Contact(id=401, tenant_id=1, lead_id=400, first_name='Purged lead contact'),
+            Interaction(id=401, tenant_id=1, lead_id=400, summary='Purged lead interaction'),
             Project(id=400, tenant_id=1, created_by=1, project_name='Purged project',
-                    project_status='pending', deleted_at=deleted, deleted_by=1),
-            Interaction(id=402, tenant_id=1, project_id=400, summary='Purged project interaction',
-                        deleted_at=deleted, deleted_by=1),
+                    project_status='pending'),
+            Interaction(id=402, tenant_id=1, project_id=400, summary='Purged project interaction'),
         ])
         db.commit()
         uuids = {(table, str(value)) for table, value in db.execute(text(
@@ -450,15 +491,21 @@ def test_purge_records_deletes_on_all_six_tables_and_feeds_removals(crm):
         db.commit()
 
     _, cursor, _ = _drain(call, limit=200, user=1)
+    targets = (('clients', 400), ('accounts', 400), ('contacts', 400),
+               ('interactions', 400), ('leads', 400), ('contacts', 401),
+               ('interactions', 401), ('projects', 400), ('interactions', 402))
+    deleted = datetime.utcnow()
+    with factory.begin() as c:
+        for table, record_id in targets:
+            c.execute(text(f'UPDATE {table} SET deleted_at=:at, deleted_by=1 WHERE id=:id'),
+                      {'at': deleted, 'id': record_id})
     with factory() as db:
         for resource, record_id in (('clients', 400), ('leads', 400), ('projects', 400)):
             assert PurgeService(db, ADMIN).purge(resource, [record_id])['deleted_ids'] == [record_id]
             db.commit()
 
     with factory() as db:
-        for table, record_id in (('clients', 400), ('accounts', 400), ('contacts', 400),
-                                 ('interactions', 400), ('leads', 400), ('contacts', 401),
-                                 ('interactions', 401), ('projects', 400), ('interactions', 402)):
+        for table, record_id in targets:
             assert _count(factory, table, record_id) == 0, (table, record_id)
         purged = {(row.entity, str(row.record_uuid)) for row in
                   db.execute(text('SELECT entity, record_uuid FROM sync_purges')).all()}
@@ -508,12 +555,14 @@ def _purge_client_and_cursor(call, factory, record_id):
     from app.services.purge import PurgeService
 
     with factory() as db:
-        db.add(Client(id=record_id, tenant_id=1, created_by=3, name='Purge rule source',
-                      deleted_at=datetime.utcnow(), deleted_by=3))
+        db.add(Client(id=record_id, tenant_id=1, created_by=3, name='Purge rule source'))
         db.commit()
         original = str(db.execute(text('SELECT uuid FROM clients WHERE id=:id'),
                                   {'id': record_id}).scalar_one())
     _, cursor, _ = _drain(call, limit=200, user=3)
+    with factory.begin() as c:
+        c.execute(text('UPDATE clients SET deleted_at=:at, deleted_by=3 WHERE id=:id'),
+                  {'at': datetime.utcnow(), 'id': record_id})
     with factory() as db:
         assert PurgeService(db, ADMIN).purge('clients', [record_id])['deleted_ids'] == [record_id]
         db.commit()
@@ -748,7 +797,8 @@ def test_partial_incremental_round_checks_lower_watermark_on_every_page(crm):
 def test_old_and_admin_flag_cursors_require_resync(crm):
     call, factory, app = crm
     _pg(factory)
-    cursor = _page(call, limit=200, user=1)['cursor']
+    # Direct service cases keep the legacy device_id=None cursor shape.
+    cursor = _service_page(factory, ADMIN, app.config['SECRET_KEY'], limit=200)['cursor']
     issued = _cursor_payload(cursor)['i']
     future = issued + (CURSOR_MAX_AGE_DAYS + 1) * 86400
 
@@ -1033,13 +1083,13 @@ def test_every_handled_feed_response_is_private(crm):
         '/api/sync/changes?' + urlencode({'cursor': stale}),
     )
     for path in paths:
-        response = _response(app, path)
+        response = _response(app, factory, path)
         assert response.status_code in (200, 400, 410), (path, response.status_code)
         assert response.headers['Cache-Control'] == 'no-store', path
 
 
 def test_sqlite_unsupported_response_is_private(sqlite_crm):
-    _, _, app = sqlite_crm
-    response = _response(app, '/api/sync/changes')
+    _, factory, app = sqlite_crm
+    response = _response(app, factory, '/api/sync/changes')
     assert response.status_code == 501
     assert response.headers['Cache-Control'] == 'no-store'
