@@ -1,5 +1,4 @@
 """Mobile device sign-in, refresh, sign-out and device management (docs/mobile-device-auth.md)."""
-import re
 
 from quart import Blueprint, jsonify, request
 from sqlalchemy.orm import joinedload
@@ -7,7 +6,7 @@ from sqlalchemy.orm import joinedload
 from app.database import SessionLocal
 from app.models import User
 from app.services.database_context import auth_lookup
-from app.services.devices import DeviceAuthError, DeviceService, parse_refresh, prove_refresh
+from app.services.devices import DeviceAuthError, DeviceService, parse_refresh, prove_refresh, valid_id
 from app.services.errors import RecordNotFound
 from app.services.principal import Principal
 from app.utils.auth_utils import requires_auth, verify_password
@@ -129,7 +128,7 @@ async def logout():
 @requires_auth()
 async def list_devices():
     raw = request.args.get('user_id')
-    if raw is not None and not (re.fullmatch(r'[0-9]{1,9}', raw) and int(raw) >= 1):
+    if raw is not None and not valid_id(raw):
         return _private({'error': 'Invalid user_id'}, 400)
     with SessionLocal() as session:
         try:

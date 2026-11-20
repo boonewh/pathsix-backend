@@ -60,12 +60,21 @@ def access_token(user_id, device_id, now=None):
     return jwt.encode({'alg': 'HS256'}, payload, current_app.config['SECRET_KEY']).decode('utf-8')
 
 
+MAX_ID = 2_147_483_647  # PostgreSQL integer
+
+
+def valid_id(raw):
+    """A positive ASCII decimal id that fits a PostgreSQL integer."""
+    return (isinstance(raw, str) and 1 <= len(raw) <= 10 and raw.isascii() and raw.isdigit()
+            and 1 <= int(raw) <= MAX_ID)
+
+
 def parse_refresh(token):
     """Split a refresh token into (user_id, device_id, secret) or raise DeviceAuthError."""
     parts = token.split('.') if isinstance(token, str) and len(token) <= 200 else []
     try:
         user_id, device_id, secret = parts
-        if not user_id.isdigit() or int(user_id) < 1 or len(secret) < 32:
+        if not valid_id(user_id) or len(secret) < 32:
             raise ValueError
         return int(user_id), UUID(device_id), secret
     except ValueError:
