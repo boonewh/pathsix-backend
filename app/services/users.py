@@ -102,6 +102,14 @@ class UserService(TenantService):
         if target.id == self.principal.user_id:
             raise PermissionError('You cannot deactivate yourself')
         target.is_active = not target.is_active
+        if not target.is_active:
+            # Deactivation signs out every mobile device for good: reactivating the
+            # account must not quietly restore phones that were cut off.
+            from datetime import datetime
+            from app.models import Device
+            self._query(Device).filter(Device.user_id == target.id, Device.revoked_at.is_(None)).update(
+                {'revoked_at': datetime.utcnow(), 'revoked_by': self.principal.user_id},
+                synchronize_session=False)
         self.session.flush()
         return {'id': target.id, 'is_active': target.is_active}
 

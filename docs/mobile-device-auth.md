@@ -29,16 +29,24 @@ All responses carry `Cache-Control: no-store`.
 | `GET /api/devices[?user_id=]` | Your devices. An admin can list a user in the same tenant. |
 | `DELETE /api/devices/<id>` | Revokes. Allowed for the owner, or an admin in the same tenant; otherwise 404. |
 
-A device token stops working at once when any of these happens:
+A device token stops working when any of these happens:
 - the device is revoked;
 - the user's password changes or is reset;
 - the user or tenant is deactivated.
 
-An API call with such a token returns 401 `{"code": "device_revoked"}`.
+It takes effect on the next request checked after the change commits; a request already admitted may finish. An API call with such a token returns 401 `{"code": "device_revoked"}`.
+
+- **Deactivating a user** revokes all of their devices, so reactivating the account doesn't restore them.
+- **Reuse detection covers one generation:** the secret just before the current one. Within 2 minutes of a rotation, presenting it rotates again: this covers a lost response or a duplicate request, and the losing response's tokens stop working. After that, presenting it revokes the device. An older or unknown secret just fails, with 401 `refresh_invalid`, and revokes nothing.
+- **One refresh at a time:** the app should keep only one refresh in flight per device.
 
 ## Offline grace period
 
 This is how long the app keeps working with no successful contact with the server. It is **not yet defined**, because the duration is the owner's decision. Once decided, the server will return it with the tokens, so the app doesn't hard-code it.
+
+## Restoring the database
+
+A restore can bring back revoked devices and old refresh secrets. **Before reopening after any restore, revoke every device** (set `revoked_at` on all `devices` rows, which also forces the change feed to resync), then reapply and verify the `devices` grants and row security as `secure()` in `migrations/versions/mobile_device_auth.py` does. Everyone signs in again on their phones. See also the restore gate in `docs/mobile-sync-feed.md`.
 
 ## Storage
 
