@@ -99,9 +99,24 @@ class UserService(TenantService):
 
     def toggle_active(self, user_id):
         target = self._target(user_id)
+        # Lock the user before revoking devices, so a concurrent device registration
+        # (which share-locks this row and rechecks activity) cannot slip in between.
+        self._query(User).populate_existing().filter(User.id == target.id).with_for_update().first()
         if target.id == self.principal.user_id:
             raise PermissionError('You cannot deactivate yourself')
         target.is_active = not target.is_active
+        if not target.is_active:
+            # Deactivation signs out every mobile device for good: reactivating the
+            # account must not quietly restore phones that were cut off.
+            from datetime import datetime
+            from app.models import Device
+            from app.services.devices import forget_holdings
+            # Lock the devices first, as the change feed does, then revoke.
+            devices = self._query(Device).filter(Device.user_id == target.id, Device.revoked_at.is_(None))                 .order_by(Device.id).with_for_update().all()
+            now = datetime.utcnow()
+            for device in devices:
+                device.revoked_at, device.revoked_by = now, self.principal.user_id
+            forget_holdings(self.session, self.principal.tenant_id, [d.id for d in devices])
         self.session.flush()
         return {'id': target.id, 'is_active': target.is_active}
 

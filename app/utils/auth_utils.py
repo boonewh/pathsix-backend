@@ -71,7 +71,7 @@ def requires_auth(roles: list = None):
 
             for attempt in range(max_attempts):
                 retry = False
-                for attr in ('principal', 'user'):
+                for attr in ('principal', 'user', 'device_id'):
                     if hasattr(request, attr):
                         delattr(request, attr)
                 session = SessionLocal()
@@ -88,6 +88,15 @@ def requires_auth(roles: list = None):
                         return jsonify({"error": "Tenant is inactive"}), 403
                     if roles and not any(role.name in roles for role in user.roles):
                         return jsonify({"error": "Forbidden"}), 403
+                    # Mobile device tokens (app/services/devices.py) stay valid only
+                    # while their device does. Web tokens carry neither claim.
+                    device_id = None
+                    if payload.get('typ') == 'device' or 'did' in payload:
+                        from app.services.devices import TOKEN_TYPE, device_is_valid
+                        if payload.get('typ') != TOKEN_TYPE or not device_is_valid(session, user, payload.get('did')):
+                            return jsonify({"error": "This device has been signed out", "code": "device_revoked"}), 401
+                        device_id = str(payload['did'])
+                    request.device_id = device_id
 
                     request.principal = Principal(user.id, user.tenant_id, frozenset(role.name for role in user.roles))
                     request.user = user

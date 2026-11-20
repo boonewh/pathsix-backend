@@ -1,6 +1,6 @@
 """Fault injection and complete table inventory, in disposable schemas only."""
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -12,7 +12,7 @@ from sqlalchemy.orm import sessionmaker
 from test_security_boundaries import crm, rls_runtime
 from app.database import Base, IdentitySession
 from app.models import (User,Tenant,Client,Lead,Project,Account,Contact,File,Subscription,ActivityLog,
-                        ActivityType,ChatMessage,UserPreference)
+                        ActivityType,ChatMessage,UserPreference,Device)
 from app.services.base import TenantService
 from app.services.clients import ClientService
 from app.services.users import UserService
@@ -197,12 +197,24 @@ def test_foreign_changes_do_not_affect_lists_search_reports_or_counts(crm):
 
 @pytest.fixture
 def populated_runtime(rls_runtime):
-    from app.models import AIClient, AIConnection, OAuthCredential, AIToolAudit, AIWriteAction, WriteReceipt
-    from datetime import timedelta
+    from app.models import AIClient, AIConnection, OAuthCredential, AIToolAudit, AIWriteAction, WriteReceipt, DeviceHolding
     runtime,admin,schema=rls_runtime
     with admin() as db:
         db.add(AIClient(id='proof',name='Proof client',is_active=True,allowed_scopes=['clients:read']))
         db.flush()
+        now = datetime.utcnow()
+        device_ids = {}
+        for tenant in (1,2):
+            device = Device(id=uuid4(),tenant_id=tenant,user_id=tenant,name=f'Private {tenant}',
+                            platform='ios',created_at=now,last_seen_at=now,refresh_hash='a'*64,
+                            refreshed_at=now,refresh_expires_at=now+timedelta(days=30),
+                            credential_marker='c'*64)
+            db.add(device)
+            device_ids[tenant] = device.id
+        db.flush()
+        for tenant in (1,2):
+            db.add(DeviceHolding(device_id=device_ids[tenant],tenant_id=tenant,
+                                 entity='clients',record_uuid=uuid4()))
         for tenant in (1,2):
             db.add(AIConnection(id=str(tenant),tenant_id=tenant,user_id=tenant,client_id='proof',
                                 resource='https://example.test/mcp',scopes=['clients:read'],
@@ -261,6 +273,33 @@ def test_all_tables_deny_missing_context_and_foreign_reads_writes(populated_runt
         bind_principal(db,A)
         values=db.execute(text(f'SELECT {column} FROM {table}')).scalars().all()
         assert values and set(values)=={1}
+        if table=='devices':
+            # Revocation is an UPDATE; the runtime role has no DELETE grant.
+            assert db.execute(text(f'UPDATE {table} SET tenant_id=tenant_id WHERE tenant_id=2')).rowcount==0
+            with db.begin_nested() as savepoint:
+                with pytest.raises(DBAPIError) as error: db.execute(text(f'DELETE FROM {table}'))
+                assert error.value.orig.pgcode=='42501'
+                savepoint.rollback()
+            return
+        if table=='device_holdings':
+            # The feed only reads, inserts and deletes holdings: revocation deletes
+            # rows, so there is deliberately no UPDATE grant to probe.
+            with db.begin_nested() as savepoint:
+                with pytest.raises(DBAPIError) as error:
+                    db.execute(text('UPDATE device_holdings SET tenant_id=tenant_id'))
+                assert error.value.orig.pgcode=='42501'
+                savepoint.rollback()
+            with db.begin_nested() as savepoint:
+                with pytest.raises(DBAPIError) as error:
+                    db.execute(text(
+                        'INSERT INTO device_holdings (device_id, tenant_id, entity, record_uuid) '
+                        'SELECT device_id, 2, entity, record_uuid FROM device_holdings '
+                        'WHERE tenant_id=1'))
+                assert error.value.orig.pgcode in {'23514','42501'}
+                savepoint.rollback()
+            assert db.execute(text('DELETE FROM device_holdings WHERE tenant_id=2')).rowcount==0
+            db.rollback()
+            return
         if table=='write_receipts':
             # Receipts are SELECT/INSERT-only: both mutations are refused by grant.
             for verb in (f'UPDATE {table} SET {column}={column}', f'DELETE FROM {table}'):
