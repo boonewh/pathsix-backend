@@ -303,7 +303,10 @@ class SyncFeedService:
             since = state['since']
             changed = self._access_changed(entity, since)
             flag = case((visible, True), else_=False)
-            hidden = changed if self.device is None else and_(changed, self._held(entity, model.uuid))
+            # Device mode: an access change still delivers newly visible rows (as F-4
+            # does); only removals are limited to records this device holds.
+            hidden = changed if self.device is None else and_(
+                changed, or_(visible, self._held(entity, model.uuid)))
             where = or_(and_(visible, model.sync_change_xid >= since), hidden)
         stmt = (select(*columns, flag.label('_visible'))
                 .where(model.tenant_id == self.principal.tenant_id, model.id > after_id, where)
@@ -336,12 +339,14 @@ class SyncFeedService:
                 for row in self.connection.execute(stmt)]
 
     def _lock_device(self, device_id, user):
-        device = self.session.query(Device).populate_existing().filter(
+        from app.services.devices import credential_marker, current_account
+        # Current account state in this transaction (lock order: user, then device).
+        account = current_account(self, self.principal.user_id)
+        device = None if account is None else self.session.query(Device).populate_existing().filter(
             Device.id == device_id, Device.tenant_id == self.principal.tenant_id,
             Device.user_id == self.principal.user_id).with_for_update().first()
-        from app.services.devices import credential_marker
         if (device is None or device.revoked_at is not None
-                or (user is not None and device.credential_marker != credential_marker(user))):
+                or device.credential_marker != credential_marker(account)):
             raise DeviceRevoked('This device has been signed out')
         return device
 

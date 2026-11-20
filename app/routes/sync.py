@@ -19,6 +19,9 @@ def _private(body, status=200):
 @sync_bp.route('/changes', methods=['GET'])
 @requires_auth()
 async def changes():
+    if request.method != 'GET':
+        # HEAD would advance the device's sync state without delivering the cursor.
+        return _private({'error': 'Use GET'}, 405)
     # Removals are scoped to what this device holds (docs/mobile-device-auth.md).
     if not getattr(request, 'device_id', None):
         return _private({'code': 'device_token_required',

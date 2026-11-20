@@ -733,6 +733,7 @@ class Device(Base):
     last_seen_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     refresh_hash = Column(String(64), nullable=False)
     previous_refresh_hash = Column(String(64), nullable=True)
+    previous_valid_until = Column(DateTime, nullable=True)  # fixed grace deadline for the previous secret
     refreshed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     refresh_expires_at = Column(DateTime, nullable=False)
     credential_marker = Column(String(64), nullable=False)

@@ -99,6 +99,9 @@ class UserService(TenantService):
 
     def toggle_active(self, user_id):
         target = self._target(user_id)
+        # Lock the user before revoking devices, so a concurrent device registration
+        # (which share-locks this row and rechecks activity) cannot slip in between.
+        self._query(User).populate_existing().filter(User.id == target.id).with_for_update().first()
         if target.id == self.principal.user_id:
             raise PermissionError('You cannot deactivate yourself')
         target.is_active = not target.is_active

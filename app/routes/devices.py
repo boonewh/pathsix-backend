@@ -1,17 +1,27 @@
 """Mobile device sign-in, refresh, sign-out and device management (docs/mobile-device-auth.md)."""
+import re
+
 from quart import Blueprint, jsonify, request
 from sqlalchemy.orm import joinedload
 
 from app.database import SessionLocal
 from app.models import User
 from app.services.database_context import auth_lookup
-from app.services.devices import DeviceAuthError, DeviceService, parse_refresh
+from app.services.devices import DeviceAuthError, DeviceService, parse_refresh, prove_refresh
 from app.services.errors import RecordNotFound
 from app.services.principal import Principal
 from app.utils.auth_utils import requires_auth, verify_password
 from app.utils.rate_limiter import rate_limit
 
 devices_bp = Blueprint('devices', __name__)
+INVALID = {'code': 'refresh_invalid', 'error': 'Invalid refresh token'}
+
+
+@devices_bp.after_request
+async def _no_store(response):
+    # Includes early returns from the auth decorator and the rate limiter.
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 
 def _private(body, status=200):
@@ -69,6 +79,9 @@ async def register():
         except ValueError as exc:
             session.rollback()
             return _private({'error': str(exc)}, 400)
+        except DeviceAuthError:
+            session.rollback()
+            return _private({'error': 'Invalid credentials'}, 401)
     return _private({**result, **_identity(user)}, 201)
 
 
@@ -78,14 +91,22 @@ async def refresh():
     data = await request.get_json(silent=True)
     try:
         user_id, device_id, secret = parse_refresh((data or {}).get('refresh_token') if isinstance(data, dict) else None)
-    except DeviceAuthError as exc:
-        return _private({'code': exc.code, 'error': str(exc)}, 401)
-    user = _load_user(user_id=user_id)
-    if user is None:
-        return _private({'code': 'device_revoked', 'error': 'This account cannot sign in'}, 401)
+    except DeviceAuthError:
+        return _private(INVALID, 401)
+    # Prove the secret under the authentication identity before any tenant context.
+    with SessionLocal() as session:
+        auth_lookup(session, user_id=user_id)
+        user = session.query(User).options(joinedload(User.tenant), joinedload(User.roles)) \
+            .filter_by(id=user_id).first()
+        proved = (user is not None and user.is_active and user.tenant is not None and user.tenant.is_active
+                  and prove_refresh(session, user, device_id, secret))
+        if proved:
+            session.expunge(user)
+    if not proved:
+        return _private(INVALID, 401)
     with SessionLocal() as session:
         try:
-            result = DeviceService(session, _principal(user)).refresh(user, device_id, secret)
+            result = DeviceService(session, _principal(user)).refresh(user.id, device_id, secret)
             session.commit()
         except DeviceAuthError as exc:
             session.commit()  # keeps a reuse revocation; other failures changed nothing
@@ -108,7 +129,7 @@ async def logout():
 @requires_auth()
 async def list_devices():
     raw = request.args.get('user_id')
-    if raw is not None and (not raw.isdigit() or int(raw) < 1):
+    if raw is not None and not (re.fullmatch(r'[0-9]{1,9}', raw) and int(raw) >= 1):
         return _private({'error': 'Invalid user_id'}, 400)
     with SessionLocal() as session:
         try:

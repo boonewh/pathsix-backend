@@ -102,6 +102,7 @@ def reconcile(connection, schema, runtime_role=None):
         f'tenant_id integer NOT NULL REFERENCES {t("tenants")} (id), user_id integer NOT NULL, '
         'name varchar(100) NOT NULL, platform varchar(20) NOT NULL, created_at timestamp NOT NULL, '
         'last_seen_at timestamp NOT NULL, refresh_hash varchar(64) NOT NULL, previous_refresh_hash varchar(64), '
+        'previous_valid_until timestamp, '
         'refreshed_at timestamp NOT NULL, refresh_expires_at timestamp NOT NULL, '
         'credential_marker varchar(64) NOT NULL, revoked_at timestamp, revoked_by integer, '
         'sync_generation integer NOT NULL DEFAULT 0, sync_acked_seq bigint NOT NULL DEFAULT 0, '

@@ -2,7 +2,7 @@
 
 This is how the mobile app signs in and stays signed in. It is mobile Phase 0 item 6, added by migration `mobile_device_auth`. Code: `app/services/devices.py`, `app/routes/devices.py`, and the device check in `requires_auth`.
 
-The web app's login (`POST /api/auth/login`, a 30-day token) is unchanged. Retiring it needs a web-frontend change and is a separate owner decision.
+The web app's login (`POST /api/login`, a 30-day token) is unchanged. Retiring it needs a web-frontend change and is a separate owner decision.
 
 ## Tokens
 
@@ -24,7 +24,7 @@ All responses carry `Cache-Control: no-store`.
 | Request | Result |
 |---|---|
 | `POST /api/auth/device/register` `{email, password, device_name, platform}` | `platform` is `ios`, `android` or `other`. 201: tokens, `device`, `user` and `tenant`. 401 for bad credentials. Rate-limited to 5 per minute. |
-| `POST /api/auth/device/refresh` `{refresh_token}` | 200: new tokens. 401 with `code`: `refresh_invalid`, `refresh_expired` or `device_revoked`. Rate-limited to 30 per minute. |
+| `POST /api/auth/device/refresh` `{refresh_token}` | 200: new tokens. 401 with `code`: `refresh_invalid` (any token that isn't proved, without saying why), `refresh_expired` or `device_revoked`. Rate-limited to 30 per minute. |
 | `POST /api/auth/device/logout` | Device token required. Revokes this device. |
 | `GET /api/devices[?user_id=]` | Your devices. An admin can list a user in the same tenant. |
 | `DELETE /api/devices/<id>` | Revokes. Allowed for the owner, or an admin in the same tenant; otherwise 404. |
@@ -34,10 +34,10 @@ A device token stops working when any of these happens:
 - the user's password changes or is reset;
 - the user or tenant is deactivated.
 
-It takes effect on the next request checked after the change commits; a request already admitted may finish. An API call with such a token returns 401 `{"code": "device_revoked"}`.
+It takes effect on the next request checked after the change commits; a request already admitted may finish. Refresh and the change feed recheck the device and account under their own locks. A revoked device or changed password gives 401 `{"code": "device_revoked"}`. An inactive user or tenant gets the existing sign-in errors: 401 `User not found` or 403 `Tenant is inactive`.
 
 - **Deactivating a user** revokes all of their devices, so reactivating the account doesn't restore them.
-- **Reuse detection covers one generation:** the secret just before the current one. Within 2 minutes of a rotation, presenting it rotates again: this covers a lost response or a duplicate request, and the losing response's refresh token stops working. After that, presenting it revokes the device. An older or unknown secret just fails, with 401 `refresh_invalid`, and revokes nothing.
+- **Reuse detection covers one generation:** the secret just before the current one. Within a fixed 2 minutes of the rotation that superseded it, presenting it issues a new successor (retries don't extend that deadline): this covers a lost response or a duplicate request, and the losing response's refresh token stops working. After that, presenting it revokes the device. An older or unknown secret just fails, with 401 `refresh_invalid`, and revokes nothing.
 - **One refresh at a time:** the app should keep only one refresh in flight per device.
 
 ## Offline grace period
@@ -46,7 +46,7 @@ This is how long the app keeps working with no successful contact with the serve
 
 ## Restoring the database
 
-A restore can bring back revoked devices and old refresh secrets. **Before reopening after any restore, revoke every device** (set `revoked_at` on all `devices` rows, which also forces the change feed to resync), then reapply and verify the `devices` grants and row security as `secure()` in `migrations/versions/mobile_device_auth.py` does. Everyone signs in again on their phones. See also the restore gate in `docs/mobile-sync-feed.md`.
+A restore can bring back revoked devices and old refresh secrets. Follow the full restore gate in `docs/mobile-sync-feed.md`. Its step 3 signs out every device, clears `device_holdings` and pending sync state, and re-verifies the grants and row security on both tables.
 
 ## Storage
 
