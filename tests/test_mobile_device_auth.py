@@ -439,7 +439,7 @@ def test_expired_refresh_returns_401_without_rotating(api):
 
 
 @pytest.mark.parametrize('case', [
-    'unknown_user', 'inactive_user', 'wrong_device', 'wrong_secret',
+    'unknown_user', 'wrong_device', 'wrong_secret', 'inactive_user_bad_secret',
     'zero_user', 'overflow_user', 'long_user',
 ])
 def test_unproved_refresh_tokens_are_indistinguishable(api, monkeypatch, case):
@@ -453,15 +453,16 @@ def test_unproved_refresh_tokens_are_indistinguishable(api, monkeypatch, case):
 
     if case == 'unknown_user':
         token = f'999999.{device_id}.{secret}'
-    elif case == 'inactive_user':
+    elif case == 'inactive_user_bad_secret':
+        # The account state is irrelevant when the secret does not prove a device.
         with factory() as db:
             db.get(User, 3).is_active = False
             db.commit()
-        token = registered['refresh_token']
+        token = f'{user_id}.{device_id}.{"w" * 43}'
     elif case == 'wrong_device':
         token = f'{user_id}.{uuid4()}.{secret}'
     elif case == 'wrong_secret':
-        token = f'{user_id}.{device_id}.{"w" * 40}'
+        token = f'{user_id}.{device_id}.{"w" * 43}'
     elif case == 'zero_user':
         token = f'0.{device_id}.{secret}'
     elif case == 'overflow_user':
@@ -695,6 +696,51 @@ def test_deactivation_revokes_devices_and_reactivation_does_not_restore(api):
     assert denied.status == 401
     assert body(denied)['code'] == 'device_revoked'
     assert refresh(call, registered['refresh_token']).status == 401
+
+
+@pytest.mark.parametrize('how', ['user', 'tenant'])
+def test_deactivated_user_or_tenant_marks_device_revoked(api, how):
+    """A deactivated account/tenant is a signed-out device, not a web-style error."""
+    call, factory, _ = api
+    set_password(factory, 3)
+    registered = body(register(call))
+    access = registered['access_token']
+    refresh_token = registered['refresh_token']
+    user_id, device_id, _ = refresh_parts(refresh_token)
+
+    # Direct row changes leave the device row live: this is the auth-layer and
+    # proved-refresh contract, not the toggle-active service's revocation path.
+    with factory() as db:
+        if how == 'user':
+            db.get(User, 3).is_active = False
+        else:
+            db.get(Tenant, 1).is_active = False
+        db.commit()
+
+    denied = call('GET', '/api/me', token=access)
+    assert denied.status == 401, denied.text
+    assert body(denied) == {'code': 'device_revoked', 'error': 'This device has been signed out'}
+
+    revoked = refresh(call, refresh_token)
+    assert revoked.status == 401, revoked.text
+    assert body(revoked) == {'code': 'device_revoked', 'error': 'This device has been signed out'}
+    assert_no_store(revoked)
+
+    unproved = refresh(call, f'{user_id}.{device_id}.{"w" * 43}')
+    assert unproved.status == 401, unproved.text
+    assert body(unproved) == {'code': 'refresh_invalid', 'error': 'Invalid refresh token'}
+    assert_no_store(unproved)
+
+    web = call('GET', '/api/me', user=3)
+    if how == 'user':
+        assert web.status == 401, web.text
+        assert body(web) == {'error': 'User not found'}
+    else:
+        assert web.status == 403, web.text
+        assert body(web) == {'error': 'Tenant is inactive'}
+
+    with factory() as db:
+        assert db.get(Device, UUID(device_id)).revoked_at is None
 
 
 # Criterion 6: web unchanged

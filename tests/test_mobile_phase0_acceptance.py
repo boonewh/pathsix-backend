@@ -6,6 +6,8 @@ These tests deliberately stay in the backend's `tests/` tree and use the shared
 scripted device flow, plus the two edge cases called out in Phase 0 item 7 and
 the lead's offline-grace follow-up.
 """
+import os
+
 import pytest
 from sqlalchemy import text
 
@@ -14,6 +16,10 @@ from test_mobile_device_auth import (PASSWORD, api as api, body, refresh,
 from test_mobile_device_auth_feed import (add_user, drain, feed, pairs, removals,
                                            upserts, uuid_of)
 from test_security_boundaries import crm as crm  # noqa: F401
+
+feed_requires_postgres = pytest.mark.skipif(
+    not os.getenv('SECURITY_TEST_DATABASE_URL'),
+    reason='The cursor feed requires PostgreSQL (SECURITY_TEST_DATABASE_URL)')
 
 
 @pytest.fixture(autouse=True)
@@ -31,6 +37,7 @@ def count(factory, table, criterion=''):
         return db.execute(text(f'SELECT count(*) FROM {table} {criterion}')).scalar_one()
 
 
+@feed_requires_postgres
 def test_phase0_end_to_end_scripted_client_pulls_creates_once_and_loses_access(api):
     """Password register -> full pull -> keyed create twice -> upsert -> removal."""
     call, factory, _ = api
@@ -83,6 +90,7 @@ def test_phase0_end_to_end_scripted_client_pulls_creates_once_and_loses_access(a
     assert account not in upserts(changes)
 
 
+@feed_requires_postgres
 def test_access_lost_between_pages_of_one_incremental_round_is_delivered_by_the_next_round(api):
     """A lower-id held record revoked mid-round is emitted by the following round."""
     call, factory, _ = api
@@ -146,3 +154,33 @@ def test_register_and_refresh_honour_offline_grace_days_override(api, monkeypatc
     assert registered['offline_grace_seconds'] == 3 * 86400
     refreshed = body(refresh(call, registered['refresh_token']))
     assert refreshed['offline_grace_seconds'] == 3 * 86400
+
+
+def test_register_and_refresh_cap_offline_grace_at_refresh_lifetime(api, monkeypatch):
+    monkeypatch.setenv('DEVICE_OFFLINE_GRACE_DAYS', '7')
+    monkeypatch.setenv('DEVICE_REFRESH_DAYS', '2')
+    call, factory, _ = api
+    set_password(factory, 3)
+
+    registered = body(register(call))
+    assert registered['offline_grace_seconds'] == 2 * 86400
+    refreshed = body(refresh(call, registered['refresh_token']))
+    assert refreshed['offline_grace_seconds'] == 2 * 86400
+
+
+@pytest.mark.parametrize('label,raw', [
+    ('zero', '0'),
+    ('over_max', '31'),
+    ('non_numeric', 'x'),
+    ('hundred_digits', '1' * 100),
+])
+def test_register_and_refresh_fall_back_for_invalid_offline_grace(api, monkeypatch, label, raw):
+    monkeypatch.setenv('DEVICE_OFFLINE_GRACE_DAYS', raw)
+    monkeypatch.delenv('DEVICE_REFRESH_DAYS', raising=False)
+    call, factory, _ = api
+    set_password(factory, 3)
+
+    registered = body(register(call))
+    assert registered['offline_grace_seconds'] == 604800, label
+    refreshed = body(refresh(call, registered['refresh_token']))
+    assert refreshed['offline_grace_seconds'] == 604800, label
