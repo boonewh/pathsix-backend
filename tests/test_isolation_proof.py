@@ -197,7 +197,7 @@ def test_foreign_changes_do_not_affect_lists_search_reports_or_counts(crm):
 
 @pytest.fixture
 def populated_runtime(rls_runtime):
-    from app.models import AIClient, AIConnection, OAuthCredential, AIToolAudit, AIWriteAction, WriteReceipt, DeviceHolding
+    from app.models import AIClient, AIConnection, OAuthCredential, AIToolAudit, AIWriteAction, WriteReceipt, DeviceHolding, MobileRecordRef
     runtime,admin,schema=rls_runtime
     with admin() as db:
         db.add(AIClient(id='proof',name='Proof client',is_active=True,allowed_scopes=['clients:read']))
@@ -234,6 +234,7 @@ def populated_runtime(rls_runtime):
                                 request_key=f'isolation-proof-{tenant}',
                                 endpoint='create_client',input_hash='0'*64,
                                 status_code=201,response={'id': tenant}))
+            db.add(MobileRecordRef(tenant_id=tenant,ref=uuid4(),entity='clients',record_id=tenant))
         for tenant in (1,2):
             db.add_all([
                 File(id=tenant,tenant_id=tenant,user_id=tenant,filename=f'private{tenant}',
@@ -298,6 +299,25 @@ def test_all_tables_deny_missing_context_and_foreign_reads_writes(populated_runt
                 assert error.value.orig.pgcode in {'23514','42501'}
                 savepoint.rollback()
             assert db.execute(text('DELETE FROM device_holdings WHERE tenant_id=2')).rowcount==0
+            db.rollback()
+            return
+        if table=='mobile_record_refs':
+            # Refs are SELECT/INSERT-only, per tenant: an own-tenant insert works,
+            # a foreign-tenant insert is refused by the policy, and both
+            # mutations are refused by grant.
+            db.execute(text("INSERT INTO mobile_record_refs (tenant_id, ref, entity, record_id, created_at) "
+                            "VALUES (1, :ref, 'clients', 1, now())"), {'ref': uuid4()})
+            with db.begin_nested() as savepoint:
+                with pytest.raises(DBAPIError) as error:
+                    db.execute(text("INSERT INTO mobile_record_refs (tenant_id, ref, entity, record_id, created_at) "
+                                    "VALUES (2, :ref, 'clients', 2, now())"), {'ref': uuid4()})
+                assert error.value.orig.pgcode=='42501'
+                savepoint.rollback()
+            for verb in (f'UPDATE {table} SET {column}={column}', f'DELETE FROM {table}'):
+                with db.begin_nested() as savepoint:
+                    with pytest.raises(DBAPIError) as error: db.execute(text(verb))
+                    assert error.value.orig.pgcode=='42501'
+                    savepoint.rollback()
             db.rollback()
             return
         if table=='write_receipts':

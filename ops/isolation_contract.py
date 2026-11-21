@@ -9,7 +9,8 @@ from sqlalchemy import text
 from migrations.versions.tenant_rls_prepare import TABLES as LEGACY_TABLES, BUSINESS
 
 TABLES = LEGACY_TABLES + ('ai_connections', 'oauth_credentials', 'ai_tool_audits', 'ai_write_actions',
-                          'sync_purges', 'write_receipts', 'devices', 'device_holdings')
+                          'sync_purges', 'write_receipts', 'devices', 'device_holdings',
+                          'mobile_record_refs')
 
 
 def expected_policies():
@@ -28,6 +29,7 @@ def expected_policies():
     result[('devices','crm_select','SELECT')] = (f'({own} OR ((user_id = {auth_user}) AND (tenant_id = {auth_tenant})))',None)
     result[('devices','crm_modify','ALL')] = (own,own)
     result[('device_holdings','crm_all','ALL')] = (own,own)
+    result[('mobile_record_refs','crm_all','ALL')] = (own,own)  # mobile_record_refs
     result[('ai_tool_audits','crm_select','SELECT')] = (connection_owner,None)
     result[('ai_tool_audits','crm_insert','INSERT')] = (None,connection_owner)
     result[('tenants','crm_select','SELECT')] = (f'((id = {tenant}) OR (id = {auth_tenant}))',None)

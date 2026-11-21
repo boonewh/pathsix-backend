@@ -53,8 +53,19 @@ class IdempotencyInProgress(Exception):
     code = 'idempotency_in_progress'
 
 
-def _acknowledgement(record_id, status, *, replayed):
-    response = jsonify({'id': record_id})
+class IdempotencyKeyRequired(ValueError):
+    code = 'idempotency_key_required'
+
+
+# What a receipt stores and a replay returns: identifiers only, never content.
+# The existing routes keep `id` alone; the mobile record routes add the record's
+# canonical `uuid` (app/services/mobile_records.py).
+ID_ONLY = ('id',)
+ID_AND_UUID = ('id', 'uuid')
+
+
+def _acknowledgement(body, status, *, replayed):
+    response = jsonify(body)
     response.status_code = status
     response.headers['Cache-Control'] = 'no-store'
     if replayed:
@@ -97,10 +108,12 @@ class IdempotencyService:
         # The bound applies to waiting for the key only, not to the write itself.
         self.session.execute(text("SELECT set_config('lock_timeout', :wait, true)"), {'wait': previous})
 
-    def begin(self, body):
+    def begin(self, body, *, required=False, identifiers=ID_ONLY):
         """Call first in the write's session. Returns a replay response or None."""
         key = request.headers.get(HEADER)
         if key is None:
+            if required:
+                raise IdempotencyKeyRequired('This request needs an Idempotency-Key header')
             return None
         if not KEY.fullmatch(key):
             raise IdempotencyKeyInvalid(
@@ -115,20 +128,25 @@ class IdempotencyService:
         if receipt is not None:
             if receipt.input_hash != fingerprint:
                 raise IdempotencyConflict('This Idempotency-Key was used for a different request')
-            return _acknowledgement(receipt.response.get('id'), receipt.status_code, replayed=True)
+            stored = receipt.response or {}
+            return _acknowledgement({k: stored.get(k) for k in identifiers if k in stored},
+                                    receipt.status_code, replayed=True)
         self.session.info[_PENDING] = (key, fingerprint)
         return None
 
-    def finish(self, result, status):
+    def finish(self, result, status, *, identifiers=ID_ONLY):
         """Record the outcome in the same transaction, just before the route commits."""
         pending = self.session.info.pop(_PENDING, None)
         if pending is None:
             return False
         key, fingerprint = pending
+        stored = {'id': _record_id(result)}
+        if 'uuid' in identifiers:
+            stored['uuid'] = str(result['uuid'])
         self.session.add(WriteReceipt(
             tenant_id=self.principal.tenant_id, user_id=self.principal.user_id, request_key=key,
             endpoint=request.endpoint[:100], input_hash=fingerprint, status_code=status,
-            response={'id': _record_id(result)}))
+            response=stored))
         self.session.flush()
         return True
 
@@ -151,6 +169,27 @@ def idempotent_write(session, principal, body, perform, status=200, *, no_store=
     response.status_code = status
     if no_store:
         response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+def mobile_write(session, principal, body, perform, status=200):
+    """A mobile record route's write: the key is required, and the receipt keeps
+    the record's canonical uuid as well as its id.
+
+    `perform()` returns `{id, uuid, record}`. The first response is that; a
+    replay returns `{id, uuid}` only. Anything `perform()` raises leaves no
+    receipt (the caller rolls back).
+    """
+    service = IdempotencyService(session, principal)
+    replay = service.begin(body, required=True, identifiers=ID_AND_UUID)
+    if replay is not None:
+        return replay
+    result = perform()
+    service.finish(result, status, identifiers=ID_AND_UUID)
+    session.commit()
+    response = jsonify(result)
+    response.status_code = status
+    response.headers['Cache-Control'] = 'no-store'
     return response
 
 
