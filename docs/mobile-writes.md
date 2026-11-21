@@ -103,3 +103,17 @@ Creates with the phone's own reference, and edits that merge field by field. Cod
 
   The whole edit waits for the user's choice (owner decision, November 20, 2026).
 - Fields the phone did not change are never sent, so other people's edits to them are kept.
+
+### Unified contacts (F-14c)
+
+After the contacts cleanup (`docs/contacts-unified.md`), a client's or lead's person fields (`contact_person`, `email`, `phone` and the rest) and a project's `primary_contact_*` fields are stored on a contact.
+
+- **Edits to those fields:** the mobile edit route still accepts them on the client, lead or project. It locks the person's contact row as well as the record. Both `before` and `after` are read through the model, so they come from the contact, never from the frozen backup columns.
+- **Edits through the `contacts` entity:**
+  - A record's primary contact, or a standalone project's person, gets 400 `edit_on_parent`. The phone edits that person on their record instead.
+  - Other contacts are edited as before.
+- **The feed:**
+  - Contacts are sent with `project_id`/`project_uuid` and `is_primary`. Every person is sent, primary contacts included.
+  - A client or lead is re-sent when its primary contact changes, and a project when the contact it points at changes. The feed reads the contact's own change marker (`SyncFeedService._changed`); no trigger touches the parent records. Migration `mobile_contacts_sync` only adds `project_id` to the contacts access fields.
+  - Person-field projections ignore tombstoned contacts, because the feed reads outside the ORM tombstone filter.
+- **Busy database:** a deadlock, serialization failure or lock timeout on these routes gives 503 `busy_retry` with `Retry-After: 1`. Nothing was written, and the phone retries the same request.

@@ -73,7 +73,8 @@ FIELDS = {
                  'assigned_to', 'created_at', 'updated_at'),
     'accounts': ('id', 'uuid', 'client_id', 'account_number', 'account_name', 'status', 'opened_on',
                  'notes', 'created_at', 'updated_at'),
-    'contacts': ('id', 'uuid', 'client_id', 'lead_id', 'first_name', 'last_name', 'title', 'email',
+    'contacts': ('id', 'uuid', 'client_id', 'lead_id', 'project_id', 'is_primary', 'first_name', 'last_name',
+                 'title', 'email',
                  'phone', 'phone_label', 'secondary_phone', 'secondary_phone_label', 'notes',
                  'created_at', 'updated_at'),
     'interactions': ('id', 'uuid', 'client_id', 'lead_id', 'project_id', 'contact_person', 'email',
@@ -187,7 +188,9 @@ def _value(value):
 def _columns(entity, tenant_id):
     """The feed's columns for an entity, with each parent's uuid."""
     model = MODELS[entity]
-    columns = [getattr(model, field) for field in FIELDS[entity]]
+    # Labelled: person fields (contact_person, primary_contact_* ...) are hybrid
+    # properties whose expressions are subqueries and would otherwise be anonymous.
+    columns = [getattr(model, field).label(field) for field in FIELDS[entity]]
     for field, parent in PARENTS.items():
         if field in FIELDS[entity]:
             columns.append(select(parent.uuid).where(parent.id == getattr(model, field),
@@ -273,11 +276,16 @@ class SyncFeedService:
             return and_(Account.tenant_id == tenant, Account.deleted_at.is_(None),
                         Account.client.has(owned_record_filter(Client, p)))
         if entity == 'contacts':
+            # Every person, primary contacts included (owner decision, November 20,
+            # 2026), under a client, a lead or a standalone project the caller can see.
             return and_(Contact.tenant_id == tenant, Contact.deleted_at.is_(None), or_(
-                and_(Contact.client_id.isnot(None), Contact.lead_id.is_(None),
+                and_(Contact.client_id.isnot(None), Contact.lead_id.is_(None), Contact.project_id.is_(None),
                      Contact.client.has(owned_record_filter(Client, p))),
-                and_(Contact.lead_id.isnot(None), Contact.client_id.is_(None),
-                     Contact.lead.has(owned_record_filter(Lead, p)))))
+                and_(Contact.lead_id.isnot(None), Contact.client_id.is_(None), Contact.project_id.is_(None),
+                     Contact.lead.has(owned_record_filter(Lead, p))),
+                and_(Contact.project_id.isnot(None), Contact.client_id.is_(None), Contact.lead_id.is_(None),
+                     Contact.project.has(and_(Project.tenant_id == tenant, Project.deleted_at.is_(None),
+                                              Project.archived_at.is_(None), project_access_filter(p))))))
         return and_(Interaction.tenant_id == tenant, Interaction.deleted_at.is_(None),
                     interaction_access_filter(p), visible_interaction(Interaction))
 
@@ -294,10 +302,36 @@ class SyncFeedService:
         if entity == 'accounts':
             return or_(Account.sync_access_xid >= since, client(Account.client))
         if entity == 'contacts':
-            return or_(Contact.sync_access_xid >= since, client(Contact.client), lead(Contact.lead))
+            return or_(Contact.sync_access_xid >= since, client(Contact.client), lead(Contact.lead),
+                       Contact.project.has(and_(Project.tenant_id == tenant, or_(
+                           Project.sync_access_xid >= since, client(Project.client), lead(Project.lead)))))
         return or_(Interaction.sync_access_xid >= since, client(Interaction.client), lead(Interaction.lead),
                    Interaction.project.has(and_(Project.tenant_id == tenant, or_(
                        Project.sync_access_xid >= since, client(Project.client), lead(Project.lead)))))
+
+    def _changed(self, entity, since):
+        """The record changed since the cursor, or its person did.
+
+        A client's or lead's person fields read its primary contact, and a
+        project's read the contact it points at (contacts cleanup), so a change
+        to that contact changes what the feed sends for the record. Reading the
+        contact's own marker here, rather than touching parents from a trigger,
+        takes no extra locks and also covers contacts written before this feed
+        version (the contacts_unified backfill).
+        """
+        model = MODELS[entity]
+        own = model.sync_change_xid >= since
+        tenant = self.principal.tenant_id
+        if entity in ('clients', 'leads'):
+            key = Contact.client_id if entity == 'clients' else Contact.lead_id
+            return or_(own, select(Contact.id).where(
+                key == model.id, Contact.tenant_id == tenant, Contact.is_primary.is_(True),
+                Contact.sync_change_xid >= since).correlate(model).exists())
+        if entity == 'projects':
+            return or_(own, select(Contact.id).where(
+                Contact.id == Project.primary_contact_id, Contact.tenant_id == tenant,
+                Contact.sync_change_xid >= since).correlate(Project).exists())
+        return own
 
     # -- reads ----------------------------------------------------------
     def visible(self, entity):
@@ -326,7 +360,7 @@ class SyncFeedService:
             # does); only removals are limited to records this device holds.
             hidden = changed if self.device is None else and_(
                 changed, or_(visible, self._held(entity, model.uuid)))
-            where = or_(and_(visible, model.sync_change_xid >= since), hidden)
+            where = or_(and_(visible, self._changed(entity, since)), hidden)
         stmt = (select(*columns, flag.label('_visible'))
                 .where(model.tenant_id == self.principal.tenant_id, model.id > after_id, where)
                 .order_by(model.id).limit(limit))

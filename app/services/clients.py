@@ -5,7 +5,7 @@ must roll back. Detail reads are pure; web activity logging is a separate method
 """
 from datetime import datetime, timedelta
 from sqlalchemy import and_, or_, func
-from app.models import Client, Lead, Contact, Interaction, User, ActivityLog, ActivityType
+from app.models import Client, Lead, Contact, Interaction, User, ActivityLog, ActivityType, CONTACT_COLUMNS
 from app.schemas.clients import ClientCreateSchema, ClientUpdateSchema, ClientAssignSchema
 from app.services.base import TenantService
 from app.services.access import owned_record_filter
@@ -58,12 +58,35 @@ class ClientService(TenantService):
         for field in ('phone', 'secondary_phone'):
             fields[field] = clean_phone_number(fields[field]) if fields[field] else None
         fields['email'] = str(data.email) if data.email else None
+        person = {field: fields.pop(field) for field in CONTACT_COLUMNS if field in fields} if data.source_lead_id else {}
         client = Client(**fields, tenant_id=self.principal.tenant_id,
                         created_by=self.principal.user_id,
                         converted_on=datetime.utcnow() if data.source_lead_id else None)
         self.session.add(client)
+        if data.source_lead_id:
+            self._take_lead_contacts(client, lead, person)
         self.session.flush()
         return client.id
+
+    def _take_lead_contacts(self, client, lead, person):
+        """A converted lead's people, its primary person included, move to the client.
+
+        Details sent with the conversion fill only what the lead's primary person
+        lacks, so converting never duplicates that person or loses their details.
+        """
+        for contact in list(lead.contacts):
+            contact.lead = None
+            client.contacts.append(contact)
+        # The lead's person fields just emptied: touch the lead so phones holding
+        # it are sent the change (the feed follows a contact's current owner).
+        lead.updated_at = datetime.utcnow()
+        primary = client.primary_contact_row
+        for field, value in person.items():
+            if value in (None, ''):
+                continue
+            if primary is None or not getattr(client, field):
+                setattr(client, field, value)
+                primary = client.primary_contact_row
 
     def update(self, client_id, data: ClientUpdateSchema):
         if not isinstance(data, ClientUpdateSchema):
@@ -116,7 +139,7 @@ class ClientService(TenantService):
                 }
         contacts = self._query(Contact).filter(
             Contact.tenant_id == self.principal.tenant_id,
-            Contact.client_id == client.id, Contact.lead_id.is_(None),
+            Contact.client_id == client.id, Contact.lead_id.is_(None), Contact.is_primary.is_(False),
         ).order_by(Contact.id).all()
         fields = ('id', 'name', 'email', 'phone', 'phone_label', 'secondary_phone',
                   'secondary_phone_label', 'address', 'contact_person', 'contact_title',

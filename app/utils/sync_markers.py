@@ -27,7 +27,7 @@ ACCESS_FIELDS = {
     'projects': ('tenant_id', 'created_by', 'assigned_to', 'client_id', 'lead_id',
                  'deleted_at', 'archived_at'),
     'accounts': ('tenant_id', 'client_id', 'deleted_at'),
-    'contacts': ('tenant_id', 'client_id', 'lead_id', 'deleted_at'),
+    'contacts': ('tenant_id', 'client_id', 'lead_id', 'project_id', 'deleted_at'),
     'interactions': ('tenant_id', 'client_id', 'lead_id', 'project_id', 'deleted_at'),
 }
 

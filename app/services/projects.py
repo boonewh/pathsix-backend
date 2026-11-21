@@ -2,7 +2,7 @@
 
 from app.services.purge import PurgeService
 from datetime import datetime
-from app.models import Project, ActivityLog, ActivityType, Client, Lead, User
+from app.models import Project, ActivityLog, ActivityType, Client, Contact, Lead, User
 from app.utils.phone_utils import clean_phone_number
 from app.schemas.projects import (
     ProjectCreateSchema,
@@ -13,7 +13,7 @@ from sqlalchemy.orm import joinedload
 from sqlalchemy import or_, and_, func
 from app.services.base import TenantService
 from app.services.errors import RecordNotFound
-from app.services.access import project_access_filter
+from app.services.access import owned_record_filter, project_access_filter
 
 
 class ProjectService(TenantService):
@@ -246,6 +246,9 @@ class ProjectService(TenantService):
                 Project.tenant_id == self.principal.tenant_id,
                 Project.deleted_at == None,
             )
+            # The project row first, then its contact (below): the same lock order
+            # as the mobile edit route, so concurrent web and phone edits never deadlock.
+            .with_for_update(of=Project)
             .first()
         )
         if not project:
@@ -253,6 +256,33 @@ class ProjectService(TenantService):
         if not self._can_access(project):
             raise RecordNotFound("Project not found")
         update_data = data.model_dump(exclude_unset=True)
+        # A project under a client or lead points at one of that record's people
+        # (contacts cleanup), so changing the project's contact fields changes
+        # that person in place. Require access to the owning record as well.
+        if any(field.startswith("primary_contact_") for field in update_data):
+            # Both the contact already linked (the write changes it in place) and
+            # the record the project will belong to (a new person is linked there).
+            owners = []
+            # Locked and re-read, and held until the write commits: a concurrent
+            # contact edit cannot move the person to another owner after this check.
+            linked = None
+            if project.primary_contact_id is not None:
+                linked = (self.session.query(Contact).filter(Contact.id == project.primary_contact_id)
+                          .with_for_update(of=Contact).populate_existing().first())
+            if linked is not None and linked.client_id is not None:
+                owners.append((Client, linked.client_id))
+            elif linked is not None and linked.lead_id is not None:
+                owners.append((Lead, linked.lead_id))
+            client_id = update_data.get("client_id", project.client_id)
+            lead_id = update_data.get("lead_id", project.lead_id)
+            if client_id is not None:
+                owners.append((Client, client_id))
+            elif lead_id is not None:
+                owners.append((Lead, lead_id))
+            for owner, owner_id in owners:
+                if self._query(owner).filter(
+                        owner.id == owner_id, owned_record_filter(owner, self.principal)).first() is None:
+                    raise PermissionError("This project's contact belongs to a record you cannot edit")
         if update_data.get("project_name", project.project_name) is None:
             raise ValueError("Project name cannot be null")
         if any(

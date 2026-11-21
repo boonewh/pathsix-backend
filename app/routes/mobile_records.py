@@ -2,6 +2,7 @@
 import uuid as uuid_lib
 
 from quart import Blueprint, jsonify, request
+from sqlalchemy.exc import DBAPIError
 
 from app.database import SessionLocal
 from app.services.errors import RecordNotFound
@@ -43,6 +44,15 @@ def _run(session, perform):
     except ValueError as exc:  # service validation, or a missing or malformed key
         session.rollback()
         return _private({'code': getattr(exc, 'code', 'invalid_request'), 'error': str(exc)}, 400)
+    except DBAPIError as exc:
+        # A deadlock, serialization failure or lock timeout with another request:
+        # nothing was written; the phone retries the same request later.
+        if getattr(getattr(exc, 'orig', None), 'pgcode', None) not in ('40P01', '40001', '55P03'):
+            raise
+        session.rollback()
+        response = _private({'code': 'busy_retry', 'error': 'PathSix was busy; try again shortly'}, 503)
+        response.headers['Retry-After'] = '1'
+        return response
 
 
 @mobile_records_bp.route('/<entity>', methods=['POST'])

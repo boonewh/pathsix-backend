@@ -124,7 +124,7 @@ class LeadService:
         lead = self._get(lead_id)
         contacts = self.session.query(Contact).filter(
             Contact.tenant_id == self.principal.tenant_id,
-            Contact.lead_id == lead.id, Contact.client_id.is_(None),
+            Contact.lead_id == lead.id, Contact.client_id.is_(None), Contact.is_primary.is_(False),
         ).order_by(Contact.id).all()
         fields = ('id', 'name', 'email', 'phone', 'phone_label', 'secondary_phone',
                   'secondary_phone_label', 'address', 'contact_person', 'contact_title',

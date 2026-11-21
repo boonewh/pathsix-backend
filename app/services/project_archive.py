@@ -6,7 +6,7 @@ import json
 from itsdangerous import URLSafeTimedSerializer, BadSignature
 from sqlalchemy import update
 
-from app.models import Project, Interaction, Client, Lead
+from app.models import Project, Interaction, Client, Lead, record_fields
 from app.utils.project_archive_access import ARCHIVE_TENANT_ID, private_session
 
 CUTOFF = datetime(2026, 5, 1)
@@ -21,10 +21,10 @@ def serialize(record):
             return v.isoformat() + 'Z'
         return v.value if hasattr(v, 'value') else v
     # Columns added for mobile sync are not part of the archive's response or
-    # preview fingerprint; leaving them out keeps both unchanged.
+    # preview fingerprint; leaving them out keeps both unchanged. Person fields
+    # come through record_fields (contacts cleanup).
     skip = SYNC_ONLY.get(record.__table__.name, set()) | {'uuid', 'sync_change_xid', 'sync_access_xid'}
-    return {column.name: value(getattr(record, column.name)) for column in record.__table__.columns
-            if column.name not in skip}
+    return {name: value(v) for name, v in record_fields(record).items() if name not in skip}
 
 
 class ArchiveConflict(ValueError):
