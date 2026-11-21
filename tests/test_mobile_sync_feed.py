@@ -904,7 +904,7 @@ def test_markers_ignore_caller_values_and_separate_content_from_access(
 @pytest.mark.parametrize('table,parent_field,record_id',
                          (('clients', 'client_id', 9310), ('leads', 'lead_id', 9311)))
 def test_primary_contact_change_resends_parent_on_incremental_page(crm, table, parent_field, record_id):
-    """The feed reads the contact's marker; it does not touch the parent's."""
+    """A contact edit re-sends its parent with the new person fields."""
     call, factory, _ = crm
     _pg(factory)
     with factory.begin() as c:
@@ -913,16 +913,16 @@ def test_primary_contact_change_resends_parent_on_incremental_page(crm, table, p
                 is_primary=True, **{parent_field: record_id})
     _, cursor, _ = _drain(call, limit=200, user=1)
 
-    def marker():
-        with factory() as db:
-            return db.execute(text(f'SELECT sync_change_xid FROM {table} WHERE id=:id'),
-                              {'id': record_id}).scalar_one()
+    clean = _page(call, cursor, limit=200, user=1)
+    assert clean['mode'] == 'incremental'
+    assert clean['changes'] == []
 
-    parent_marker = marker()
     with factory.begin() as c:
-        c.execute(text('UPDATE contacts SET last_name=:last WHERE id=:id'),
-                  {'last': 'Two', 'id': record_id})
-    assert marker() == parent_marker
+        c.execute(text(
+            'UPDATE contacts SET last_name=:last, title=:title, email=:email, phone=:phone '
+            'WHERE id=:id'),
+            {'last': 'Two', 'title': 'Proprietor', 'email': 'pat.two@example.com',
+             'phone': '+15557654321', 'id': record_id})
 
     changes, _, modes = _drain(call, cursor=cursor, limit=200, user=1)
     assert set(modes) == {'incremental'}
@@ -930,7 +930,10 @@ def test_primary_contact_change_resends_parent_on_incremental_page(crm, table, p
     assert parent_key in set(_pairs(changes))
     parent = next(change for change in changes if (change['entity'], change['uuid']) == parent_key)
     assert parent['op'] == 'upsert'
-    assert 'Pat Two' in {value for value in parent['record'].values() if value is not None}
+    assert parent['record']['contact_person'] == 'Pat Two'
+    assert parent['record']['contact_title'] == 'Proprietor'
+    assert parent['record']['email'] == 'pat.two@example.com'
+    assert parent['record']['phone'] == '+15557654321'
 
 
 def test_pointed_contact_change_resends_every_project_on_incremental_page(crm):
@@ -940,23 +943,24 @@ def test_pointed_contact_change_resends_every_project_on_incremental_page(crm):
     with factory.begin() as c:
         _insert(c, 'clients', id=9320, tenant_id=1, created_by=1, name='Contact owner')
         _insert(c, 'contacts', id=9320, tenant_id=1, client_id=9320,
-                first_name='Shared', last_name='Person')
+                first_name='Shared', last_name='Person', title='Contact',
+                email='shared@example.com', phone='+15550000000')
         for project_id in project_ids:
             _insert(c, 'projects', id=project_id, tenant_id=1, created_by=1, client_id=9320,
                     project_name=f'Pointer {project_id}', project_status='pending',
                     primary_contact_id=9320)
     _, cursor, _ = _drain(call, limit=200, user=1)
 
-    def markers():
-        with factory() as db:
-            return dict(db.execute(text(
-                'SELECT id, sync_change_xid FROM projects WHERE id IN (9320, 9321)')).all())
+    clean = _page(call, cursor, limit=200, user=1)
+    assert clean['mode'] == 'incremental'
+    assert clean['changes'] == []
 
-    before = markers()
-    assert set(before) == set(project_ids)
     with factory.begin() as c:
-        c.execute(text("UPDATE contacts SET last_name='Changed' WHERE id=9320"))
-    assert markers() == before  # the feed reads the contact marker, not a project trigger
+        c.execute(text(
+            'UPDATE contacts SET last_name=:last, title=:title, email=:email, phone=:phone '
+            'WHERE id=:id'),
+            {'last': 'Changed', 'title': 'Owner', 'email': 'shared.updated@example.com',
+             'phone': '+15557654321', 'id': 9320})
 
     changes, _, modes = _drain(call, cursor=cursor, limit=200, user=1)
     assert set(modes) == {'incremental'}
@@ -967,7 +971,10 @@ def test_pointed_contact_change_resends_every_project_on_incremental_page(crm):
         change = next(item for item in changes
                       if (item['entity'], item['uuid']) == project_key)
         assert change['op'] == 'upsert'
-        assert 'Shared Changed' in {value for value in change['record'].values() if value is not None}
+        assert change['record']['primary_contact_name'] == 'Shared Changed'
+        assert change['record']['primary_contact_title'] == 'Owner'
+        assert change['record']['primary_contact_email'] == 'shared.updated@example.com'
+        assert change['record']['primary_contact_phone'] == '+15557654321'
 
 
 @pytest.mark.parametrize('table,parent_field,record_id',
