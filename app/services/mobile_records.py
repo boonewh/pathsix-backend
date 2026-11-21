@@ -21,8 +21,8 @@ import math
 import uuid as uuid_lib
 
 from pydantic import ValidationError
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import DateTime, Enum, Float, Integer, Numeric, String, Text, select
+from sqlalchemy.exc import DataError, IntegrityError
 
 from app.models import Account, Client, Contact, Interaction, Lead, MobileRecordRef, Project
 from app.schemas.accounts import AccountCreateSchema, AccountUpdateSchema
@@ -138,6 +138,36 @@ def _scalars(values, what, entity):
             raise InvalidMobileWrite(f'{what}.{field} must be a finite number')
 
 
+def _column(entity, field):
+    return getattr(MODELS[entity], field).property.columns[0]
+
+
+def _check_base_types(entity, base):
+    """Each base value has its field's type in the feed: text for text, dates
+    and enums; a number for numeric columns; or null."""
+    for field, value in base.items():
+        if value is None:
+            continue
+        kind = _column(entity, field).type
+        numeric = isinstance(kind, (Integer, Float, Numeric))
+        if numeric and not isinstance(value, (int, float)):
+            raise InvalidMobileWrite(f'base.{field} must be a number or null')
+        if isinstance(kind, (String, Text, DateTime, Enum)) and not isinstance(value, str):
+            raise InvalidMobileWrite(f'base.{field} must be text or null')
+
+
+def _check_parsed(entity, parsed, fields):
+    """After the schema has parsed the values: finite numbers ("Infinity" as
+    text becomes a float here) and text within the column's length."""
+    for field in fields:
+        value = getattr(parsed, field, None)
+        if isinstance(value, float) and not math.isfinite(value):
+            raise InvalidMobileWrite(f'{field} must be a finite number')
+        length = getattr(_column(entity, field).type, 'length', None)
+        if isinstance(value, str) and length and len(value) > length:
+            raise InvalidMobileWrite(f'{field} must be at most {length} characters')
+
+
 def _entity(entity):
     if entity not in EDITABLE:
         raise RecordNotFound('Unknown record type')
@@ -173,11 +203,12 @@ def check_create(entity, body):
         _uuid(next(iter(spec.values())), f'Parent {kind}')
     # The fields alone, with placeholder parents: the real ids come after the lookup.
     try:
-        SCHEMAS[entity][0](**fields, **{PARENT_FIELDS[k]: 1 for k in parents})
+        parsed = SCHEMAS[entity][0](**fields, **{PARENT_FIELDS[k]: 1 for k in parents})
     except ValidationError as exc:
         raise InvalidMobileWrite(_validation_message(exc)) from None
     except TypeError:
         raise InvalidMobileWrite('Invalid fields') from None
+    _check_parsed(entity, parsed, fields)
     return ref, fields, parents
 
 
@@ -198,12 +229,14 @@ def check_edit(entity, body):
         raise InvalidMobileWrite(f'Fields not allowed: {", ".join(sorted(unknown))}')
     _scalars(changes, 'changes', entity)
     _scalars(base, 'base', entity)
+    _check_base_types(entity, base)
     try:
-        SCHEMAS[entity][1](**changes)
+        parsed = SCHEMAS[entity][1](**changes)
     except ValidationError as exc:
         raise InvalidMobileWrite(_validation_message(exc)) from None
     except TypeError:  # a shared validator given the wrong type (Pydantic v2 lets it through)
         raise InvalidMobileWrite('Invalid changes') from None
+    _check_parsed(entity, parsed, changes)
     return changes, base
 
 
@@ -244,7 +277,7 @@ class MobileRecordService:
         data = SCHEMAS[entity][0](**fields, **ids)
         try:
             result = self._service(entity).create(data)
-        except IntegrityError:
+        except (IntegrityError, DataError):
             # A permanent data problem (for example a duplicate account number):
             # the caller rolls back; retrying the same request cannot succeed.
             raise InvalidMobileWrite('This record conflicts with an existing one (for example a duplicate number)') from None
@@ -278,7 +311,7 @@ class MobileRecordService:
             self.session.flush()
             self.session.refresh(row)
             after = {field: _value(getattr(row, field)) for field in changes}
-        except IntegrityError:
+        except (IntegrityError, DataError):
             savepoint.rollback()
             raise InvalidMobileWrite('This change conflicts with an existing record (for example a duplicate number)') from None
         except Exception:
