@@ -58,3 +58,55 @@ administrator URL comes from the workstation helper:
 
 The trial run prints the counts it would move, promote and create, then rolls
 back. Production is unchanged and needs the user's decision.
+
+## Reconciling with the mobile branch
+
+Decided by the user on November 20, 2026: the phone receives the `contacts`
+table as it really is, **primary contacts included**, flagged with
+`is_primary`. The mobile Contacts screen then lists everyone, as the new web
+page does. Whichever of `mobile` and `contacts-cleanup` merges second does
+these steps. This branch is `contacts-cleanup`, PR boonewh/pathsix-backend#35.
+
+1. **Migration order.** Both branches' first migration builds on
+   `mcp_record_updates`. Repoint the second branch's first migration
+   (`mobile_stable_ids` or `contacts_unified`) at the other branch's last one.
+   Then add the other branch's columns to its frozen table lists where they
+   matter. For example, `mobile_stable_ids`, `mobile_change_tracking` and
+   `mobile_tombstones` already cover the `contacts` table. Check that the new
+   `contacts.project_id` and `is_primary` columns need no extra handling there.
+2. **Sync feed fields.** In `sync_feed.py` `FIELDS['contacts']`, add
+   `project_id` (parent UUID, like `client_id`/`lead_id`) and `is_primary`. The
+   client, lead and project fields (`contact_person`, `email`,
+   `primary_contact_*`) need no change. They are now model properties that read
+   the primary or linked contact, and `getattr(model, field)` in `select()`
+   compiles them to a subquery. Do not read them through `__table__.c`, since
+   those columns are the frozen backup. Use `app.models.storage_column()` when
+   a column object is needed.
+3. **Contacts visibility.** `_visible('contacts')` and `_access_changed` cover
+   client and lead contacts. Add project-owned contacts (`project_id` set) with
+   the same project access the projects feed uses. Otherwise standalone
+   projects' people never reach the phone.
+4. **Change detection.** Editing a client's or lead's person now changes a
+   `contacts` row, not the parent row. When a contact with `is_primary` changes,
+   also bump the sync marker of its client or lead. When any contact changes,
+   also bump every project whose `primary_contact_id` points at it, since those
+   records' synced contact fields changed. A trigger on `contacts`, next to the
+   existing per-table ones, is the natural place.
+5. **Phone writes (F-14 edit sync).** A phone edit to `contact_person`,
+   `email`, `phone` or the other person fields of a client or lead, or to
+   `primary_contact_*` on a project, must go through model attributes or the
+   existing services, which handle creating, updating and linking the contact.
+   Base-version conflict checks for those fields must compare the values read
+   through the model (the contact's current values), not the frozen columns.
+   Writes to primary or project-owned contacts through the contacts entity
+   should be refused or routed to the parent record, as `ContactService` does.
+6. **Mobile app.** On the Contacts screen, show each person's record ("Client:
+   ACME Bricks", "Lead: …", "Project: …") and mark the primary contact. The
+   client, lead and project screens can keep showing `contact_person` and the
+   rest, which stay correct.
+7. **Expected text conflicts** are in `app/services/contacts.py` and
+   `app/services/purge.py`. Keep both sides' intent: the cleanup's primary and
+   project filters, and mobile's tombstones and markers.
+
+Tests to keep green after reconciling are `tests/test_contacts_unified.py` and
+`tests/test_contacts_unified_migration.py`, plus the mobile sync suites.
