@@ -77,6 +77,9 @@ class ClientService(TenantService):
         for contact in list(lead.contacts):
             contact.lead = None
             client.contacts.append(contact)
+        # The lead's person fields just emptied: touch the lead so phones holding
+        # it are sent the change (the feed follows a contact's current owner).
+        lead.updated_at = datetime.utcnow()
         primary = client.primary_contact_row
         for field, value in person.items():
             if value in (None, ''):

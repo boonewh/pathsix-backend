@@ -188,7 +188,9 @@ def _value(value):
 def _columns(entity, tenant_id):
     """The feed's columns for an entity, with each parent's uuid."""
     model = MODELS[entity]
-    columns = [getattr(model, field) for field in FIELDS[entity]]
+    # Labelled: person fields (contact_person, primary_contact_* ...) are hybrid
+    # properties whose expressions are subqueries and would otherwise be anonymous.
+    columns = [getattr(model, field).label(field) for field in FIELDS[entity]]
     for field, parent in PARENTS.items():
         if field in FIELDS[entity]:
             columns.append(select(parent.uuid).where(parent.id == getattr(model, field),

@@ -257,12 +257,24 @@ class ProjectService(TenantService):
         # (contacts cleanup), so changing the project's contact fields changes
         # that person in place. Require access to the owning record as well.
         if any(field.startswith("primary_contact_") for field in update_data):
+            # Both the contact already linked (the write changes it in place) and
+            # the record the project will belong to (a new person is linked there).
+            owners = []
+            linked = project.primary_contact
+            if linked is not None and linked.client_id is not None:
+                owners.append((Client, linked.client_id))
+            elif linked is not None and linked.lead_id is not None:
+                owners.append((Lead, linked.lead_id))
             client_id = update_data.get("client_id", project.client_id)
             lead_id = update_data.get("lead_id", project.lead_id)
-            owner, owner_id = (Client, client_id) if client_id else (Lead, lead_id)
-            if owner_id is not None and self._query(owner).filter(
-                    owner.id == owner_id, owned_record_filter(owner, self.principal)).first() is None:
-                raise PermissionError("This project's contact belongs to a record you cannot edit")
+            if client_id is not None:
+                owners.append((Client, client_id))
+            elif lead_id is not None:
+                owners.append((Lead, lead_id))
+            for owner, owner_id in owners:
+                if self._query(owner).filter(
+                        owner.id == owner_id, owned_record_filter(owner, self.principal)).first() is None:
+                    raise PermissionError("This project's contact belongs to a record you cannot edit")
         if update_data.get("project_name", project.project_name) is None:
             raise ValueError("Project name cannot be null")
         if any(
