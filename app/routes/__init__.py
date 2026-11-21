@@ -21,6 +21,7 @@ from app.routes.project_archive import project_archive_bp
 from app.routes.ai_actions import ai_actions_bp
 from app.routes.sync import sync_bp
 from app.routes.devices import devices_bp
+from app.routes.mobile_records import mobile_records_bp
 from app.services.idempotency import register_idempotency_errors
 
 def register_blueprints(app):
@@ -47,6 +48,7 @@ def register_blueprints(app):
     app.register_blueprint(ai_actions_bp)
     app.register_blueprint(sync_bp)
     app.register_blueprint(devices_bp)
+    app.register_blueprint(mobile_records_bp)
     register_idempotency_errors(app)
     from app.mcp_server import install_mcp
     install_mcp(app)

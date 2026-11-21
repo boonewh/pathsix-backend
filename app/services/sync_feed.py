@@ -184,6 +184,18 @@ def _value(value):
     return str(value)  # UUID
 
 
+def _columns(entity, tenant_id):
+    """The feed's columns for an entity, with each parent's uuid."""
+    model = MODELS[entity]
+    columns = [getattr(model, field) for field in FIELDS[entity]]
+    for field, parent in PARENTS.items():
+        if field in FIELDS[entity]:
+            columns.append(select(parent.uuid).where(parent.id == getattr(model, field),
+                                                     parent.tenant_id == tenant_id)
+                           .correlate(model).scalar_subquery().label(field[:-3] + '_uuid'))
+    return columns
+
+
 class SyncFeedService:
     def __init__(self, session, principal: Principal):
         if not isinstance(principal, Principal):
@@ -288,15 +300,22 @@ class SyncFeedService:
                        Project.sync_access_xid >= since, client(Project.client), lead(Project.lead)))))
 
     # -- reads ----------------------------------------------------------
+    def visible(self, entity):
+        """The read-visibility predicate the feed uses (also for mobile writes)."""
+        return self._visible(entity)
+
+    def record(self, entity, record_id):
+        """One record in the feed's format, or None when the caller cannot see it."""
+        model = MODELS[entity]
+        stmt = select(*_columns(entity, self.principal.tenant_id)).where(
+            model.tenant_id == self.principal.tenant_id, model.id == record_id, self._visible(entity))
+        row = self.session.execute(stmt).mappings().first()
+        return {key: _value(value) for key, value in row.items()} if row else None
+
     def _entity_rows(self, entity, state, after_id, limit):
         model = MODELS[entity]
         visible = self._visible(entity)
-        columns = [getattr(model, field) for field in FIELDS[entity]]
-        for field, parent in PARENTS.items():
-            if field in FIELDS[entity]:
-                columns.append(select(parent.uuid).where(parent.id == getattr(model, field),
-                                                         parent.tenant_id == self.principal.tenant_id)
-                               .correlate(model).scalar_subquery().label(field[:-3] + '_uuid'))
+        columns = _columns(entity, self.principal.tenant_id)
         if state['mode'] == 'full':
             flag, where = case((visible, True), else_=False), visible
         else:

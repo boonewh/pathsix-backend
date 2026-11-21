@@ -760,6 +760,23 @@ class DeviceHolding(Base):
 
 
 # Change-feed indexes and triggers (mobile_change_feed migration).
+class MobileRecordRef(Base):
+    """The phone's own reference for a record it created (app/services/mobile_records.py).
+
+    Per tenant, so a ref never says anything about another tenant. Written in the
+    same transaction as the create and never changed; kept at least 90 days.
+    """
+    __tablename__ = 'mobile_record_refs'
+    id = Column(BigInteger().with_variant(Integer, 'sqlite'), primary_key=True)
+    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
+    ref = Column(Uuid, nullable=False)
+    entity = Column(String(20), nullable=False)
+    record_id = Column(Integer, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    __table_args__ = (UniqueConstraint('tenant_id', 'ref', name='uq_mobile_record_refs_ref'),
+                      Index('ix_mobile_record_refs_created', 'created_at'))
+
+
 from app.utils.sync_markers import install_sync_ddl  # noqa: E402
 for _synced in (Client, Lead, Project, Contact, Interaction, Account):
     _name = _synced.__tablename__
