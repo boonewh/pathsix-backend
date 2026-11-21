@@ -2,7 +2,7 @@
 
 from app.services.purge import PurgeService
 from datetime import datetime
-from app.models import Project, ActivityLog, ActivityType, Client, Lead, User
+from app.models import Project, ActivityLog, ActivityType, Client, Contact, Lead, User
 from app.utils.phone_utils import clean_phone_number
 from app.schemas.projects import (
     ProjectCreateSchema,
@@ -260,7 +260,12 @@ class ProjectService(TenantService):
             # Both the contact already linked (the write changes it in place) and
             # the record the project will belong to (a new person is linked there).
             owners = []
-            linked = project.primary_contact
+            # Locked and re-read, and held until the write commits: a concurrent
+            # contact edit cannot move the person to another owner after this check.
+            linked = None
+            if project.primary_contact_id is not None:
+                linked = (self.session.query(Contact).filter(Contact.id == project.primary_contact_id)
+                          .with_for_update(of=Contact).populate_existing().first())
             if linked is not None and linked.client_id is not None:
                 owners.append((Client, linked.client_id))
             elif linked is not None and linked.lead_id is not None:
