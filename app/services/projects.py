@@ -246,6 +246,9 @@ class ProjectService(TenantService):
                 Project.tenant_id == self.principal.tenant_id,
                 Project.deleted_at == None,
             )
+            # The project row first, then its contact (below): the same lock order
+            # as the mobile edit route, so concurrent web and phone edits never deadlock.
+            .with_for_update(of=Project)
             .first()
         )
         if not project:
