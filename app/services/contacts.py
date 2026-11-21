@@ -110,7 +110,10 @@ class ContactService:
                 .filter(Contact.tenant_id == p.tenant_id, or_(
                     and_(Contact.client_id.isnot(None), owned_record_filter(Client, p)),
                     and_(Contact.lead_id.isnot(None), owned_record_filter(Lead, p)),
-                    and_(Contact.project_id.isnot(None), Project.deleted_at.is_(None),
+                    # The outer join leaves null project columns when the project is
+                    # hidden (archived, or filtered out): require a matching live one.
+                    and_(Contact.project_id.isnot(None), Project.id.isnot(None),
+                         Project.deleted_at.is_(None), Project.archived_at.is_(None),
                          project_access_filter(p)))))
         text = query.strip().lower()
         if text:

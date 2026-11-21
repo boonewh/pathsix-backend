@@ -275,8 +275,10 @@ def _primary_field(column):
 
     def expr(cls):
         value = Contact.display_name if column is None else getattr(Contact, column)
+        # Tombstoned contacts are excluded here too: the change feed reads through
+        # a Core connection, outside the ORM tombstone filter.
         return (select(value).where(getattr(Contact, cls.contact_parent_key) == cls.id,
-                                    Contact.is_primary.is_(True))
+                                    Contact.is_primary.is_(True), Contact.deleted_at.is_(None))
                 .correlate_except(Contact).scalar_subquery())
 
     return hybrid_property(fget, fset, expr=expr)
@@ -480,7 +482,8 @@ def _project_field(column, field):
 
     def expr(cls):
         value = Contact.display_name if column is None else getattr(Contact, column)
-        return select(value).where(Contact.id == cls.primary_contact_id).correlate_except(Contact).scalar_subquery()
+        return (select(value).where(Contact.id == cls.primary_contact_id, Contact.deleted_at.is_(None))
+                .correlate_except(Contact).scalar_subquery())
 
     return hybrid_property(fget, fset, expr=expr)
 

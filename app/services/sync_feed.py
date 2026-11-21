@@ -307,6 +307,30 @@ class SyncFeedService:
                    Interaction.project.has(and_(Project.tenant_id == tenant, or_(
                        Project.sync_access_xid >= since, client(Project.client), lead(Project.lead)))))
 
+    def _changed(self, entity, since):
+        """The record changed since the cursor, or its person did.
+
+        A client's or lead's person fields read its primary contact, and a
+        project's read the contact it points at (contacts cleanup), so a change
+        to that contact changes what the feed sends for the record. Reading the
+        contact's own marker here, rather than touching parents from a trigger,
+        takes no extra locks and also covers contacts written before this feed
+        version (the contacts_unified backfill).
+        """
+        model = MODELS[entity]
+        own = model.sync_change_xid >= since
+        tenant = self.principal.tenant_id
+        if entity in ('clients', 'leads'):
+            key = Contact.client_id if entity == 'clients' else Contact.lead_id
+            return or_(own, select(Contact.id).where(
+                key == model.id, Contact.tenant_id == tenant, Contact.is_primary.is_(True),
+                Contact.sync_change_xid >= since).correlate(model).exists())
+        if entity == 'projects':
+            return or_(own, select(Contact.id).where(
+                Contact.id == Project.primary_contact_id, Contact.tenant_id == tenant,
+                Contact.sync_change_xid >= since).correlate(Project).exists())
+        return own
+
     # -- reads ----------------------------------------------------------
     def visible(self, entity):
         """The read-visibility predicate the feed uses (also for mobile writes)."""
@@ -334,7 +358,7 @@ class SyncFeedService:
             # does); only removals are limited to records this device holds.
             hidden = changed if self.device is None else and_(
                 changed, or_(visible, self._held(entity, model.uuid)))
-            where = or_(and_(visible, model.sync_change_xid >= since), hidden)
+            where = or_(and_(visible, self._changed(entity, since)), hidden)
         stmt = (select(*columns, flag.label('_visible'))
                 .where(model.tenant_id == self.principal.tenant_id, model.id > after_id, where)
                 .order_by(model.id).limit(limit))

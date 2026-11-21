@@ -666,3 +666,53 @@ def test_prune_keeps_young_mobile_refs(api):
         prune_tombstones.prune(db.connection(), datetime.utcnow(), apply=True)
         db.commit()
     assert len(ref_rows(factory, ref)) == 1
+
+
+def test_client_email_edit_compares_and_stores_through_the_contact(api):
+    _, factory, _ = api
+    _, created, _ = create(api, 'clients', fields={'name': 'Email parent', 'email': 'old@example.com'})
+    created_body = response(created, 201)
+    target, client_id = created_body['uuid'], created_body['id']
+    with factory() as db:
+        contact = db.query(Contact).filter_by(client_id=client_id, is_primary=True).one()
+        contact_id = contact.id
+        assert contact.email == 'old@example.com'
+
+    set_columns(factory, Contact, contact_id, email='theirs@example.com')
+    key = new_key()
+    _, conflict, _ = edit(api, 'clients', target, {'email': 'mine@example.com'},
+                          {'email': 'old@example.com'}, key=key)
+    payload = response(conflict, 409)
+    assert payload['code'] == 'edit_conflict'
+    assert payload['conflicts'] == [
+        {'field': 'email', 'base': 'old@example.com', 'mine': 'mine@example.com',
+         'theirs': 'theirs@example.com'},
+    ]
+    assert receipt(factory, key) is None
+    with factory() as db:
+        assert db.get(Contact, contact_id).email == 'theirs@example.com'
+
+    _, accepted, _ = edit(api, 'clients', target, {'email': 'mine@example.com'},
+                          {'email': 'theirs@example.com'})
+    assert response(accepted, 200)['id'] == client_id
+    with factory() as db:
+        assert db.get(Contact, contact_id).email == 'mine@example.com'
+        assert db.get(Client, client_id).email == 'mine@example.com'
+
+
+def test_contacts_entity_edit_of_a_primary_contact_is_refused(api):
+    _, factory, _ = api
+    _, created, _ = create(api, 'clients', fields={'name': 'Primary parent',
+                                                   'email': 'primary@example.com'})
+    created_body = response(created, 201)
+    with factory() as db:
+        contact = db.query(Contact).filter_by(client_id=created_body['id'], is_primary=True).one()
+        contact_id, contact_uuid = contact.id, str(contact.uuid)
+
+    key = new_key()
+    _, result, _ = edit(api, 'contacts', contact_uuid, {'email': 'changed@example.com'},
+                        {'email': 'primary@example.com'}, key=key)
+    assert response(result, 400)['code'] == 'edit_on_parent'
+    assert receipt(factory, key) is None
+    with factory() as db:
+        assert db.get(Contact, contact_id).email == 'primary@example.com'

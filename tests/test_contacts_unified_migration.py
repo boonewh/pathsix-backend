@@ -43,6 +43,27 @@ def legacy():
                        'phone varchar(20), phone_label varchar(20), secondary_phone varchar(20), '
                        'secondary_phone_label varchar(20), notes text, created_at timestamp, '
                        'CONSTRAINT ck_contacts_one_parent CHECK (num_nonnulls(client_id, lead_id) = 1))'))
+        # The mobile migrations run before contacts_unified. Model the columns
+        # they leave behind so this really upgrades from mobile_record_refs.
+        mobile_tables = ('clients', 'leads', 'projects', 'contacts')
+        for table in mobile_tables:
+            c.execute(text(
+                f'ALTER TABLE {table} ADD COLUMN uuid uuid NOT NULL DEFAULT gen_random_uuid(), '
+                f'ADD CONSTRAINT uq_{table}_uuid UNIQUE (uuid), '
+                'ADD COLUMN sync_change_xid bigint NOT NULL DEFAULT 0, '
+                'ADD COLUMN sync_access_xid bigint NOT NULL DEFAULT 0'))
+        for table in ('clients', 'leads', 'projects'):
+            c.execute(text(
+                f'ALTER TABLE {table} ADD COLUMN created_at timestamp NOT NULL DEFAULT timezone(\'utc\', now()), '
+                f'ADD COLUMN updated_at timestamp NOT NULL DEFAULT timezone(\'utc\', now())'))
+        c.execute(text(
+            "ALTER TABLE contacts ALTER COLUMN created_at SET DEFAULT timezone('utc', now()), "
+            "ALTER COLUMN created_at SET NOT NULL, "
+            "ADD COLUMN updated_at timestamp NOT NULL DEFAULT timezone('utc', now())"))
+        for table in mobile_tables:
+            c.execute(text(f'ALTER TABLE {table} ADD COLUMN deleted_by integer'))
+        c.execute(text('ALTER TABLE projects ADD COLUMN deleted_at timestamp'))
+        c.execute(text('ALTER TABLE contacts ADD COLUMN deleted_at timestamp'))
         c.execute(text("""
             INSERT INTO leads (id, tenant_id, name, deleted_at, contact_person, email, phone, phone_label) VALUES
               (1, 1, 'Open lead', NULL, ' Ada  Lovelace ', 'ada@ai.example.com', '+15550100001', 'mobile'),
@@ -54,11 +75,13 @@ def legacy():
               (2, 1, 'Grace Co', 2, 'Grace Hopper', NULL, 'grace@co.example.com'),
               (3, 1, 'Email only', NULL, NULL, NULL, 'info@email.example.com'),
               (4, 1, 'Still a lead too', 4, NULL, NULL, NULL);
-            INSERT INTO contacts (tenant_id, client_id, lead_id, first_name, last_name, title, email) VALUES
-              (1, 1, NULL, 'JANE', 'DOE', NULL, NULL),
-              (1, NULL, 2, 'Extra', 'Person', NULL, NULL),
-              (1, NULL, 2, 'Grace', 'Hopper', 'Admiral', NULL),
-              (1, NULL, 4, 'Stays', 'Put', NULL, NULL);
+            INSERT INTO contacts (tenant_id, client_id, lead_id, first_name, last_name, title, email,
+                                  deleted_at) VALUES
+              (1, 1, NULL, 'JANE', 'DOE', NULL, NULL, NULL),
+              (1, NULL, 2, 'Extra', 'Person', NULL, NULL, NULL),
+              (1, NULL, 2, 'Grace', 'Hopper', 'Admiral', NULL, NULL),
+              (1, NULL, 4, 'Stays', 'Put', NULL, NULL, NULL),
+              (1, 3, NULL, 'Deleted', 'Tombstone', NULL, 'info@email.example.com', now());
             INSERT INTO projects (id, tenant_id, client_id, lead_id, primary_contact_name, primary_contact_email,
                                   primary_contact_phone) VALUES
               (1, 1, 1, NULL, 'Jane Doe', 'JANE@ACME.EXAMPLE.COM', NULL),
@@ -105,6 +128,8 @@ def test_every_person_is_copied_once_and_projects_point_at_them(legacy):
             # The converted, deleted lead's people moved; its matching person became primary.
             (2, None, None, False, 'Extra', 'Person', None, None, None, None),
             (2, None, None, True, 'Grace', 'Hopper', 'Admiral', 'grace@co.example.com', None, None),
+            # The tombstone is left alone; a live contact is created for the same email.
+            (3, None, None, False, 'Deleted', 'Tombstone', None, 'info@email.example.com', None, None),
             (3, None, None, True, None, None, None, 'info@email.example.com', None, None),
             (None, 1, None, True, 'Ada', 'Lovelace', None, 'ada@ai.example.com', '+15550100001', 'mobile'),
             (None, 2, None, True, 'Grace', 'Hopper', None, None, None, None),
@@ -130,6 +155,19 @@ def test_every_person_is_copied_once_and_projects_point_at_them(legacy):
         # Deleting a person unlinks projects without touching their tenant.
         c.execute(text("DELETE FROM contacts WHERE first_name = 'Ray'"))
         assert rows(c, 'SELECT tenant_id, primary_contact_id FROM projects WHERE id = 2') == [(1, None)]
+
+
+def test_tombstoned_contact_with_matching_email_is_not_promoted(legacy):
+    engine, schema = legacy
+    upgrade(engine, schema)
+    with engine.begin() as c:
+        c.execute(text(f'SET LOCAL search_path="{schema}"'))
+        assert rows(c,
+                    'SELECT client_id, lead_id, project_id, is_primary, first_name, email, '
+                    "deleted_at IS NOT NULL FROM contacts WHERE email = 'info@email.example.com' ORDER BY id") == [
+            (3, None, None, False, 'Deleted', 'info@email.example.com', True),
+            (3, None, None, True, None, 'info@email.example.com', False),
+        ]
 
 
 def test_migration_is_atomic_when_it_fails(legacy):

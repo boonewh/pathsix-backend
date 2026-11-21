@@ -314,6 +314,34 @@ def test_records_carry_parent_uuids_and_iso_datetimes(crm):
     assert 'converted_on' not in records['clients']
 
 
+def test_project_owned_contact_carries_project_uuid_and_leaves_on_access_loss(crm):
+    call, factory, _ = crm
+    _pg(factory)
+    with factory.begin() as c:
+        _insert(c, 'projects', id=920, tenant_id=1, created_by=1, assigned_to=3,
+                project_name='Owned project', project_status='pending')
+        _insert(c, 'contacts', id=920, tenant_id=1, project_id=920,
+                first_name='Pat', last_name='Lee', is_primary=True)
+
+    changes, cursor, _ = _drain(call, limit=200, user=3)
+    project_key = _pair(factory, 'projects', 920)
+    contact_key = _pair(factory, 'contacts', 920)
+    contact = next(change for change in changes
+                   if (change['entity'], change['uuid']) == contact_key)
+    assert contact['op'] == 'upsert'
+    assert project_key in set(_pairs(changes))
+    assert contact['record']['project_id'] == 920
+    assert contact['record']['project_uuid'] == _uuid(factory, 'projects', 920)
+    assert contact['record']['is_primary'] is True
+    assert contact['record']['client_id'] is None and contact['record']['lead_id'] is None
+
+    with factory.begin() as c:
+        c.execute(text('UPDATE projects SET assigned_to=1 WHERE id=920'))
+    changes, _, _ = _drain(call, cursor=cursor, limit=200, user=3)
+    removed = {key for key, change in zip(_pairs(changes), changes) if change['op'] == 'remove'}
+    assert removed == {project_key, contact_key}
+
+
 # ---------------------------------------------------------------------------
 # 2. Incremental changes
 # ---------------------------------------------------------------------------
@@ -871,6 +899,54 @@ def test_markers_ignore_caller_values_and_separate_content_from_access(
     assert row['sync_change_xid'] > content_change
     assert row['sync_change_xid'] not in (111, 222)
     assert row['sync_access_xid'] == row['sync_change_xid']
+
+
+@pytest.mark.parametrize('table,parent_field,record_id',
+                         (('clients', 'client_id', 9210), ('leads', 'lead_id', 9211)))
+def test_primary_contact_change_moves_parent_change_marker(crm, table, parent_field, record_id):
+    _, factory, _ = crm
+    _pg(factory)
+    with factory.begin() as c:
+        _insert(c, table, id=record_id, tenant_id=1, created_by=1, name='Marker parent')
+        _insert(c, 'contacts', id=record_id, tenant_id=1, first_name='Primary',
+                is_primary=True, **{parent_field: record_id})
+
+    def marker():
+        with factory() as db:
+            return db.execute(text(f'SELECT sync_change_xid FROM {table} WHERE id=:id'),
+                              {'id': record_id}).scalar_one()
+
+    before = marker()
+    with factory.begin() as c:
+        c.execute(text('UPDATE contacts SET last_name=:last WHERE id=:id'),
+                  {'last': 'Changed', 'id': record_id})
+    assert marker() > before
+
+
+def test_contact_change_moves_every_pointing_project_marker(crm):
+    _, factory, _ = crm
+    _pg(factory)
+    project_ids = (9220, 9221)
+    with factory.begin() as c:
+        _insert(c, 'clients', id=9220, tenant_id=1, created_by=1, name='Contact owner')
+        _insert(c, 'contacts', id=9220, tenant_id=1, client_id=9220,
+                first_name='Shared', last_name='Person')
+        for project_id in project_ids:
+            _insert(c, 'projects', id=project_id, tenant_id=1, created_by=1, client_id=9220,
+                    project_name=f'Pointer {project_id}', project_status='pending',
+                    primary_contact_id=9220)
+
+    def markers():
+        with factory() as db:
+            return dict(db.execute(text('SELECT id, sync_change_xid FROM projects WHERE id IN (9220, 9221)')).all())
+
+    before = markers()
+    assert set(before) == set(project_ids)
+    with factory.begin() as c:
+        c.execute(text("UPDATE contacts SET last_name='Changed' WHERE id=9220"))
+    after = markers()
+    assert set(after) == set(project_ids)
+    assert all(after[project_id] > before[project_id] for project_id in project_ids)
 
 
 @pytest.mark.parametrize('table', ENTITIES)

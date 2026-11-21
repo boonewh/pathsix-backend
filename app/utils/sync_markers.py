@@ -99,38 +99,6 @@ REVOKE ALL ON FUNCTION {PURGE_FUNCTION}() FROM PUBLIC;
 """
 
 
-# A person's fields appear on their client, lead or project (contacts cleanup:
-# contact_person and the rest read the primary contact; a project points at one
-# contact). When a contact changes, those records changed for the feed too, so
-# this touches them (UPDATE ... SET id = id fires their sync_mark_row trigger).
-# Same SQL as the mobile_contacts_sync migration, which keeps its own frozen copy.
-CONTACT_PARENTS_FUNCTION = 'sync_touch_contact_parents'
-CONTACT_PARENTS_SQL = f"""
-CREATE OR REPLACE FUNCTION {CONTACT_PARENTS_FUNCTION}() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
-    IF TG_OP <> 'INSERT' THEN
-        IF OLD.is_primary THEN
-            UPDATE clients SET id = id WHERE id = OLD.client_id AND tenant_id = OLD.tenant_id;
-            UPDATE leads SET id = id WHERE id = OLD.lead_id AND tenant_id = OLD.tenant_id;
-        END IF;
-        UPDATE projects SET id = id WHERE primary_contact_id = OLD.id AND tenant_id = OLD.tenant_id;
-    END IF;
-    IF TG_OP <> 'DELETE' AND NEW.is_primary THEN
-        UPDATE clients SET id = id WHERE id = NEW.client_id AND tenant_id = NEW.tenant_id;
-        UPDATE leads SET id = id WHERE id = NEW.lead_id AND tenant_id = NEW.tenant_id;
-    END IF;
-    RETURN NULL;
-END
-$$;
-"""
-
-
-def contact_parents_trigger_sql(quote=lambda name: f'"{name}"', qualified=None):
-    target = qualified or quote('contacts')
-    return (f'CREATE TRIGGER {quote("sync_touch_contact_parents")} AFTER INSERT OR UPDATE OR DELETE ON {target} '
-            f'FOR EACH ROW EXECUTE FUNCTION {CONTACT_PARENTS_FUNCTION}();' + '\n')
-
-
 def trigger_sql(table, quote=lambda name: f'"{name}"', qualified=None):
     """Both triggers for one table. `qualified` is the schema-qualified table name."""
     target = qualified or quote(table)
@@ -157,8 +125,3 @@ def install_sync_ddl(metadata):
     for name in SYNC_TABLES:
         event.listen(tables[name], 'after_create',
                      DDL(trigger_sql(name, qualified='%(fullname)s')).execute_if(dialect='postgresql'))
-    # The contacts trigger updates clients, leads and projects, so it is created
-    # once all tables exist.
-    event.listen(metadata, 'after_create', DDL(
-        (CONTACT_PARENTS_SQL + contact_parents_trigger_sql(qualified='contacts')).replace('%', '%%')
-    ).execute_if(dialect='postgresql'))

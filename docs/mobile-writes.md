@@ -114,4 +114,6 @@ After the contacts cleanup (`docs/contacts-unified.md`), a client's or lead's pe
   - Other contacts are edited as before.
 - **The feed:**
   - Contacts are sent with `project_id`/`project_uuid` and `is_primary`. Every person is sent, primary contacts included.
-  - A trigger touches the parent client or lead when its primary contact changes, and every project pointing at a changed contact. Their markers move, so phones see the new person fields (migration `mobile_contacts_sync`).
+  - A client or lead is re-sent when its primary contact changes, and a project when the contact it points at changes. The feed reads the contact's own change marker (`SyncFeedService._changed`); no trigger touches the parent records. Migration `mobile_contacts_sync` only adds `project_id` to the contacts access fields.
+  - Person-field projections ignore tombstoned contacts, because the feed reads outside the ORM tombstone filter.
+- **Busy database:** a deadlock, serialization failure or lock timeout on these routes gives 503 `busy_retry` with `Retry-After: 1`. Nothing was written, and the phone retries the same request.

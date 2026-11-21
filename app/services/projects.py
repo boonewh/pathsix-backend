@@ -13,7 +13,7 @@ from sqlalchemy.orm import joinedload
 from sqlalchemy import or_, and_, func
 from app.services.base import TenantService
 from app.services.errors import RecordNotFound
-from app.services.access import project_access_filter
+from app.services.access import owned_record_filter, project_access_filter
 
 
 class ProjectService(TenantService):
@@ -253,6 +253,16 @@ class ProjectService(TenantService):
         if not self._can_access(project):
             raise RecordNotFound("Project not found")
         update_data = data.model_dump(exclude_unset=True)
+        # A project under a client or lead points at one of that record's people
+        # (contacts cleanup), so changing the project's contact fields changes
+        # that person in place. Require access to the owning record as well.
+        if any(field.startswith("primary_contact_") for field in update_data):
+            client_id = update_data.get("client_id", project.client_id)
+            lead_id = update_data.get("lead_id", project.lead_id)
+            owner, owner_id = (Client, client_id) if client_id else (Lead, lead_id)
+            if owner_id is not None and self._query(owner).filter(
+                    owner.id == owner_id, owned_record_filter(owner, self.principal)).first() is None:
+                raise PermissionError("This project's contact belongs to a record you cannot edit")
         if update_data.get("project_name", project.project_name) is None:
             raise ValueError("Project name cannot be null")
         if any(
