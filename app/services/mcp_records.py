@@ -72,9 +72,10 @@ class RecordReads(TenantService):
     # Contacts --------------------------------------------------------------
     def _contact_access(self):
         p = self.principal
-        return or_(
+        # The primary person is read through the client or lead record.
+        return and_(Contact.is_primary.is_(False), or_(
             and_(Contact.lead_id.is_(None), Contact.client.has(owned_record_filter(Client, p))),
-            and_(Contact.client_id.is_(None), Contact.lead.has(owned_record_filter(Lead, p))))
+            and_(Contact.client_id.is_(None), Contact.lead.has(owned_record_filter(Lead, p)))))
 
     def contacts(self, *, query='', client_id=None, lead_id=None, contact_id=None, after_id=0, limit=20):
         client_id, lead_id, contact_id = _ident(client_id), _ident(lead_id), _ident(contact_id)

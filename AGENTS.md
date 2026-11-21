@@ -3,10 +3,10 @@
 ## Branches and deployments
 
 - `main` is the production CRM (Fly app `pathsixsolutions-backend`).
-- `staging` is the AI connector MVP and the working branch (Fly app
-  `pathsixsolutions-backend-staging`). The former `codex/mvp-lead-creation`
-  branch was merged into it (PR 27) and is retired. Never merge or deploy MVP work to
-  production without the user's explicit decision.
+- `staging` is the working branch (Fly app `pathsixsolutions-backend-staging`).
+  The former `codex/mvp-lead-creation` branch was merged into it (PR 27) and is
+  retired. Never merge or deploy `staging` work to production without the
+  user's explicit decision.
 - Local PostgreSQL for the full test suite: `G:\Projects\tools\pathsix-test-db.sh
   start`, then `eval "$(bash G:/Projects/tools/pathsix-test-db.sh env)"`.
 
@@ -29,23 +29,20 @@ While iterating, run only the test files for the code you changed, then the
 `core` tier (plus any tier above that your change touches) before pushing. Let
 CI confirm everything else.
 
-## Active MVP scope lock
+## AI connector status: production beta (November 20, 2026)
 
-Read `docs/mcp-readiness-status.md` before planning or changing this project. Its
-locked capabilities, implementation criteria and completion checklist define the
-only planned build until the MVP is finished. Historical roadmaps do not expand it.
+The AI connector is a beta in production (`https://api.pathsix.app/mcp`). The
+user lifted the MVP scope lock on November 20, 2026, so new web CRM work may
+start on `staging`. `docs/mcp-readiness-status.md` records the connector's
+history and its open beta follow-up items (manual walkthroughs, other-client
+checks, retention and restore drills, the OpenAI submission package); read it
+before changing the connector.
 
-- Implement the MVP and necessary supporting changes; do not add speculative
-  improvements, scaling work, extra tools or broad refactors along the way.
-- You may investigate and fix discovered bugs or issues without separate scope
-  approval. Keep repairs bounded to intended behavior, security, data integrity
-  or reliability, and document relevant verification. Do not label an enhancement
-  a bug fix to bypass the scope lock.
-- If you believe something outside the MVP should be done, explicitly identify it
-  as outside scope, explain the reason and impact, and ask the user before doing
-  it. Wait for their decision on that work while continuing independent MVP work.
-- Record other issues or ideas in the plan's final `Future consideration` section.
-  That list is not authorized work. Only the user can approve scope expansion.
-- Once the MVP is complete, report its evidence and external release status; do
-  not automatically start deferred work. Preserve existing operational permission
-  requirements and distinguish source, test and deployment status.
+- Keep each change bounded to what the user asked for; ask before broad
+  refactors or schema redesigns.
+- The connector's tools are live in production: treat changes to their inputs
+  or outputs as breaking for connected AI clients.
+- Record ideas that are not yet approved in that document's
+  `Future consideration` section. That list is not authorized work.
+- Preserve existing operational permission requirements, and distinguish
+  source, test and deployment status when reporting.

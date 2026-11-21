@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable
 
-from app.models import Client, Contact, Interaction, Lead, Project
+from app.models import Client, Contact, Interaction, Lead, Project, storage_column
 from app.schemas.contacts import ContactCreateSchema
 from app.schemas.interactions import InteractionCreateSchema
 from app.schemas.leads import LeadCreateSchema
@@ -83,7 +83,7 @@ def validate_lead(value):
         raise ValueError('Lead fields are too long')
     validated = LeadCreateSchema.model_validate(value)
     for key, field in validated.model_dump(mode='json').items():
-        bound = getattr(Lead.__table__.c[key].type, 'length', None)
+        bound = getattr(storage_column(Lead, key).type, 'length', None)
         if bound and isinstance(field, str) and len(field) > bound:
             raise ValueError('Lead field exceeds its storage limit')
     return validated
@@ -142,7 +142,7 @@ def _checked(schema, model, value, excluded=()):
             # CRM dates are the user's local wall-clock times (see mcp_records).
             # ActionConflict text reaches the model, so it can correct the call.
             raise ActionConflict('Give dates as local times without a time zone, like 2026-11-10T10:00')
-        column = model.__table__.c.get(key)
+        column = storage_column(model, key)
         bound = getattr(getattr(column, 'type', None), 'length', None)
         if bound and isinstance(field, str) and len(field) > bound:
             raise ValueError('A field exceeds its storage limit')

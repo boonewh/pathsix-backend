@@ -21,7 +21,8 @@ DEPENDENCIES = {
               (Contact, "lead_id", "contacts"),
               (Project, "lead_id", "projects"),
               (Client, "source_lead_id", "converted accounts")),
-    "projects": ((Interaction, "project_id", "interactions"),),
+    "projects": ((Interaction, "project_id", "interactions"),
+                 (Contact, "project_id", "contacts")),
 }
 
 
@@ -58,6 +59,8 @@ class PurgeService(TenantService):
             counts = self.session.query(parent_id, func.count(child.id)).filter(
                 child.tenant_id == self.principal.tenant_id,
                 parent_id.in_(selected_ids),
+                # A record's own primary person goes with it (formerly its columns).
+                *((child.is_primary.is_(False),) if child is Contact else ()),
             ).group_by(parent_id).all()
             for record_id, count in counts:
                 blockers[record_id].append({"kind": label, "count": count})
@@ -73,6 +76,11 @@ class PurgeService(TenantService):
         from app.utils.sales_audit import log_bulk_deletion
         log_bulk_deletion(self.session, self._query(model).filter(model.id.in_(selected_ids)))
 
+        own_key = {"clients": Contact.client_id, "leads": Contact.lead_id, "projects": Contact.project_id}[resource]
+        self.session.query(Contact).filter(
+            Contact.tenant_id == self.principal.tenant_id, own_key.in_(selected_ids),
+            Contact.is_primary.is_(True),
+        ).delete(synchronize_session=False)
         # Bulk SQL intentionally avoids ORM nulling of nullable child references.
         self._query(model).filter(model.id.in_(selected_ids), model.deleted_at.isnot(None)).delete(
             synchronize_session=False

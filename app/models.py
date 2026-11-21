@@ -1,5 +1,8 @@
 from sqlalchemy import Column, Integer, String, DateTime, Text, Float, ForeignKey, Table, Boolean
+from sqlalchemy import func, select, text, false
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship, backref
+from sqlalchemy.orm.attributes import flag_dirty
 from datetime import datetime
 from app.database import Base
 from sqlalchemy import Enum, Index, UniqueConstraint, JSON, ForeignKeyConstraint, CheckConstraint
@@ -212,8 +215,86 @@ class AIWriteAction(Base):
     decided_at = Column(DateTime)
 
 
-class Client(Base):
+# The person fields that clients, leads and projects expose, mapped to Contact
+# columns. ``None`` is the full name, stored split as first and last name.
+CONTACT_COLUMNS = {'contact_person': None, 'contact_title': 'title', 'email': 'email', 'phone': 'phone',
+                   'phone_label': 'phone_label', 'secondary_phone': 'secondary_phone',
+                   'secondary_phone_label': 'secondary_phone_label'}
+PROJECT_CONTACT_COLUMNS = {'primary_contact_name': None, 'primary_contact_title': 'title',
+                           'primary_contact_email': 'email', 'primary_contact_phone': 'phone',
+                           'primary_contact_phone_label': 'phone_label'}
+# Labels alone do not make a person worth keeping.
+CONTACT_CONTENT = ('first_name', 'last_name', 'title', 'email', 'phone', 'secondary_phone')
+
+
+def split_name(value):
+    """'Mary Ann Smith' -> ('Mary Ann', 'Smith'); a single word is a first name."""
+    words = ' '.join((value or '').split())
+    if not words:
+        return None, None
+    first, _, last = words.rpartition(' ')
+    return (first, last) if first else (last, None)
+
+
+def full_name(first, last):
+    return ' '.join(part for part in (first, last) if part) or None
+
+
+def _contact_value(contact, column):
+    if contact is None:
+        return None
+    return full_name(contact.first_name, contact.last_name) if column is None else getattr(contact, column)
+
+
+def _set_contact_value(contact, column, value):
+    if column is None:
+        contact.first_name, contact.last_name = split_name(value)
+    else:
+        setattr(contact, column, value)
+
+
+def _primary_field(column):
+    def fget(self):
+        return _contact_value(self.primary_contact_row, column)
+
+    def fset(self, value):
+        contact = self.primary_contact_row
+        if contact is None:
+            if value in (None, ''):
+                return
+            contact = Contact(is_primary=True, tenant_id=self.tenant_id)
+            self.contacts.append(contact)
+        _set_contact_value(contact, column, value)
+
+    def expr(cls):
+        value = Contact.display_name if column is None else getattr(Contact, column)
+        return (select(value).where(getattr(Contact, cls.contact_parent_key) == cls.id,
+                                    Contact.is_primary.is_(True))
+                .correlate_except(Contact).scalar_subquery())
+
+    return hybrid_property(fget, fset, expr=expr)
+
+
+class PrimaryContactFields:
+    """Client and lead person fields, read from and written to the primary contact.
+
+    The API and the AI connector keep their contact_person/email/phone shape;
+    every person is stored once, in the contacts table.
+    """
+    contact_parent_key = None
+
+    @property
+    def primary_contact_row(self):
+        return next((contact for contact in self.contacts if contact.is_primary), None)
+
+
+for _field, _column in CONTACT_COLUMNS.items():
+    setattr(PrimaryContactFields, _field, _primary_field(_column))
+
+
+class Client(PrimaryContactFields, Base):
     __tablename__ = 'clients'
+    contact_parent_key = 'client_id'
     id = Column(Integer, primary_key=True, index=True)
     tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     created_by = Column(Integer, ForeignKey('users.id'), nullable=False)
@@ -222,13 +303,9 @@ class Client(Base):
     deleted_by = Column(Integer, ForeignKey('users.id'), nullable=True)
     assigned_to = Column(Integer, ForeignKey('users.id'), nullable=True)
     name = Column(String(100), nullable=False)
-    contact_person = Column(String(100))
-    contact_title = Column(String(100))
-    email = Column(String(120), index=True)
-    phone = Column(String(20))
-    phone_label = Column(String(20), default="work")
-    secondary_phone = Column(String(20), nullable=True)
-    secondary_phone_label = Column(String(20), nullable=True)
+    # contact_person, contact_title, email, phone and their labels are the
+    # primary contact's fields; see PrimaryContactFields. The old columns of the
+    # same names remain in the database, frozen, until a later cleanup drops them.
     address = Column(String(255))
     city = Column(String(100))
     state = Column(String(100))
@@ -267,8 +344,9 @@ class Account(Base):
         return f"<Account {self.account_number}>"
 
 
-class Lead(Base):
+class Lead(PrimaryContactFields, Base):
     __tablename__ = 'leads'
+    contact_parent_key = 'lead_id'
     id = Column(Integer, primary_key=True)
     tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
     created_by = Column(Integer, ForeignKey('users.id'), nullable=False)
@@ -278,13 +356,9 @@ class Lead(Base):
     deleted_by = Column(Integer, ForeignKey('users.id'), nullable=True)
     assigned_to = Column(Integer, ForeignKey('users.id'), nullable=True)
     name = Column(String(100), nullable=False)
-    contact_person = Column(String(100))
-    contact_title = Column(String(100))
-    email = Column(String(120), index=True)
-    phone = Column(String(20))
-    phone_label = Column(String(20), default="work")
-    secondary_phone = Column(String(20), nullable=True)
-    secondary_phone_label = Column(String(20), nullable=True)
+    # contact_person, contact_title, email, phone and their labels are the
+    # primary contact's fields; see PrimaryContactFields. The old columns of the
+    # same names remain in the database, frozen, until a later cleanup drops them.
     address = Column(String(255))
     city = Column(String(100))
     state = Column(String(100))
@@ -305,13 +379,23 @@ class Lead(Base):
     
 
 class Contact(Base):
+    """One person. Belongs to exactly one client, lead or (standalone) project.
+
+    ``is_primary`` marks the main person of that record; at most one per record.
+    """
     __tablename__ = 'contacts'
+    __table_args__ = tuple(
+        Index(f'uq_contacts_primary_{key}', key, unique=True,
+              postgresql_where=text('is_primary'), sqlite_where=text('is_primary'))
+        for key in ('client_id', 'lead_id', 'project_id'))
 
     id = Column(Integer, primary_key=True)
     tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
 
     client_id = Column(Integer, ForeignKey('clients.id'), nullable=True)
     lead_id = Column(Integer, ForeignKey('leads.id'), nullable=True)
+    project_id = Column(Integer, ForeignKey('projects.id'), nullable=True)
+    is_primary = Column(Boolean, nullable=False, default=False, server_default=false())
 
     first_name = Column(String(100))
     last_name = Column(String(100))
@@ -324,13 +408,26 @@ class Contact(Base):
     notes = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    client = relationship("Client", backref="contacts")
-    lead = relationship("Lead", backref="contacts")
+    client = relationship("Client", backref=backref("contacts", lazy="selectin"))
+    lead = relationship("Lead", backref=backref("contacts", lazy="selectin"))
+    project = relationship("Project", foreign_keys=[project_id], backref=backref("contacts", lazy="selectin"))
+
+    @hybrid_property
+    def display_name(self):
+        return full_name(self.first_name, self.last_name)
+
+    @display_name.expression
+    def display_name(cls):
+        return func.nullif(func.trim(func.coalesce(cls.first_name, '') + ' ' + func.coalesce(cls.last_name, '')), '')
+
+    @property
+    def has_content(self):
+        return any(getattr(self, column) for column in CONTACT_CONTENT)
 
     def to_dict(self):
         return {
             "id": self.id,
-            "name": f"{self.first_name} {self.last_name}".strip(),
+            "name": self.display_name or '',
             "title": self.title,
             "email": self.email,
             "phone": self.phone,
@@ -338,10 +435,44 @@ class Contact(Base):
         }
 
     def __repr__(self):
-        return f"<Contact {self.first_name} {self.last_name}>"
+        return f"<Contact {self.display_name}>"
 
 
-class Project(Base):
+def _project_field(column, field):
+    def fget(self):
+        changes = self.__dict__.get('_contact_changes')
+        if changes and field in changes:
+            return changes[field]
+        return _contact_value(self.primary_contact, column)
+
+    def fset(self, value):
+        # Resolved at flush (resolve_contacts): linking may need to find the
+        # person among the parent's existing contacts.
+        self.__dict__.setdefault('_contact_changes', {})[field] = value
+        # Not a column change, so tell the session the project needs a flush.
+        flag_dirty(self)
+
+    def expr(cls):
+        value = Contact.display_name if column is None else getattr(Contact, column)
+        return select(value).where(Contact.id == cls.primary_contact_id).correlate_except(Contact).scalar_subquery()
+
+    return hybrid_property(fget, fset, expr=expr)
+
+
+class ProjectContactFields:
+    """A project points at one contact instead of keeping its own copy.
+
+    A project under a client or lead points at one of that record's contacts
+    (matched by email or name, otherwise added there). A standalone project owns
+    its contact. Clearing every field unlinks it and drops a project-owned one.
+    """
+
+
+for _field, _column in PROJECT_CONTACT_COLUMNS.items():
+    setattr(ProjectContactFields, _field, _project_field(_column, _field))
+
+
+class Project(ProjectContactFields, Base):
     __tablename__ = 'projects'
 
     id = Column(Integer, primary_key=True)
@@ -354,11 +485,10 @@ class Project(Base):
     archive_history = Column(JSON, nullable=True)
     project_description = Column(Text, nullable=True)
     type = Column(String(50), nullable=True, default="None")
-    primary_contact_name = Column(String(100), nullable=True)
-    primary_contact_title = Column(String(100), nullable=True)
-    primary_contact_email = Column(String(120), nullable=True)
-    primary_contact_phone = Column(String(20), nullable=True)
-    primary_contact_phone_label = Column(String(20), nullable=True)
+    # primary_contact_name/_title/_email/_phone/_phone_label are the linked
+    # contact's fields; see ProjectContactFields. The old columns remain, frozen.
+    primary_contact_id = Column(Integer, ForeignKey('contacts.id', ondelete='SET NULL', use_alter=True,
+                                                    name='projects_primary_contact_id_fkey'), nullable=True)
     notes = Column(Text, nullable=True)
     project_status = Column(String(20), nullable=False) # Valid values: "pending", "won", "lost"
     project_start = Column(DateTime, nullable=True)
@@ -376,6 +506,7 @@ class Project(Base):
     # ✅ Relationships to access names in API
     client = relationship("Client", backref="projects")
     lead = relationship("Lead", backref="projects")
+    primary_contact = relationship("Contact", foreign_keys=[primary_contact_id], post_update=True, lazy="selectin")
     assigned_user = relationship("User", foreign_keys=[assigned_to])
     created_by_user = relationship("User", foreign_keys=[created_by])
 
@@ -637,3 +768,104 @@ class BackupRestore(Base):
 
     def __repr__(self):
         return f"<BackupRestore backup_id={self.backup_id} status={self.status}>"
+
+
+def storage_column(model, key):
+    """The column that stores ``key`` for ``model``, following person fields to contacts.
+
+    Length checks and tool schemas use this, since contact_person and the other
+    person fields are stored on Contact rather than on the record itself.
+    """
+    column = model.__table__.c.get(key)
+    if column is not None:
+        return column
+    mapping = CONTACT_COLUMNS if issubclass(model, PrimaryContactFields) else (
+        PROJECT_CONTACT_COLUMNS if issubclass(model, ProjectContactFields) else {})
+    if key not in mapping:
+        return None
+    return Contact.__table__.c[mapping[key] or 'first_name']
+
+
+def record_fields(record):
+    """Column values plus the person fields, as the API presents the record."""
+    names = [column.name for column in record.__table__.columns]
+    if isinstance(record, PrimaryContactFields):
+        names += list(CONTACT_COLUMNS)
+    elif isinstance(record, ProjectContactFields):
+        names += list(PROJECT_CONTACT_COLUMNS)
+    return {name: getattr(record, name) for name in names}
+
+# --- Contact resolution at flush ------------------------------------------------
+from sqlalchemy import event as _event, or_ as _or
+from sqlalchemy.orm import Session as _Session
+
+
+def _link_project_contact(session, project):
+    changes = project.__dict__.pop('_contact_changes')
+    contact = project.primary_contact
+    values = {field: _contact_value(contact, column) for field, column in PROJECT_CONTACT_COLUMNS.items()}
+    values.update(changes)
+    content = [values[f] for f in ('primary_contact_name', 'primary_contact_title',
+                                   'primary_contact_email', 'primary_contact_phone')]
+    if not any(content):
+        if contact is not None:
+            project.primary_contact = None
+            if contact.project_id is not None and contact.project_id == project.id:
+                session.delete(contact)
+        return
+    if contact is not None:
+        for field, value in changes.items():
+            _set_contact_value(contact, PROJECT_CONTACT_COLUMNS[field], value)
+        return
+    if project.client_id is not None:
+        owner = {'client_id': project.client_id}
+    elif project.lead_id is not None:
+        owner = {'lead_id': project.lead_id}
+    else:
+        owner = None
+    if owner is not None:
+        key, owner_id = next(iter(owner.items()))
+        email = (values['primary_contact_email'] or '').strip().lower()
+        name = ' '.join((values['primary_contact_name'] or '').split()).lower()
+        with session.no_autoflush:
+            candidates = session.query(Contact).filter(getattr(Contact, key) == owner_id).order_by(Contact.id).all()
+        match = next((c for c in candidates if email and (c.email or '').strip().lower() == email), None) or \
+            next((c for c in candidates if name and (c.display_name or '').lower() == name), None)
+        if match is not None:
+            # Fill gaps only: the person's existing details stay authoritative.
+            for field, column in PROJECT_CONTACT_COLUMNS.items():
+                if values[field] and not _contact_value(match, column):
+                    _set_contact_value(match, column, values[field])
+            project.primary_contact = match
+            return
+        contact = Contact(tenant_id=project.tenant_id, is_primary=False, **owner)
+    else:
+        contact = Contact(tenant_id=project.tenant_id, is_primary=True)
+        contact.project = project
+    for field, column in PROJECT_CONTACT_COLUMNS.items():
+        if values[field] is not None:
+            _set_contact_value(contact, column, values[field])
+    session.add(contact)
+    project.primary_contact = contact
+
+
+@_event.listens_for(_Session, "before_flush")
+def resolve_contacts(session, flush_context, instances):
+    for obj in list(session.new) + list(session.dirty):
+        if isinstance(obj, Project) and '_contact_changes' in obj.__dict__:
+            _link_project_contact(session, obj)
+    for obj in list(session.new) + list(session.dirty):
+        if not isinstance(obj, Contact) or obj in session.deleted:
+            continue
+        if obj.tenant_id is None:
+            parent = obj.client or obj.lead or obj.project
+            obj.tenant_id = parent.tenant_id if parent is not None else None
+        # A primary person whose details were all cleared is no longer a person.
+        if obj.is_primary and not obj.has_content:
+            for parent in (obj.client, obj.lead):
+                if parent is not None and obj in parent.contacts:
+                    parent.contacts.remove(obj)
+            if obj in session.new:
+                session.expunge(obj)
+            else:
+                session.delete(obj)
