@@ -17,6 +17,7 @@ rolls the savepoint back and nothing is written: the whole edit waits for the
 user's choice (owner decision). Comparing `before` and `after` as the service
 stores them means equivalent inputs (a formatted phone number) never conflict.
 """
+import math
 import uuid as uuid_lib
 
 from pydantic import ValidationError
@@ -117,6 +118,26 @@ def _uuid(value, what):
     return parsed
 
 
+def _scalars(values, what, entity):
+    """Every value is text, a finite number or null; required columns are not null.
+
+    Booleans are refused (True equals 1 in Python, so a boolean base could hide
+    a change), as are objects, lists and non-finite numbers (the feed's JSON
+    could not carry them).
+    """
+    model = MODELS[entity]
+    for field, value in values.items():
+        if value is None:
+            column = getattr(model, field).property.columns[0]
+            if not column.nullable and what != 'base':
+                raise InvalidMobileWrite(f'{field} cannot be empty')
+            continue
+        if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+            raise InvalidMobileWrite(f'{what}.{field} must be text, a number or null')
+        if isinstance(value, float) and not math.isfinite(value):
+            raise InvalidMobileWrite(f'{what}.{field} must be a finite number')
+
+
 def _entity(entity):
     if entity not in EDITABLE:
         raise RecordNotFound('Unknown record type')
@@ -140,6 +161,7 @@ def check_create(entity, body):
     unknown = set(fields) - set(EDITABLE[entity])
     if unknown:
         raise InvalidMobileWrite(f'Fields not allowed: {", ".join(sorted(unknown))}')
+    _scalars(fields, 'fields', entity)
     allowed, required = PARENTS[entity]
     if set(parents) - set(allowed):
         raise InvalidMobileWrite(f'Parents not allowed: {", ".join(sorted(set(parents) - set(allowed)))}')
@@ -174,10 +196,14 @@ def check_edit(entity, body):
     unknown = set(changes) - set(EDITABLE[entity])
     if unknown:
         raise InvalidMobileWrite(f'Fields not allowed: {", ".join(sorted(unknown))}')
+    _scalars(changes, 'changes', entity)
+    _scalars(base, 'base', entity)
     try:
         SCHEMAS[entity][1](**changes)
     except ValidationError as exc:
         raise InvalidMobileWrite(_validation_message(exc)) from None
+    except TypeError:  # a shared validator given the wrong type (Pydantic v2 lets it through)
+        raise InvalidMobileWrite('Invalid changes') from None
     return changes, base
 
 
@@ -216,7 +242,12 @@ class MobileRecordService:
             raise RefUnavailable('This ref is already in use')
         ids = {PARENT_FIELDS[kind]: self._resolve_parent(kind, spec) for kind, spec in parents.items()}
         data = SCHEMAS[entity][0](**fields, **ids)
-        result = self._service(entity).create(data)
+        try:
+            result = self._service(entity).create(data)
+        except IntegrityError:
+            # A permanent data problem (for example a duplicate account number):
+            # the caller rolls back; retrying the same request cannot succeed.
+            raise InvalidMobileWrite('This record conflicts with an existing one (for example a duplicate number)') from None
         record_id = result['id'] if isinstance(result, dict) else result
         try:
             with self.session.begin_nested():
@@ -247,6 +278,9 @@ class MobileRecordService:
             self.session.flush()
             self.session.refresh(row)
             after = {field: _value(getattr(row, field)) for field in changes}
+        except IntegrityError:
+            savepoint.rollback()
+            raise InvalidMobileWrite('This change conflicts with an existing record (for example a duplicate number)') from None
         except Exception:
             savepoint.rollback()
             raise
