@@ -396,6 +396,72 @@ def test_integrity_error_maps_to_400_without_receipt_or_ref(api):
     assert count(factory, Account, account_number=duplicate) == 1
 
 
+def test_text_infinity_is_rejected_on_create_and_edit(api):
+    _, factory, _ = api
+    fields = minimal_fields('projects')
+    fields['project_worth'] = 'Infinity'
+    create_key = new_key()
+    _, result, _ = create(api, 'projects', fields=fields, key=create_key)
+    assert result.status == 400, result.text
+    assert response(result)['code'] == 'invalid_request'
+    assert 'project_worth must be a finite number' in response(result)['error']
+    assert receipt(factory, create_key) is None
+
+    _, created, _ = create(api, 'projects')
+    initial = response(created, 201)
+    target = initial['uuid']
+    edit_key = new_key()
+    _, result, _ = edit(api, 'projects', target, {'project_worth': 'Infinity'},
+                        {'project_worth': initial['record']['project_worth']}, key=edit_key)
+    assert result.status == 400, result.text
+    assert response(result)['code'] == 'invalid_request'
+    assert 'project_worth must be a finite number' in response(result)['error']
+    assert receipt(factory, edit_key) is None
+    with factory() as db:
+        assert db.get(Project, initial['id']).project_worth == initial['record']['project_worth']
+
+
+def test_project_status_longer_than_column_is_rejected(api):
+    _, factory, _ = api
+    fields = minimal_fields('projects')
+    fields['project_status'] = 'x' * 21
+    create_key = new_key()
+    _, result, _ = create(api, 'projects', fields=fields, key=create_key)
+    assert result.status == 400, result.text
+    assert response(result)['code'] == 'invalid_request'
+    assert 'project_status must be at most 20 characters' in response(result)['error']
+    assert receipt(factory, create_key) is None
+
+    _, created, _ = create(api, 'projects')
+    initial = response(created, 201)
+    target = initial['uuid']
+    edit_key = new_key()
+    _, result, _ = edit(api, 'projects', target, {'project_status': 'y' * 21},
+                        {'project_status': initial['record']['project_status']}, key=edit_key)
+    assert result.status == 400, result.text
+    assert response(result)['code'] == 'invalid_request'
+    assert 'project_status must be at most 20 characters' in response(result)['error']
+    assert receipt(factory, edit_key) is None
+    with factory() as db:
+        assert db.get(Project, initial['id']).project_status == initial['record']['project_status']
+
+
+def test_project_worth_string_base_is_rejected(api):
+    _, factory, _ = api
+    _, created, _ = create(api, 'projects')
+    initial = response(created, 201)
+    target = initial['uuid']
+    key = new_key()
+    _, result, _ = edit(api, 'projects', target, {'project_worth': 12.5},
+                        {'project_worth': '0'}, key=key)
+    assert result.status == 400, result.text
+    assert response(result)['code'] == 'invalid_request'
+    assert 'base.project_worth must be a number or null' in response(result)['error']
+    assert receipt(factory, key) is None
+    with factory() as db:
+        assert db.get(Project, initial['id']).project_worth == initial['record']['project_worth']
+
+
 @pytest.mark.parametrize('value', [float('nan'), float('inf'), True, ['x'], {'x': 1}, None],
                          ids=['nan', 'inf', 'boolean', 'list', 'object', 'null'])
 def test_create_refuses_non_scalar_values_and_required_nulls(api, value):
