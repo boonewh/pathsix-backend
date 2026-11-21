@@ -23,6 +23,22 @@ async def list_contacts():
             return jsonify({'error': str(exc)}), 400
 
 
+@contacts_bp.route("/directory", methods=["GET"])
+@requires_auth()
+async def contact_directory():
+    try:
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 50))
+    except ValueError:
+        return jsonify({'error': 'Invalid page'}), 400
+    with SessionLocal() as session:
+        try:
+            return jsonify(ContactService(session, request.principal).directory(
+                page=page, per_page=per_page, query=request.args.get('q', '')))
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+
+
 @contacts_bp.route("", methods=["POST"])
 @contacts_bp.route("/", methods=["POST"])
 @requires_auth()

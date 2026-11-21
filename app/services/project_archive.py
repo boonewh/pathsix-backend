@@ -6,7 +6,7 @@ import json
 from itsdangerous import URLSafeTimedSerializer, BadSignature
 from sqlalchemy import update
 
-from app.models import Project, Interaction, Client, Lead
+from app.models import Project, Interaction, Client, Lead, record_fields
 from app.utils.project_archive_access import ARCHIVE_TENANT_ID, private_session
 
 CUTOFF = datetime(2026, 5, 1)
@@ -17,7 +17,7 @@ def serialize(record):
         if isinstance(v, datetime):
             return v.isoformat() + 'Z'
         return v.value if hasattr(v, 'value') else v
-    return {column.name: value(getattr(record, column.name)) for column in record.__table__.columns}
+    return {name: value(v) for name, v in record_fields(record).items()}
 
 
 class ArchiveConflict(ValueError):

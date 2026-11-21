@@ -13,7 +13,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Callable
 
-from app.models import Client, Contact, Interaction, Lead, Project, User
+from app.models import Client, Contact, Interaction, Lead, Project, User, storage_column
 from app.schemas.clients import ClientAssignSchema, ClientUpdateSchema
 from app.schemas.contacts import ContactUpdateSchema
 from app.schemas.interactions import InteractionUpdateSchema
@@ -140,7 +140,7 @@ def _prepare(entity):
             for key, val in validated.items():
                 if isinstance(val, datetime) and val.tzinfo is not None:
                     raise ActionConflict('Give dates as local times without a time zone, like 2026-11-10T10:00')
-                column = entity.model.__table__.c.get(key)
+                column = storage_column(entity.model, key)
                 bound = getattr(getattr(column, 'type', None), 'length', None)
                 if bound and isinstance(val, str) and len(val) > bound:
                     raise ValueError('A field exceeds its storage limit')
