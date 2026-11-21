@@ -24,7 +24,7 @@ from pydantic import ValidationError
 from sqlalchemy import DateTime, Enum, Float, Integer, Numeric, String, Text, select
 from sqlalchemy.exc import DataError, IntegrityError
 
-from app.models import Account, Client, Contact, Interaction, Lead, MobileRecordRef, Project
+from app.models import Account, Client, Contact, Interaction, Lead, MobileRecordRef, Project, storage_column
 from app.schemas.accounts import AccountCreateSchema, AccountUpdateSchema
 from app.schemas.clients import ClientCreateSchema, ClientUpdateSchema
 from app.schemas.contacts import ContactCreateSchema, ContactUpdateSchema
@@ -97,6 +97,10 @@ class RefUnavailable(Exception):
     code = 'ref_unavailable'
 
 
+class EditOnParent(InvalidMobileWrite):
+    code = 'edit_on_parent'
+
+
 class EditConflict(Exception):
     code = 'edit_conflict'
 
@@ -128,7 +132,7 @@ def _scalars(values, what, entity):
     model = MODELS[entity]
     for field, value in values.items():
         if value is None:
-            column = getattr(model, field).property.columns[0]
+            column = storage_column(model, field)
             if not column.nullable and what != 'base':
                 raise InvalidMobileWrite(f'{field} cannot be empty')
             continue
@@ -139,7 +143,9 @@ def _scalars(values, what, entity):
 
 
 def _column(entity, field):
-    return getattr(MODELS[entity], field).property.columns[0]
+    # Person fields of clients, leads and projects are stored on their contact
+    # (contacts cleanup); never read the frozen backup columns of the same names.
+    return storage_column(MODELS[entity], field)
 
 
 def _check_base_types(entity, base):
@@ -303,13 +309,27 @@ class MobileRecordService:
                .with_for_update(of=model).populate_existing().first())
         if row is None:
             raise RecordNotFound('Record not found')
+        if entity == 'contacts' and (row.is_primary or row.project_id is not None):
+            # A record's main person, or a standalone project's person, is edited
+            # through that record (ContactService refuses it as a contact).
+            raise EditOnParent("Edit this person on their client, lead or project")
+        # Person fields are stored on a contact: lock it too, so the comparison and
+        # the write see the same values even if someone edits the contact directly.
+        if entity in ('clients', 'leads'):
+            key = Contact.client_id if entity == 'clients' else Contact.lead_id
+            (self.session.query(Contact).filter(key == row.id, Contact.is_primary.is_(True))
+             .with_for_update(of=Contact).populate_existing().all())
+        elif entity == 'projects' and row.primary_contact_id is not None:
+            (self.session.query(Contact).filter(Contact.id == row.primary_contact_id)
+             .with_for_update(of=Contact).populate_existing().all())
         before = {field: _value(getattr(row, field)) for field in changes}
         record_before = self.feed.record(entity, row.id)
         savepoint = self.session.begin_nested()
         try:
             self._service(entity).update(row.id, SCHEMAS[entity][1](**changes))
             self.session.flush()
-            self.session.refresh(row)
+            # Re-read everything, person fields included (they come from contacts).
+            self.session.expire_all()
             after = {field: _value(getattr(row, field)) for field in changes}
         except (IntegrityError, DataError):
             savepoint.rollback()

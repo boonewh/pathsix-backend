@@ -1,8 +1,9 @@
 """Contact operations with inherited parent access and caller-owned transactions."""
-from app.models import Contact, Client, Lead
+from sqlalchemy import and_, case, func, or_
+from app.models import Contact, Client, Lead, Project
 from app.schemas.contacts import ContactCreateSchema, ContactUpdateSchema
 from app.services.principal import Principal
-from app.services.access import owned_record_filter
+from app.services.access import owned_record_filter, project_access_filter
 from app.services.database_context import bind_principal
 from app.services.errors import RecordNotFound
 from app.utils.phone_utils import clean_phone_number
@@ -30,7 +31,9 @@ class ContactService:
 
     def _get(self, contact_id):
         contact = self.session.query(Contact).filter(
-            Contact.id == contact_id, Contact.tenant_id == self.principal.tenant_id).first()
+            Contact.id == contact_id, Contact.tenant_id == self.principal.tenant_id,
+            # Primary and project-owned people are edited through their record.
+            Contact.is_primary.is_(False), Contact.project_id.is_(None)).first()
         if contact is None:
             raise RecordNotFound("Contact not found")
         self._parent(contact.client_id, contact.lead_id)
@@ -45,6 +48,7 @@ class ContactService:
             query = query.filter(Contact.client_id == parent_id, Contact.lead_id.is_(None))
         else:
             query = query.filter(Contact.lead_id == parent_id, Contact.client_id.is_(None))
+        query = query.filter(Contact.is_primary.is_(False))
         fields = ('id', 'first_name', 'last_name', 'title', 'email', 'phone', 'phone_label',
                   'secondary_phone', 'secondary_phone_label', 'notes')
         return [{field: getattr(contact, field) for field in fields}
@@ -84,3 +88,50 @@ class ContactService:
     def delete(self, contact_id):
         bury(self._get(contact_id), self.principal.user_id)
         self.session.flush()
+
+    def directory(self, *, page=1, per_page=50, query=''):
+        """Every person the caller can see, alphabetically, with where they belong.
+
+        A person belongs to a client, a lead or a standalone project; the record
+        must be visible and not deleted. Converted leads are deleted, so their
+        people appear once, under the client they moved to.
+        """
+        if (type(page) is not int or not 1 <= page <= 100000
+                or type(per_page) is not int or not 1 <= per_page <= 200):
+            raise ValueError("Invalid page")
+        if not isinstance(query, str) or len(query) > 200:
+            raise ValueError("Search text must be at most 200 characters")
+        p = self.principal
+        name = Contact.display_name
+        rows = (self.session.query(Contact, Client.name, Lead.name, Project.project_name)
+                .outerjoin(Client, Contact.client_id == Client.id)
+                .outerjoin(Lead, Contact.lead_id == Lead.id)
+                .outerjoin(Project, Contact.project_id == Project.id)
+                .filter(Contact.tenant_id == p.tenant_id, or_(
+                    and_(Contact.client_id.isnot(None), owned_record_filter(Client, p)),
+                    and_(Contact.lead_id.isnot(None), owned_record_filter(Lead, p)),
+                    and_(Contact.project_id.isnot(None), Project.deleted_at.is_(None),
+                         project_access_filter(p)))))
+        text = query.strip().lower()
+        if text:
+            # User text is a literal substring, not a SQL wildcard expression.
+            pattern = '%' + text.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
+            rows = rows.filter(or_(*(column.ilike(pattern, escape='\\') for column in (
+                name, Contact.email, Contact.phone, Contact.title, Client.name, Lead.name, Project.project_name))))
+        total = rows.count()
+        # Named people first, alphabetically; people known only by email follow.
+        records = rows.order_by(case((name.is_(None), 1), else_=0), func.lower(name),
+                                func.lower(Contact.email), Contact.id
+                                ).offset((page - 1) * per_page).limit(per_page).all()
+        contacts = []
+        for contact, client_name, lead_name, project_name in records:
+            if contact.client_id is not None:
+                parent = {'type': 'client', 'id': contact.client_id, 'name': client_name}
+            elif contact.lead_id is not None:
+                parent = {'type': 'lead', 'id': contact.lead_id, 'name': lead_name}
+            else:
+                parent = {'type': 'project', 'id': contact.project_id, 'name': project_name}
+            contacts.append({'id': contact.id, 'name': contact.display_name, 'title': contact.title,
+                             'email': contact.email, 'phone': contact.phone, 'phone_label': contact.phone_label,
+                             'is_primary': contact.is_primary, 'parent': parent})
+        return {'contacts': contacts, 'total': total, 'page': page, 'per_page': per_page}

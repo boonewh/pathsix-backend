@@ -73,7 +73,8 @@ FIELDS = {
                  'assigned_to', 'created_at', 'updated_at'),
     'accounts': ('id', 'uuid', 'client_id', 'account_number', 'account_name', 'status', 'opened_on',
                  'notes', 'created_at', 'updated_at'),
-    'contacts': ('id', 'uuid', 'client_id', 'lead_id', 'first_name', 'last_name', 'title', 'email',
+    'contacts': ('id', 'uuid', 'client_id', 'lead_id', 'project_id', 'is_primary', 'first_name', 'last_name',
+                 'title', 'email',
                  'phone', 'phone_label', 'secondary_phone', 'secondary_phone_label', 'notes',
                  'created_at', 'updated_at'),
     'interactions': ('id', 'uuid', 'client_id', 'lead_id', 'project_id', 'contact_person', 'email',
@@ -273,11 +274,16 @@ class SyncFeedService:
             return and_(Account.tenant_id == tenant, Account.deleted_at.is_(None),
                         Account.client.has(owned_record_filter(Client, p)))
         if entity == 'contacts':
+            # Every person, primary contacts included (owner decision, November 20,
+            # 2026), under a client, a lead or a standalone project the caller can see.
             return and_(Contact.tenant_id == tenant, Contact.deleted_at.is_(None), or_(
-                and_(Contact.client_id.isnot(None), Contact.lead_id.is_(None),
+                and_(Contact.client_id.isnot(None), Contact.lead_id.is_(None), Contact.project_id.is_(None),
                      Contact.client.has(owned_record_filter(Client, p))),
-                and_(Contact.lead_id.isnot(None), Contact.client_id.is_(None),
-                     Contact.lead.has(owned_record_filter(Lead, p)))))
+                and_(Contact.lead_id.isnot(None), Contact.client_id.is_(None), Contact.project_id.is_(None),
+                     Contact.lead.has(owned_record_filter(Lead, p))),
+                and_(Contact.project_id.isnot(None), Contact.client_id.is_(None), Contact.lead_id.is_(None),
+                     Contact.project.has(and_(Project.tenant_id == tenant, Project.deleted_at.is_(None),
+                                              Project.archived_at.is_(None), project_access_filter(p))))))
         return and_(Interaction.tenant_id == tenant, Interaction.deleted_at.is_(None),
                     interaction_access_filter(p), visible_interaction(Interaction))
 
@@ -294,7 +300,9 @@ class SyncFeedService:
         if entity == 'accounts':
             return or_(Account.sync_access_xid >= since, client(Account.client))
         if entity == 'contacts':
-            return or_(Contact.sync_access_xid >= since, client(Contact.client), lead(Contact.lead))
+            return or_(Contact.sync_access_xid >= since, client(Contact.client), lead(Contact.lead),
+                       Contact.project.has(and_(Project.tenant_id == tenant, or_(
+                           Project.sync_access_xid >= since, client(Project.client), lead(Project.lead)))))
         return or_(Interaction.sync_access_xid >= since, client(Interaction.client), lead(Interaction.lead),
                    Interaction.project.has(and_(Project.tenant_id == tenant, or_(
                        Project.sync_access_xid >= since, client(Project.client), lead(Project.lead)))))
