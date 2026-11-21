@@ -5,6 +5,7 @@ contact, projects point at a contact, converted leads hand their people to the
 client, and the directory lists everyone the caller can see, alphabetically.
 """
 import pytest
+from sqlalchemy import text
 
 from test_security_boundaries import crm
 from app.models import Client, Contact, Lead, Project, split_name
@@ -186,6 +187,62 @@ def test_directory_lists_visible_people_alphabetically_with_their_record(crm, re
     with factory() as db:
         admin_names = {c["name"] for c in ContactService(db, ADMIN).directory()["contacts"]}
         assert "Hidden Person" in admin_names and "Gone Person" not in admin_names
+
+
+@pytest.mark.parametrize("restricted", [False, True])
+def test_directory_hides_people_on_archived_standalone_projects(crm, restricted):
+    _, admin_factory, _ = crm
+    with admin_factory() as db:
+        db.add_all([
+            Project(id=20, tenant_id=1, created_by=3, project_name="Archived warehouse",
+                    project_status="pending"),
+            Project(id=21, tenant_id=1, created_by=3, project_name="Live warehouse",
+                    project_status="pending"),
+        ])
+        db.flush()
+        db.get(Project, 20).primary_contact_name = "Hidden Person"
+        db.get(Project, 21).primary_contact_name = "Visible Person"
+        db.commit()
+        # The archive guard only allows archived_at through the owner endpoint;
+        # this case needs the stored state the directory must filter out.
+        db.execute(text("UPDATE projects SET archived_at=:at, archived_by=1 WHERE id=20"),
+                   {'at': datetime.utcnow()})
+        db.commit()
+
+    factory = auth_utils.SessionLocal if restricted else admin_factory
+    with factory() as db:
+        names = [c["name"] for c in ContactService(db, ORDINARY).directory()["contacts"]]
+        assert "Hidden Person" not in names
+        assert "Visible Person" in names
+    with admin_factory() as db:
+        names = [c["name"] for c in ContactService(db, ADMIN).directory()["contacts"]]
+        assert "Hidden Person" not in names
+        assert "Visible Person" in names
+
+
+def test_project_editor_without_client_access_cannot_change_shared_contact(crm):
+    call, admin_factory, _ = crm
+    with admin_factory() as db:
+        client_id = ClientService(db, ADMIN).create(
+            ClientCreateSchema(name="Locked client", contact_person="Jane Doe"))
+        project_id = ProjectService(db, ADMIN).create(
+            ProjectCreateSchema(project_name="Assigned project", client_id=client_id,
+                                primary_contact_name="Jane Doe"))["id"]
+        db.commit()
+        db.get(Project, project_id).assigned_to = 3
+        db.commit()
+
+    for change in ({"primary_contact_name": "Changed"},
+                   {"primary_contact_email": "changed@example.com"},
+                   {"primary_contact_title": "New title"}):
+        status, body = call("PUT", f"/api/projects/{project_id}", change, user=3)
+        assert status == 403, (change, body)
+        assert "cannot edit" in body
+
+    with admin_factory() as db:
+        [contact] = people(db, client_id=client_id)
+        assert (contact.first_name, contact.last_name, contact.title, contact.email) == \
+            ("Jane", "Doe", None, None)
 
 
 def test_contact_api_leaves_primary_and_project_people_to_their_records(crm):

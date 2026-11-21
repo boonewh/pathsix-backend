@@ -902,51 +902,107 @@ def test_markers_ignore_caller_values_and_separate_content_from_access(
 
 
 @pytest.mark.parametrize('table,parent_field,record_id',
-                         (('clients', 'client_id', 9210), ('leads', 'lead_id', 9211)))
-def test_primary_contact_change_moves_parent_change_marker(crm, table, parent_field, record_id):
-    _, factory, _ = crm
+                         (('clients', 'client_id', 9310), ('leads', 'lead_id', 9311)))
+def test_primary_contact_change_resends_parent_on_incremental_page(crm, table, parent_field, record_id):
+    """The feed reads the contact's marker; it does not touch the parent's."""
+    call, factory, _ = crm
     _pg(factory)
     with factory.begin() as c:
-        _insert(c, table, id=record_id, tenant_id=1, created_by=1, name='Marker parent')
-        _insert(c, 'contacts', id=record_id, tenant_id=1, first_name='Primary',
+        _insert(c, table, id=record_id, tenant_id=1, created_by=1, name='Feed parent')
+        _insert(c, 'contacts', id=record_id, tenant_id=1, first_name='Pat', last_name='One',
                 is_primary=True, **{parent_field: record_id})
+    _, cursor, _ = _drain(call, limit=200, user=1)
 
     def marker():
         with factory() as db:
             return db.execute(text(f'SELECT sync_change_xid FROM {table} WHERE id=:id'),
                               {'id': record_id}).scalar_one()
 
-    before = marker()
+    parent_marker = marker()
     with factory.begin() as c:
         c.execute(text('UPDATE contacts SET last_name=:last WHERE id=:id'),
-                  {'last': 'Changed', 'id': record_id})
-    assert marker() > before
+                  {'last': 'Two', 'id': record_id})
+    assert marker() == parent_marker
+
+    changes, _, modes = _drain(call, cursor=cursor, limit=200, user=1)
+    assert set(modes) == {'incremental'}
+    parent_key = _pair(factory, table, record_id)
+    assert parent_key in set(_pairs(changes))
+    parent = next(change for change in changes if (change['entity'], change['uuid']) == parent_key)
+    assert parent['op'] == 'upsert'
+    assert 'Pat Two' in {value for value in parent['record'].values() if value is not None}
 
 
-def test_contact_change_moves_every_pointing_project_marker(crm):
-    _, factory, _ = crm
+def test_pointed_contact_change_resends_every_project_on_incremental_page(crm):
+    call, factory, _ = crm
     _pg(factory)
-    project_ids = (9220, 9221)
+    project_ids = (9320, 9321)
     with factory.begin() as c:
-        _insert(c, 'clients', id=9220, tenant_id=1, created_by=1, name='Contact owner')
-        _insert(c, 'contacts', id=9220, tenant_id=1, client_id=9220,
+        _insert(c, 'clients', id=9320, tenant_id=1, created_by=1, name='Contact owner')
+        _insert(c, 'contacts', id=9320, tenant_id=1, client_id=9320,
                 first_name='Shared', last_name='Person')
         for project_id in project_ids:
-            _insert(c, 'projects', id=project_id, tenant_id=1, created_by=1, client_id=9220,
+            _insert(c, 'projects', id=project_id, tenant_id=1, created_by=1, client_id=9320,
                     project_name=f'Pointer {project_id}', project_status='pending',
-                    primary_contact_id=9220)
+                    primary_contact_id=9320)
+    _, cursor, _ = _drain(call, limit=200, user=1)
 
     def markers():
         with factory() as db:
-            return dict(db.execute(text('SELECT id, sync_change_xid FROM projects WHERE id IN (9220, 9221)')).all())
+            return dict(db.execute(text(
+                'SELECT id, sync_change_xid FROM projects WHERE id IN (9320, 9321)')).all())
 
     before = markers()
     assert set(before) == set(project_ids)
     with factory.begin() as c:
-        c.execute(text("UPDATE contacts SET last_name='Changed' WHERE id=9220"))
-    after = markers()
-    assert set(after) == set(project_ids)
-    assert all(after[project_id] > before[project_id] for project_id in project_ids)
+        c.execute(text("UPDATE contacts SET last_name='Changed' WHERE id=9320"))
+    assert markers() == before  # the feed reads the contact marker, not a project trigger
+
+    changes, _, modes = _drain(call, cursor=cursor, limit=200, user=1)
+    assert set(modes) == {'incremental'}
+    pairs = set(_pairs(changes))
+    for project_id in project_ids:
+        project_key = _pair(factory, 'projects', project_id)
+        assert project_key in pairs
+        change = next(item for item in changes
+                      if (item['entity'], item['uuid']) == project_key)
+        assert change['op'] == 'upsert'
+        assert 'Shared Changed' in {value for value in change['record'].values() if value is not None}
+
+
+@pytest.mark.parametrize('table,parent_field,record_id',
+                         (('clients', 'client_id', 9330), ('leads', 'lead_id', 9331)))
+def test_soft_deleted_primary_contact_nulls_parent_person_fields(crm, table, parent_field, record_id):
+    call, factory, _ = crm
+    _pg(factory)
+    with factory.begin() as c:
+        _insert(c, table, id=record_id, tenant_id=1, created_by=1, name='Feed parent')
+        _insert(c, 'contacts', id=record_id, tenant_id=1, first_name='Pat', last_name='Primary',
+                title='Owner', email='pat@example.com', phone='+15551234567', is_primary=True,
+                **{parent_field: record_id})
+    _, cursor, _ = _drain(call, limit=200, user=1)
+
+    with factory.begin() as c:
+        c.execute(text('UPDATE contacts SET deleted_at=:at, deleted_by=1 WHERE id=:id'),
+                  {'at': datetime.utcnow(), 'id': record_id})
+
+    changes, _, modes = _drain(call, cursor=cursor, limit=200, user=1)
+    assert set(modes) == {'incremental'}
+    parent_key = _pair(factory, table, record_id)
+    parent = next(change for change in changes if (change['entity'], change['uuid']) == parent_key)
+    assert parent['op'] == 'upsert'
+    # No stale person value may survive in the parent record. Checking values as
+    # well as named fields keeps this true whichever label the projection uses.
+    stale = {'Pat Primary', 'Owner', 'pat@example.com', '+15551234567'}
+    assert not stale.intersection(value for value in parent['record'].values() if value is not None)
+    for field in ('contact_person', 'contact_title', 'email', 'phone', 'phone_label',
+                  'secondary_phone', 'secondary_phone_label'):
+        if field in parent['record']:
+            assert parent['record'][field] is None, field
+    # The tombstoned person itself leaves this device's view.
+    contact_change = next(change for change in changes
+                          if (change['entity'], change['uuid']) == _pair(factory, 'contacts', record_id))
+    assert contact_change['op'] == 'remove'
 
 
 @pytest.mark.parametrize('table', ENTITIES)

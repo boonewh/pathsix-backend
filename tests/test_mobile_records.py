@@ -21,6 +21,7 @@ from sqlalchemy.exc import DBAPIError
 
 from app.models import Account, Client, Contact, Device, Interaction, Lead, MobileRecordRef, Project, User, \
     WriteReceipt
+from app.routes import mobile_records as mobile_records_routes
 from app.services.devices import credential_marker
 from app.services.mobile_records import EDITABLE
 from app.utils.phone_utils import clean_phone_number
@@ -716,3 +717,23 @@ def test_contacts_entity_edit_of_a_primary_contact_is_refused(api):
     assert receipt(factory, key) is None
     with factory() as db:
         assert db.get(Contact, contact_id).email == 'primary@example.com'
+
+
+@pytest.mark.parametrize('pgcode', ('40P01', '40001', '55P03'))
+def test_busy_database_errors_return_503_with_retry_after(api, monkeypatch, pgcode):
+    _, factory, _ = api
+
+    def busy(*_args, **_kwargs):
+        original = Exception('database busy')
+        original.pgcode = pgcode
+        raise DBAPIError('INSERT INTO clients (name) VALUES (:name)', {}, original)
+
+    monkeypatch.setattr(mobile_records_routes, 'mobile_write', busy)
+    _, result, key = create(api, 'clients', fields={'name': 'Busy'})
+    assert result.status == 503, result.text
+    payload = response(result)
+    assert payload['code'] == 'busy_retry'
+    assert header(result, 'Retry-After') == '1'
+    assert header(result, 'Cache-Control') == 'no-store'
+    assert receipt(factory, key) is None
+    assert count(factory, Client, name='Busy') == 0
