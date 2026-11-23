@@ -58,6 +58,13 @@ class ClientService(TenantService):
         for field in ('phone', 'secondary_phone'):
             fields[field] = clean_phone_number(fields[field]) if fields[field] else None
         fields['email'] = str(data.email) if data.email else None
+        if data.source_lead_id is not None:
+            # A converted lead keeps its business type, and a won lead becomes an
+            # active client, unless the conversion says otherwise.
+            if fields.get('type') in (None, '', 'None') and lead.type not in (None, '', 'None'):
+                fields['type'] = lead.type
+            if 'status' not in data.model_fields_set:
+                fields['status'] = 'active'
         person = {field: fields.pop(field) for field in CONTACT_COLUMNS if field in fields} if data.source_lead_id else {}
         client = Client(**fields, tenant_id=self.principal.tenant_id,
                         created_by=self.principal.user_id,
@@ -127,8 +134,10 @@ class ClientService(TenantService):
         client = self._get(client_id)
         lead_origin = None
         if client.source_lead_id:
+            # Conversion deletes the lead, so its origin must still be found then.
             lead = self._query(Lead).filter(
-                Lead.id == client.source_lead_id, owned_record_filter(Lead, self.principal),
+                Lead.id == client.source_lead_id,
+                owned_record_filter(Lead, self.principal, include_deleted=True),
             ).first()
             if lead:
                 lead_origin = {
@@ -143,7 +152,7 @@ class ClientService(TenantService):
         ).order_by(Contact.id).all()
         fields = ('id', 'name', 'email', 'phone', 'phone_label', 'secondary_phone',
                   'secondary_phone_label', 'address', 'contact_person', 'contact_title',
-                  'city', 'state', 'zip', 'notes', 'type')
+                  'city', 'state', 'zip', 'notes', 'type', 'status')
         result = {field: getattr(client, field) for field in fields}
         result.update(created_at=client.created_at.isoformat() + 'Z',
                       lead_origin=lead_origin, contacts=[c.to_dict() for c in contacts])
@@ -237,7 +246,7 @@ class ClientService(TenantService):
         user_ids = {i for client in clients for i in (client.assigned_to, client.created_by) if i is not None}
         users = {u.id: u.email for u in self._query(User).filter(User.id.in_(user_ids))} if user_ids else {}
         fields = ("id", "name", "email", "phone", "phone_label", "secondary_phone",
-                  "secondary_phone_label", "contact_person", "contact_title", "type")
+                  "secondary_phone_label", "contact_person", "contact_title", "type", "status")
         rows = []
         for client in clients:
             row = {field: getattr(client, field) for field in fields}

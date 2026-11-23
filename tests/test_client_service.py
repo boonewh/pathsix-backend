@@ -183,7 +183,7 @@ def test_http_list_shapes_validation_and_bulk_contract(crm):
     result = json.loads(raw)
     assert status == 200 and result["total"] == 1
     common = {"id", "name", "email", "phone", "phone_label", "secondary_phone", "secondary_phone_label",
-              "contact_person", "contact_title", "type", "assigned_to_name"}
+              "contact_person", "contact_title", "type", "status", "assigned_to_name"}
     stats = {"created_at", "interaction_count", "last_interaction_date"}
     assert set(result["clients"][0]) == common | stats | {"address", "city", "state", "zip", "notes", "assigned_to"}
     all_clients = json.loads(call("GET", "/api/clients/all")[1])
@@ -245,3 +245,31 @@ def test_failed_commit_never_notifies_or_persists_assignment(crm, monkeypatch):
     with factory() as db:
         assert db.get(Client, 1).assigned_to is None
         assert db.query(ActivityLog).filter_by(entity_type="client", entity_id=1).count() == 0
+
+
+def test_conversion_keeps_type_status_and_origin_after_lead_is_deleted(crm):
+    """Converted clients keep the lead's type, start active, and show their origin."""
+    from app.models import Lead
+    from app.schemas.clients import ClientCreateSchema, ClientUpdateSchema
+    from app.services.leads import LeadService
+    _, admin_factory, _ = crm
+    with admin_factory() as db:
+        db.add(Lead(id=40, tenant_id=1, created_by=3, name="Test Company", type="Manufacturing",
+                    lead_source="Referral", lead_status="won"))
+        db.commit()
+        service = ClientService(db, ORDINARY)
+        client_id = service.create(ClientCreateSchema(name="Test Company", source_lead_id=40))
+        LeadService(db, ORDINARY).delete(40)  # the web conversion's last step
+        db.commit()
+        detail = service.detail(client_id)
+        assert (detail["type"], detail["status"]) == ("Manufacturing", "active")
+        assert detail["lead_origin"]["lead_source"] == "Referral"
+        assert detail["lead_origin"]["converted_on"] is not None
+        # An explicit choice still wins over the conversion defaults.
+        other = service.create(ClientCreateSchema(name="Other", type="Retail", status="prospect"))
+        assert (service.detail(other)["type"], service.detail(other)["status"]) == ("Retail", "prospect")
+        # Editing status is visible on the detail page and in lists.
+        service.update(client_id, ClientUpdateSchema(status="inactive"))
+        db.commit()
+        assert service.detail(client_id)["status"] == "inactive"
+        assert {r["id"]: r["status"] for r in service.list_mine()["clients"]}[client_id] == "inactive"
