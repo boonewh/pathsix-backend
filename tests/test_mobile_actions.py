@@ -4,8 +4,13 @@ Runs against the same PostgreSQL schema and restricted runtime role as the other
 mobile acceptance tests (the `api` fixture from test_mobile_records). Design:
 pathsix-crm-mobile mobile-app-plan.md, step 4, revision 4.
 """
+import threading
+import time
+from datetime import datetime
+
 from app.models import Client, Contact, Interaction, Lead, MobileRecordRef, Project, User, WriteReceipt
 from app.routes import mobile_records as mobile_records_routes
+from purge_fixture import crm as crm  # noqa: F401
 from test_mobile_records import api as api  # noqa: F401
 from test_mobile_records import create, new_key, ref_value, response
 
@@ -118,6 +123,9 @@ def test_assignment_is_conflict_checked_and_emails_only_after_a_real_change(api,
     sent = []
 
     async def fake_send(**notification):
+        # Sent only after the commit: a separate session already sees the owner.
+        with factory() as other:
+            notification['committed_owner'] = other.get(Client, 1).assigned_to
         sent.append(notification)
 
     monkeypatch.setattr(mobile_records_routes, 'send_assignment_notification', fake_send)
@@ -129,7 +137,7 @@ def test_assignment_is_conflict_checked_and_emails_only_after_a_real_change(api,
     assert set(response(result, 200)) == {'id', 'uuid', 'record'}
     with factory() as db:
         assert db.get(Client, 1).assigned_to == 3
-    assert [n['to_email'] for n in sent] == ['ordinary@example.test']
+    assert [(n['to_email'], n['committed_owner']) for n in sent] == [('ordinary@example.test', 3)]
 
     # A replay of the same request sends nothing more.
     replay = call('POST', f'/api/mobile/records/clients/{client_uuid}/assign', {'assigned_to': 3, 'base': None}, key=key)
@@ -152,8 +160,14 @@ def test_assignment_is_conflict_checked_and_emails_only_after_a_real_change(api,
     assert len(sent) == 1
 
 
-def test_assignment_rules(api):
+def test_assignment_rules(api, monkeypatch):
     _, factory, _ = api
+    sent = []
+
+    async def fake_send(**notification):
+        sent.append(notification)
+
+    monkeypatch.setattr(mobile_records_routes, 'send_assignment_notification', fake_send)
     with factory() as db:
         client_uuid = str(db.get(Client, 1).uuid)
         lead_uuid = str(db.get(Lead, 1).uuid)
@@ -168,6 +182,7 @@ def test_assignment_rules(api):
         db.get(User, 3).is_active = True
         db.commit()
     assert assign(api, 'projects', project_uuid, 3, None)[0].status == 200
+    assert sent and sent[-1]['entity_type'] == 'project' and sent[-1]['to_email'] == 'ordinary@example.test'
     assert assign(api, 'contacts', client_uuid, 3, None)[0].status == 404  # not assignable
     call, _, _ = api
     path = f'/api/mobile/records/clients/{client_uuid}/assign'
@@ -175,6 +190,42 @@ def test_assignment_rules(api):
     assert call('POST', path, {'assigned_to': True, 'base': None}, key=new_key()).status == 400
     assert call('POST', path, {'assigned_to': 3, 'base': 'x'}, key=new_key()).status == 400
     assert call('POST', path, {'assigned_to': 3, 'base': None}, key=new_key(), device=False).status == 403
+
+
+def test_conversion_reports_won_even_from_a_won_lead_without_a_date(api):
+    _, factory, _ = api
+    lead_id, lead_uuid = make_lead(api, name='Already won')
+    with factory() as db:
+        lead = db.get(Lead, lead_id)
+        lead.lead_status = 'Won'  # a company option spelled differently, no converted_on
+        lead.converted_on = None
+        db.commit()
+    assert convert(api, lead_uuid)[1].status == 201
+    with factory() as db:
+        lead = db.get(Lead, lead_id)
+        assert lead.lead_status == 'won' and lead.converted_on is not None
+
+
+def test_a_child_create_waits_for_a_conversion_in_progress_and_then_is_refused(api):
+    _, factory, _ = api
+    _, lead_uuid = make_lead(api, name='Locked lead')
+    outcome = {}
+    with factory() as holder:
+        # Stand in for a conversion holding the lead (FOR UPDATE) until it commits.
+        lead = holder.query(Lead).filter(Lead.uuid == lead_uuid).with_for_update().one()
+
+        def child():
+            outcome['status'] = create(api, 'interactions', fields={
+                'contact_date': '2026-11-25T11:00:00', 'summary': 'Raced'}, parents={'lead': {'uuid': lead_uuid}})[1].status
+
+        worker = threading.Thread(target=child)
+        worker.start()
+        time.sleep(1.5)
+        assert worker.is_alive(), 'the child create should wait for the lead lock'
+        lead.deleted_at = datetime.utcnow()
+        holder.commit()
+    worker.join(timeout=30)
+    assert outcome.get('status') == 404
 
 
 def test_assignees_are_for_admins_only(api):

@@ -19,6 +19,7 @@ stores them means equivalent inputs (a formatted phone number) never conflict.
 """
 import math
 import uuid as uuid_lib
+from datetime import datetime
 
 from pydantic import ValidationError
 from sqlalchemy import DateTime, Enum, Float, Integer, Numeric, String, Text, select
@@ -369,7 +370,15 @@ class MobileRecordService:
             visible = self.session.execute(select(Client.id).where(
                 Client.id == existing.id, self.feed.visible('clients'))).first()
             raise AlreadyConverted(str(existing.uuid) if visible else None)
-        LeadService(self.session, self.principal).update(lead.id, LeadUpdateSchema(lead_status='won'))
+        # The conversion report counts leads whose status is exactly 'won' with a
+        # converted_on (reports.py). Write that directly rather than through the
+        # tenant option normaliser (a company option spelled 'Won' would be kept
+        # as written), and keep an existing converted_on.
+        lead.lead_status = 'won'
+        if lead.converted_on is None:
+            lead.converted_on = datetime.utcnow()
+        lead.updated_at = datetime.utcnow()
+        self.session.flush()
         fields = {field: getattr(lead, field) for field in CONVERSION_FIELDS}
         fields = {field: value for field, value in fields.items() if value not in (None, '')}
         try:
@@ -411,8 +420,10 @@ class MobileRecordService:
         if before != base:
             raise EditConflict([{'field': 'assigned_to', 'base': base, 'mine': assigned_to, 'theirs': before}],
                                self.feed.record(entity, row.id))
-        notification = self._service(entity).assign(row.id, ASSIGNABLE[entity](assigned_to=assigned_to))
+        result = self._service(entity).assign(row.id, ASSIGNABLE[entity](assigned_to=assigned_to))
         self.session.flush()
+        # Only the mail arguments: ProjectService.assign also returns assigned_to.
+        notification = {key: result[key] for key in ('to_email', 'entity_type', 'entity_name')}
         return {'id': row.id, 'uuid': str(row.uuid), 'record': self.feed.record(entity, row.id),
                 'notification': notification}
 
