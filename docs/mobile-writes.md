@@ -117,3 +117,49 @@ After the contacts cleanup (`docs/contacts-unified.md`), a client's or lead's pe
   - A client or lead is re-sent when its primary contact changes, and a project when the contact it points at changes. The feed reads the contact's own change marker (`SyncFeedService._changed`); no trigger touches the parent records. Migration `mobile_contacts_sync` only adds `project_id` to the contacts access fields.
   - Person-field projections ignore tombstoned contacts, because the feed reads outside the ORM tombstone filter.
 - **Busy database:** a deadlock, serialization failure or lock timeout on these routes gives 503 `busy_retry` with `Retry-After: 1`. Nothing was written, and the phone retries the same request.
+
+## Lead conversion and assignment (roadmap step 4, F-17)
+
+Both are device-token routes with a required `Idempotency-Key`, written through
+`mobile_write` (receipts keep `{id, uuid}`; replays return identifiers only).
+
+### `POST /api/mobile/records/leads/<uuid>/convert`, body `{ref}`
+
+One transaction:
+
+1. Receipt lookup; a `ref` already used in the tenant gives 409 `ref_unavailable`.
+2. Lock the visible lead `FOR UPDATE` (hidden or deleted: 404). A live client
+   whose `source_lead_id` is this lead gives 409 `already_converted`; the
+   answer carries `client_uuid` only when the caller can see that client.
+3. Mark the lead won (`LeadService.update`, which sets `converted_on`).
+4. Create the client through `ClientService.create` with `source_lead_id`,
+   copying the lead's name, person, address and notes from the locked lead
+   (never from the request). The service takes the lead's type, starts the
+   client active and moves the lead's contacts with their ids.
+5. Move the lead's interactions (`InteractionService.transfer`) and its
+   projects to the client.
+6. Soft-delete the lead, store the client's `ref`, and answer 201
+   `{id, uuid, record}`.
+
+Mobile creates now take `FOR SHARE` on a named parent and recheck it, so a
+create naming a lead waits for a conversion and then gets 404. Web creates are
+unchanged.
+
+### `POST /api/mobile/records/<entity>/<uuid>/assign`, body `{assigned_to, base}`
+
+For clients, leads and projects; admins only (403 otherwise). The visible
+record is locked and `assigned_to` compared with `base`:
+
+- already `assigned_to`: 200, no change and no email;
+- changed since `base`: 409 `edit_conflict` with
+  `[{field: 'assigned_to', base, mine, theirs}]` and the current record;
+- otherwise the service's `assign` (active user of the same tenant, else 400)
+  and 200 `{id, uuid, record}`.
+
+The owner email is sent after the commit, best effort as on the web, only when
+this request changed the owner: replays, conflicts and no-ops send none.
+
+### `GET /api/mobile/assignees`
+
+Device token, admins only (403 otherwise): `{assignees: [{id, email}]}`, the
+tenant's active users, for the phone's Assign picker.

@@ -24,13 +24,13 @@ from pydantic import ValidationError
 from sqlalchemy import DateTime, Enum, Float, Integer, Numeric, String, Text, select
 from sqlalchemy.exc import DataError, IntegrityError
 
-from app.models import Account, Client, Contact, Interaction, Lead, MobileRecordRef, Project, storage_column
+from app.models import Account, Client, Contact, Interaction, Lead, MobileRecordRef, Project, User, storage_column
 from app.schemas.accounts import AccountCreateSchema, AccountUpdateSchema
-from app.schemas.clients import ClientCreateSchema, ClientUpdateSchema
+from app.schemas.clients import ClientAssignSchema, ClientCreateSchema, ClientUpdateSchema
 from app.schemas.contacts import ContactCreateSchema, ContactUpdateSchema
 from app.schemas.interactions import InteractionCreateSchema, InteractionUpdateSchema
-from app.schemas.leads import LeadCreateSchema, LeadUpdateSchema
-from app.schemas.projects import ProjectCreateSchema, ProjectUpdateSchema
+from app.schemas.leads import LeadAssignSchema, LeadCreateSchema, LeadUpdateSchema
+from app.schemas.projects import ProjectAssignSchema, ProjectCreateSchema, ProjectUpdateSchema
 from app.services.accounts import AccountService
 from app.services.clients import ClientService
 from app.services.contacts import ContactService
@@ -99,6 +99,14 @@ class RefUnavailable(Exception):
 
 class EditOnParent(InvalidMobileWrite):
     code = 'edit_on_parent'
+
+
+class AlreadyConverted(Exception):
+    code = 'already_converted'
+
+    def __init__(self, client_uuid):
+        super().__init__('This lead was already converted')
+        self.client_uuid = client_uuid  # only when the caller can see that client
 
 
 class EditConflict(Exception):
@@ -246,6 +254,35 @@ def check_edit(entity, body):
     return changes, base
 
 
+# Step 4 (F-17): lead conversion and assignment as mobile actions.
+ASSIGNABLE = {'clients': ClientAssignSchema, 'leads': LeadAssignSchema, 'projects': ProjectAssignSchema}
+# The lead fields a converted client takes, read from the locked lead when the
+# server applies the conversion (never from the phone's queued request).
+CONVERSION_FIELDS = ('name', 'contact_person', 'contact_title', 'email', 'phone', 'phone_label',
+                     'secondary_phone', 'secondary_phone_label', 'address', 'city', 'state', 'zip', 'notes')
+
+
+def check_convert(body):
+    """Stateless validation of a conversion: the body is {ref} only. Returns the ref."""
+    if not isinstance(body, dict) or set(body) != {'ref'}:
+        raise InvalidMobileWrite('Body must be {ref}')
+    return _uuid(body['ref'], 'ref')
+
+
+def check_assign(entity, body):
+    """Stateless validation of an assignment. Returns (assigned_to, base)."""
+    if entity not in ASSIGNABLE:
+        raise RecordNotFound('Record not found')
+    if not isinstance(body, dict) or set(body) != {'assigned_to', 'base'}:
+        raise InvalidMobileWrite('Body must be {assigned_to, base}')
+    assigned_to, base = body['assigned_to'], body['base']
+    if type(assigned_to) is not int or assigned_to < 1:
+        raise InvalidMobileWrite('assigned_to must be a user id')
+    if base is not None and (type(base) is not int or base < 1):
+        raise InvalidMobileWrite('base must be a user id or null')
+    return assigned_to, base
+
+
 class MobileRecordService:
     def __init__(self, session, principal: Principal):
         if not isinstance(principal, Principal):
@@ -268,8 +305,12 @@ class MobileRecordService:
             match = model.id == select(MobileRecordRef.record_id).where(
                 MobileRecordRef.tenant_id == tenant, MobileRecordRef.entity == entity,
                 MobileRecordRef.ref == uuid_lib.UUID(spec['ref'])).scalar_subquery()
+        # FOR SHARE, rechecked under the lock: a lead being converted (FOR
+        # UPDATE) is waited for, and once it is gone this create gets 404
+        # instead of attaching a child to the deleted lead.
         record_id = self.session.execute(
-            select(model.id).where(model.tenant_id == tenant, match, self.feed.visible(entity))).scalar()
+            select(model.id).where(model.tenant_id == tenant, match, self.feed.visible(entity))
+            .with_for_update(read=True, of=model)).scalar()
         if record_id is None:
             raise RecordNotFound('Related record not found')
         return record_id
@@ -297,6 +338,92 @@ class MobileRecordService:
         model = MODELS[entity]
         canonical = self.session.execute(select(model.uuid).where(model.id == record_id)).scalar_one()
         return {'id': record_id, 'uuid': str(canonical), 'record': self.feed.record(entity, record_id)}
+
+    def _lock_visible(self, entity, record_uuid):
+        model = MODELS[entity]
+        row = (self.session.query(model)
+               .filter(model.tenant_id == self.principal.tenant_id, model.uuid == record_uuid,
+                       self.feed.visible(entity))
+               .with_for_update(of=model).populate_existing().first())
+        if row is None:
+            raise RecordNotFound('Record not found')
+        return row
+
+    def convert(self, lead_uuid, ref):
+        """Convert a lead to a client in one transaction (step 4 design, revision 4).
+
+        The lead is locked and rechecked; a client already made from it gives
+        AlreadyConverted. The client is created through ClientService with
+        source_lead_id (lead type, active status, the lead's contacts with their
+        ids), the lead is marked won, its interactions and projects move to the
+        client, and the lead is soft-deleted. The client's ref is stored with it.
+        """
+        tenant = self.principal.tenant_id
+        if self.session.execute(select(MobileRecordRef.id).where(
+                MobileRecordRef.tenant_id == tenant, MobileRecordRef.ref == ref)).first():
+            raise RefUnavailable('This ref is already in use')
+        lead = self._lock_visible('leads', lead_uuid)
+        existing = self.session.execute(select(Client.id, Client.uuid).where(
+            Client.tenant_id == tenant, Client.source_lead_id == lead.id, Client.deleted_at.is_(None))).first()
+        if existing is not None:
+            visible = self.session.execute(select(Client.id).where(
+                Client.id == existing.id, self.feed.visible('clients'))).first()
+            raise AlreadyConverted(str(existing.uuid) if visible else None)
+        LeadService(self.session, self.principal).update(lead.id, LeadUpdateSchema(lead_status='won'))
+        fields = {field: getattr(lead, field) for field in CONVERSION_FIELDS}
+        fields = {field: value for field, value in fields.items() if value not in (None, '')}
+        try:
+            data = ClientCreateSchema(**fields, source_lead_id=lead.id)
+        except ValidationError as exc:
+            raise InvalidMobileWrite(_validation_message(exc)) from None
+        client_id = ClientService(self.session, self.principal).create(data)
+        InteractionService(self.session, self.principal).transfer(lead.id, client_id)
+        projects = (self.session.query(Project)
+                    .filter(Project.tenant_id == tenant, Project.lead_id == lead.id)
+                    .with_for_update(of=Project).all())
+        for project in projects:
+            project.lead_id = None
+            project.client_id = client_id
+        self.session.flush()
+        LeadService(self.session, self.principal).delete(lead.id)
+        try:
+            with self.session.begin_nested():
+                self.session.add(MobileRecordRef(tenant_id=tenant, ref=ref, entity='clients', record_id=client_id))
+        except IntegrityError:
+            raise RefUnavailable('This ref is already in use') from None
+        canonical = self.session.execute(select(Client.uuid).where(Client.id == client_id)).scalar_one()
+        return {'id': client_id, 'uuid': str(canonical), 'record': self.feed.record('clients', client_id)}
+
+    def assign(self, entity, record_uuid, assigned_to, base):
+        """Assign a client, lead or project (admins only), conflict-checked on assigned_to.
+
+        Returns the usual {id, uuid, record} plus `notification` (the email to
+        send once committed) when this request changed the owner; None for a
+        no-op, so a repeated or already-applied assignment sends no email.
+        """
+        if not self.principal.is_admin:
+            raise PermissionError('Only administrators can assign records')
+        row = self._lock_visible(entity, record_uuid)
+        before = row.assigned_to
+        if before == assigned_to:
+            return {'id': row.id, 'uuid': str(row.uuid), 'record': self.feed.record(entity, row.id),
+                    'notification': None}
+        if before != base:
+            raise EditConflict([{'field': 'assigned_to', 'base': base, 'mine': assigned_to, 'theirs': before}],
+                               self.feed.record(entity, row.id))
+        notification = self._service(entity).assign(row.id, ASSIGNABLE[entity](assigned_to=assigned_to))
+        self.session.flush()
+        return {'id': row.id, 'uuid': str(row.uuid), 'record': self.feed.record(entity, row.id),
+                'notification': notification}
+
+    def assignees(self):
+        """Active users of the caller's tenant, for the phone's Assign picker (admins only)."""
+        if not self.principal.is_admin:
+            raise PermissionError('Only administrators can assign records')
+        users = (self.session.query(User.id, User.email)
+                 .filter(User.tenant_id == self.principal.tenant_id, User.is_active.is_(True))
+                 .order_by(User.email).all())
+        return [{'id': user.id, 'email': user.email} for user in users]
 
     def edit(self, entity, record_uuid, changes, base):
         model = MODELS[entity]
