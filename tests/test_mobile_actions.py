@@ -8,6 +8,8 @@ import threading
 import time
 from datetime import datetime
 
+from sqlalchemy import text
+
 from app.models import Client, Contact, Interaction, Lead, MobileRecordRef, Project, User, WriteReceipt
 from app.routes import mobile_records as mobile_records_routes
 from purge_fixture import crm as crm  # noqa: F401
@@ -122,11 +124,12 @@ def test_assignment_is_conflict_checked_and_emails_only_after_a_real_change(api,
     call, factory, _ = api
     sent = []
 
-    async def fake_send(**notification):
+    # The real sender's signature: an extra keyword fails here as it would there.
+    async def fake_send(to_email, entity_type, entity_name, assigned_by):
         # Sent only after the commit: a separate session already sees the owner.
         with factory() as other:
-            notification['committed_owner'] = other.get(Client, 1).assigned_to
-        sent.append(notification)
+            committed_owner = other.get(Client, 1).assigned_to
+        sent.append({'to_email': to_email, 'entity_type': entity_type, 'committed_owner': committed_owner})
 
     monkeypatch.setattr(mobile_records_routes, 'send_assignment_notification', fake_send)
     with factory() as db:
@@ -164,8 +167,8 @@ def test_assignment_rules(api, monkeypatch):
     _, factory, _ = api
     sent = []
 
-    async def fake_send(**notification):
-        sent.append(notification)
+    async def fake_send(to_email, entity_type, entity_name, assigned_by):  # the real signature
+        sent.append({'to_email': to_email, 'entity_type': entity_type})
 
     monkeypatch.setattr(mobile_records_routes, 'send_assignment_notification', fake_send)
     with factory() as db:
@@ -213,6 +216,7 @@ def test_a_child_create_waits_for_a_conversion_in_progress_and_then_is_refused(a
     with factory() as holder:
         # Stand in for a conversion holding the lead (FOR UPDATE) until it commits.
         lead = holder.query(Lead).filter(Lead.uuid == lead_uuid).with_for_update().one()
+        holder_pid = holder.connection().execute(text('SELECT pg_backend_pid()')).scalar_one()
 
         def child():
             outcome['status'] = create(api, 'interactions', fields={
@@ -220,8 +224,20 @@ def test_a_child_create_waits_for_a_conversion_in_progress_and_then_is_refused(a
 
         worker = threading.Thread(target=child)
         worker.start()
-        time.sleep(1.5)
-        assert worker.is_alive(), 'the child create should wait for the lead lock'
+        # PostgreSQL must report the child's session waiting on the holder's row
+        # lock before the holder commits; otherwise the 404 would prove nothing.
+        engine = factory.kw['bind']
+        deadline = time.monotonic() + 15
+        waiting = 0
+        while time.monotonic() < deadline and not waiting:
+            with engine.connect() as monitor:
+                waiting = monitor.execute(text(
+                    "SELECT count(*) FROM pg_stat_activity WHERE :holder = ANY(pg_blocking_pids(pid))"),
+                    {'holder': holder_pid}).scalar_one()
+            if not waiting:
+                time.sleep(0.05)
+        assert waiting, 'the child create did not wait for the lead lock'
+        assert worker.is_alive()
         lead.deleted_at = datetime.utcnow()
         holder.commit()
     worker.join(timeout=30)
