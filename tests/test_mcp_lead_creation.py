@@ -269,6 +269,48 @@ def test_lead_reads_and_options_are_bounded_and_tenant_scoped(oauth):
     assert review(oauth,action)[1]['lead']['lead_status']=='New inquiry'
 
 
+def test_lead_listing_matches_the_web_leads_page_for_every_role(oauth):
+    # User 1 is an admin, user 3 an ordinary user, both in tenant 1.
+    with oauth.admin() as db:
+        db.add_all([
+            Lead(id=11, tenant_id=1, created_by=3, name='Visibility entered by ordinary'),
+            Lead(id=12, tenant_id=1, created_by=1, assigned_to=3, name='Visibility handed to ordinary'),
+            Lead(id=13, tenant_id=1, created_by=3, assigned_to=1, name='Visibility handed to admin'),
+            Lead(id=14, tenant_id=1, created_by=1, assigned_to=1, name='Visibility removed', deleted_at=datetime.utcnow()),
+        ])
+        db.commit()
+
+    def listed(token):
+        return [row['id'] for row in call(oauth, token, 'list_leads', {'query': 'Visibility'})['structuredContent']['leads']]
+
+    def everything(token):
+        return [row['id'] for row in call(oauth, token, 'list_leads', {'limit': 50})['structuredContent']['leads']]
+
+    def opened(token, ident):
+        result = call(oauth, token, 'get_lead', {'lead_id': ident})
+        return not result.get('isError')
+
+    admin, _ = writer(oauth, user=1)
+    ordinary, _ = writer(oauth, user=3)
+    # Listing and searching: assigned to me, or unassigned and entered by me.
+    assert listed(admin) == [13]
+    assert listed(ordinary) == [11, 12]
+    # Plain listing, no search: the same rule over every lead (seeded lead 1
+    # was entered by the admin and is unassigned).
+    assert everything(admin) == [1, 13]
+    assert everything(ordinary) == [11, 12]
+    # Opening one lead keeps the record access rule.
+    assert all(opened(admin, ident) for ident in (11, 12, 13))
+    assert opened(ordinary, 13) and opened(ordinary, 12) and opened(ordinary, 11)
+    assert not opened(admin, 14)
+    # The same rule as the web Leads page.
+    from app.services.leads import LeadService
+    for user, roles in ((1, ['admin']), (3, [])):
+        with oauth.admin() as db:
+            web = LeadService(db, Principal(user_id=user, tenant_id=1, roles=roles)).list_mine(per_page=200)
+            assert sorted(row['id'] for row in web['leads'] if row['name'].startswith('Visibility')) == listed(admin if user == 1 else ordinary)
+
+
 def test_runtime_proposal_and_terminal_receipt_are_immutable(oauth):
     if oauth.admin.kw['bind'].dialect.name!='postgresql': pytest.skip('Requires PostgreSQL')
     from app.services.database_context import bind_principal
