@@ -119,12 +119,15 @@ def _check_rules(entity, session, principal, record, changes):
         options = listed(session, principal) if callable(listed) else listed
         if not options:  # No list configured: the web form offers free text.
             continue
-        wanted = str(_plain(val)).strip().casefold()
+        given = str(_plain(val)).strip()
         current = _plain(getattr(record, key))
-        if current is not None and str(current).casefold() == wanted:
+        if given in map(str, options):
+            result[key] = given  # Exactly a listed choice (also corrects a legacy spelling).
+            continue
+        if current is not None and given == str(current):
             result[key] = current  # The form keeps the record's own value selectable.
             continue
-        match = next((option for option in options if str(option).casefold() == wanted), None)
+        match = next((option for option in options if str(option).casefold() == given.casefold()), None)
         if match is None:
             raise ActionConflict(f'{label} must be one of: ' + ', '.join(map(str, options)))
         result[key] = match
@@ -208,13 +211,16 @@ def _prepare(entity):
             for key, val in validated.items():
                 if isinstance(val, datetime) and val.tzinfo is not None:
                     raise ActionConflict('Give dates as local times without a time zone, like 2026-11-10T10:00')
+            validated = _check_rules(entity, session, principal, record, validated)
+            if entity.normalize:
+                validated = entity.normalize(session, principal, validated)
+            # Storage limits apply to the values as they will be saved (after the
+            # listed spelling and normalization).
+            for key, val in validated.items():
                 column = entity.model.__table__.c.get(key)
                 bound = getattr(getattr(column, 'type', None), 'length', None)
                 if bound and isinstance(val, str) and len(val) > bound:
                     raise ValueError('A field exceeds its storage limit')
-            validated = _check_rules(entity, session, principal, record, validated)
-            if entity.normalize:
-                validated = entity.normalize(session, principal, validated)
             for key, val in validated.items():
                 if key in PHONES and key not in entity.raw_phones:
                     val = clean_phone_number(val) if val else None
