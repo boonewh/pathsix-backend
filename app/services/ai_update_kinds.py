@@ -27,7 +27,7 @@ from app.services.errors import RecordNotFound
 from app.services.interactions import InteractionService
 from app.services.leads import LeadService
 from app.services.projects import ProjectService
-from app.utils.lead_options import normalize_lead_options, tenant_lead_config
+from app.utils.lead_options import configured_options, normalize_lead_options, tenant_lead_config
 from app.utils.phone_utils import clean_phone_number
 
 PHONES = ('phone', 'secondary_phone', 'primary_contact_phone')
@@ -57,7 +57,9 @@ class Entity:
     normalize: Callable = None  # (session, principal, changes) -> changes, as the service would save them
     # Fields the web form always sends with a value: never cleared here either.
     required: tuple = ()
-    # Fields the web form only offers from a fixed list.
+    # Fields the web form only offers from a list: field -> tuple, or
+    # (session, principal) -> tuple for company-configured lists. The record's
+    # current value stays allowed (the web form keeps it selectable).
     choices: dict = None
     # Phone fields the web service stores as typed (not cleaned).
     raw_phones: tuple = ()
@@ -84,6 +86,43 @@ def _lead_options(session, principal, changes):
     return normalize_lead_options(changes, tenant_lead_config(session, principal.tenant_id))
 
 
+# The web forms' own lists (frontend clientSchemas.ts, projectSchemas.ts, crmConfig.ts).
+CLIENT_STATUSES = ('new', 'prospect', 'active', 'inactive')
+PROJECT_STATUSES = ('active', 'pending', 'completed', 'cancelled', 'lost')
+VALUE_TYPES = ('one_time', 'monthly', 'yearly')
+DEFAULT_BUSINESS_TYPES = ('None', 'Professional Services', 'Technology', 'Manufacturing',
+                          'Retail', 'Healthcare', 'Finance', 'Education', 'Other')
+
+
+def _business_types(session, principal):
+    configured = configured_options(tenant_lead_config(session, principal.tenant_id).get('businessTypes'))
+    return tuple(configured) or DEFAULT_BUSINESS_TYPES
+
+
+def _lead_statuses(session, principal):
+    leads = tenant_lead_config(session, principal.tenant_id).get('leads')
+    return tuple(configured_options(leads.get('statuses'))) if isinstance(leads, dict) else ()
+
+
+def _check_rules(entity, session, principal, record, changes):
+    """What the web form allows: required fields are never cleared and listed
+    fields take a listed value (or the record's current one). Run when
+    preparing and again when saving, so proposals made earlier are covered."""
+    for key, val in changes.items():
+        label = key.replace('_', ' ').capitalize()
+        if key in entity.required and (val is None or (isinstance(val, str) and not val.strip())):
+            raise ActionConflict(f'{label} cannot be cleared')
+        listed = (entity.choices or {}).get(key)
+        if listed is None or val is None:
+            continue
+        options = listed(session, principal) if callable(listed) else listed
+        if not options:  # No list configured: the web form offers free text.
+            continue
+        allowed = {str(option).casefold() for option in options} | {str(_plain(getattr(record, key))).casefold()}
+        if str(_plain(val)).strip().casefold() not in allowed:
+            raise ActionConflict(f'{label} must be one of: ' + ', '.join(map(str, options)))
+
+
 def _project_values(session, principal, changes):
     # ProjectService.update saves a cleared value as 0; show the review that way.
     if 'project_worth' in changes and not changes['project_worth']:
@@ -98,12 +137,14 @@ ENTITIES = {
                    lambda s, p, i: LeadService(s, p)._get(i),
                    lambda s, p, i, d: LeadService(s, p).update(i, d),
                    lambda s, p, i, u: LeadService(s, p).assign(i, LeadAssignSchema(assigned_to=u)),
-                   normalize=_lead_options, required=('name', 'lead_status', 'type')),
+                   normalize=_lead_options, required=('name', 'lead_status', 'type'),
+                   choices={'lead_status': _lead_statuses, 'type': _business_types}),
     'client': Entity('client', 'client_id', Client, ClientUpdateSchema, tuple(ClientUpdateSchema.model_fields),
                      lambda s, p, i: ClientService(s, p)._get(i),
                      lambda s, p, i, d: ClientService(s, p).update(i, d),
                      lambda s, p, i, u: ClientService(s, p).assign(i, ClientAssignSchema(assigned_to=u)),
-                     required=('name', 'status', 'type')),
+                     required=('name', 'status', 'type'),
+                     choices={'status': CLIENT_STATUSES, 'type': _business_types}),
     'contact': Entity('contact', 'contact_id', Contact, ContactUpdateSchema,
                       tuple(f for f in ContactUpdateSchema.model_fields if f not in PARENTS),
                       lambda s, p, i: ContactService(s, p)._get(i),
@@ -115,8 +156,9 @@ ENTITIES = {
                       _project, lambda s, p, i, d: ProjectService(s, p).update(i, d),
                       lambda s, p, i, u: ProjectService(s, p).assign(i, ProjectAssignSchema(assigned_to=u)),
                       name=lambda r: r.project_name, normalize=_project_values,
-                      required=('project_name', 'project_status', 'value_type'),
-                      choices={'value_type': ('one_time', 'monthly', 'yearly')}),
+                      required=('project_name', 'project_status', 'value_type', 'type'),
+                      choices={'project_status': PROJECT_STATUSES, 'value_type': VALUE_TYPES,
+                               'type': _business_types}),
     'interaction': Entity('interaction', 'interaction_id', Interaction, InteractionUpdateSchema,
                           tuple(f for f in InteractionUpdateSchema.model_fields if f not in PARENTS),
                           _interaction, lambda s, p, i, d: InteractionService(s, p).update(i, d),
@@ -162,12 +204,7 @@ def _prepare(entity):
                 bound = getattr(getattr(column, 'type', None), 'length', None)
                 if bound and isinstance(val, str) and len(val) > bound:
                     raise ValueError('A field exceeds its storage limit')
-            for key, val in validated.items():
-                if key in entity.required and (val is None or (isinstance(val, str) and not val.strip())):
-                    raise ActionConflict(f'{key.replace("_", " ").capitalize()} cannot be cleared')
-                if entity.choices and key in entity.choices and val not in entity.choices[key]:
-                    raise ActionConflict(f'{key.replace("_", " ").capitalize()} must be one of: '
-                                     + ', '.join(entity.choices[key]))
+            _check_rules(entity, session, principal, record, validated)
             if entity.normalize:
                 validated = entity.normalize(session, principal, validated)
             for key, val in validated.items():
@@ -205,6 +242,7 @@ def _execute(entity):
         if current != payload['before']:
             raise ActionConflict(f'This {entity.noun} changed after you reviewed it; prepare and review a new proposal')
         fields = {key: val for key, val in payload['changes'].items() if key != 'assigned_to'}
+        _check_rules(entity, session, principal, record, fields)  # Also proposals made before a rule existed.
         if fields:
             entity.update(session, principal, ident, entity.schema.model_validate(fields))
         if 'assigned_to' in payload['changes']:

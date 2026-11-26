@@ -2,7 +2,7 @@
 from datetime import datetime
 from uuid import uuid4
 import pytest
-from app.models import AIClient, AIToolAudit, AIWriteAction, Client, Interaction, Lead, Project, User
+from app.models import AIClient, AIToolAudit, AIWriteAction, Client, Interaction, Lead, Project, Tenant, User
 from app.services.ai_connections import PUBLISHED_SCOPES
 from app.utils import email_utils
 from test_security_boundaries import crm
@@ -144,10 +144,10 @@ def test_completing_a_follow_up_removes_it_from_the_schedule(updater):
 
 def test_project_status_and_client_status_update(updater):
     raw = token(updater)
-    approve(updater, raw, 'project', propose(updater, raw, 'project', 1, {'project_status': 'won'}))
+    approve(updater, raw, 'project', propose(updater, raw, 'project', 1, {'project_status': 'completed'}))
     approve(updater, raw, 'client', propose(updater, raw, 'client', 1, {'status': 'active'}))
     with updater.admin() as db:
-        assert db.get(Project, 1).project_status == 'won' and db.get(Client, 1).status == 'active'
+        assert db.get(Project, 1).project_status == 'completed' and db.get(Client, 1).status == 'active'
 
 
 def test_updating_needs_the_update_permission_and_kind_isolation(updater):
@@ -169,15 +169,46 @@ def test_fields_the_web_form_always_fills_cannot_be_cleared(updater):
     refused(propose(updater, raw, 'project', 1, {'project_status': None}), 'cannot be cleared')
     refused(propose(updater, raw, 'project', 1, {'project_status': '  '}), 'cannot be cleared')
     refused(propose(updater, raw, 'project', 1, {'value_type': None}), 'cannot be cleared')
-    refused(propose(updater, raw, 'project', 1, {'value_type': 'weekly'}), 'must be one of')
+    refused(propose(updater, raw, 'project', 1, {'type': ''}), 'cannot be cleared')
     refused(propose(updater, raw, 'interaction', 1, {'followup_status': None}), 'cannot be cleared')
     refused(propose(updater, raw, 'lead', 1, {'lead_status': ''}), 'cannot be cleared')
     refused(propose(updater, raw, 'client', 1, {'status': None}), 'cannot be cleared')
     refused(propose(updater, raw, 'contact', 1, {'first_name': '   '}), 'cannot be cleared')
     with updater.admin() as db:
         assert db.query(AIWriteAction).count() == 0
-    # A listed value is still accepted.
-    assert propose(updater, raw, 'project', 1, {'value_type': 'monthly'})['structuredContent']['status'] == 'pending'
+
+
+def test_listed_fields_take_the_web_forms_values(updater):
+    raw = token(updater)
+    refused(propose(updater, raw, 'project', 1, {'value_type': 'weekly'}), 'must be one of')
+    refused(propose(updater, raw, 'project', 1, {'project_status': 'won'}), 'must be one of')  # Not offered by the web form.
+    refused(propose(updater, raw, 'client', 1, {'status': 'dormant'}), 'must be one of')
+    refused(propose(updater, raw, 'client', 1, {'type': 'Aerospace'}), 'must be one of')  # Default business types.
+    with updater.admin() as db:
+        db.get(Tenant, 1).config = {'businessTypes': ['Aerospace'], 'leads': {'statuses': ['New inquiry', 'Qualified']}}
+        db.get(Project, 1).type = 'Legacy kind'
+        db.commit()
+    assert propose(updater, raw, 'client', 1, {'type': 'aerospace'})['structuredContent']['status'] == 'pending'
+    refused(propose(updater, raw, 'lead', 1, {'lead_status': 'Lost interest'}), 'must be one of')
+    assert propose(updater, raw, 'lead', 1, {'lead_status': 'Qualified'})['structuredContent']['status'] == 'pending'
+    # The record's current value stays allowed, as the web form keeps it selectable.
+    kept = propose(updater, raw, 'project', 1, {'type': 'Legacy kind', 'value_type': 'monthly'})
+    assert kept['structuredContent']['status'] == 'pending'
+
+
+def test_a_proposal_made_before_a_rule_is_checked_again_at_approval(updater):
+    raw = token(updater)
+    proposed = propose(updater, raw, 'project', 1, {'project_name': 'Renamed'})
+    ident = proposed['structuredContent']['action_id']
+    with updater.admin() as db:
+        # Simulate a proposal saved by the earlier release, before the rule existed.
+        action = db.get(AIWriteAction, ident)
+        action.payload = {**action.payload, 'changes': {'project_status': None}, 'before': {'project_status': 'pending'}}
+        db.commit()
+    status = call(updater, raw, 'get_project_update', {'action_id': ident})
+    refused(approve(updater, raw, 'project', status), 'cannot be cleared')
+    with updater.admin() as db:
+        assert db.get(Project, 1).project_status == 'pending'
 
 
 def test_a_cleared_project_value_is_reviewed_as_it_will_be_saved(updater):
@@ -192,14 +223,22 @@ def test_a_cleared_project_value_is_reviewed_as_it_will_be_saved(updater):
         assert db.get(Project, 1).project_worth == 0
 
 
-def test_interaction_phone_is_stored_as_typed_like_the_web(updater):
+def test_interaction_phone_is_saved_as_typed_like_the_web(updater):
     raw = token(updater)
     proposed = propose(updater, raw, 'interaction', 1, {'phone': '(512) 555-0100'})
     assert ['Phone', '(empty) → (512) 555-0100'] in rows(proposed)
+    approve(updater, raw, 'interaction', proposed)
+    with updater.admin() as db:
+        assert db.get(Interaction, 1).phone == '(512) 555-0100'
 
 
-def test_a_pending_proposal_stops_showing_fields_once_access_is_lost(updater):
+def open_review(flow, ident, user):
     from test_mcp_lead_creation import preview
+    flow.request('GET', '/oauth/actions/' + ident)  # Sets the browser binding, as the page does.
+    return preview(flow, ident, user)
+
+
+def test_a_pending_update_stops_showing_fields_once_access_is_lost(updater):
     with updater.admin() as db:
         db.get(Lead, 1).assigned_to = 3
         db.commit()
@@ -207,28 +246,53 @@ def test_a_pending_proposal_stops_showing_fields_once_access_is_lost(updater):
     proposed = propose(updater, ordinary, 'lead', 1, {'notes': 'Private follow-up detail'})
     ident = proposed['structuredContent']['action_id']
     assert 'pathsix/review' in proposed['_meta']
-    status, body = preview(updater, ident, user=3)
-    assert status == 200 and body['lead']['changes']
+    status, body = open_review(updater, ident, 3)
+    assert status == 200 and body['lead']['changes'] and body.get('intent')
     with updater.admin() as db:
-        db.get(Lead, 1).assigned_to = 1   # Handed to someone else: user 3 can no longer open it.
+        db.get(Lead, 1).assigned_to = 1  # Handed to someone else: user 3 can no longer open it.
         db.commit()
     refreshed = call(updater, ordinary, 'get_lead_update', {'action_id': ident})
     assert 'pathsix/review' not in refreshed['_meta']
     assert 'fields' not in refreshed['_meta']['pathsix/presentation']
     assert 'Private follow-up detail' not in str(refreshed)
-    status, body = preview(updater, ident, user=3)
-    assert 'lead' not in body and 'Private follow-up detail' not in str(body)
+    status, body = open_review(updater, ident, 3)
+    assert status == 404 and 'no longer available' in body['error'] and 'Private follow-up detail' not in str(body)
     assert approve(updater, ordinary, 'lead', proposed)['isError']
 
 
+def test_a_pending_creation_stops_showing_fields_once_its_parent_is_lost(updater):
+    with updater.admin() as db:
+        db.get(Client, 1).assigned_to = 3
+        db.commit()
+    ordinary = token(updater, user=3)
+    proposed = call(updater, ordinary, 'prepare_contact_creation',
+                    {'request_key': uuid4().hex, 'contact': {'client_id': 1, 'first_name': 'Secret', 'notes': 'Private note'}})
+    ident = proposed['structuredContent']['action_id']
+    assert 'pathsix/review' in proposed['_meta']
+    with updater.admin() as db:
+        db.get(Client, 1).assigned_to = 1
+        db.commit()
+    refreshed = call(updater, ordinary, 'get_contact_creation', {'action_id': ident})
+    assert 'pathsix/review' not in refreshed['_meta'] and 'Private note' not in str(refreshed)
+    status, body = open_review(updater, ident, 3)
+    assert status == 404 and 'Private note' not in str(body)
+
+
 def test_inline_assignment_email_is_tracked_until_sent(updater, monkeypatch):
+    import asyncio
+    import gc
     from app.services import mcp_reads
-    sent = []
-    async def fake_send(**notification):
+    release, sent = asyncio.Event(), []
+
+    async def slow_send(**notification):
+        await release.wait()
         sent.append(notification['to_email'])
-    monkeypatch.setattr(email_utils, 'send_assignment_notification', fake_send)
+    monkeypatch.setattr(email_utils, 'send_assignment_notification', slow_send)
     raw = token(updater)
     approve(updater, raw, 'client', propose(updater, raw, 'client', 1, {'assigned_to': 3}))
+    gc.collect()
+    assert len(mcp_reads._DELIVERIES) == 1 and sent == []  # Held by a strong reference while waiting.
+    release.set()
     for _ in range(3):
-        updater.runner.run(__import__('asyncio').sleep(0))
+        updater.runner.run(asyncio.sleep(0))
     assert sent == ['ordinary@example.test'] and not mcp_reads._DELIVERIES
