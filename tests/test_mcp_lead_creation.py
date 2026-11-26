@@ -283,6 +283,9 @@ def test_lead_listing_matches_the_web_leads_page_for_every_role(oauth):
     def listed(token):
         return [row['id'] for row in call(oauth, token, 'list_leads', {'query': 'Visibility'})['structuredContent']['leads']]
 
+    def everything(token):
+        return [row['id'] for row in call(oauth, token, 'list_leads', {'limit': 50})['structuredContent']['leads']]
+
     def opened(token, ident):
         result = call(oauth, token, 'get_lead', {'lead_id': ident})
         return not result.get('isError')
@@ -292,6 +295,10 @@ def test_lead_listing_matches_the_web_leads_page_for_every_role(oauth):
     # Listing and searching: assigned to me, or unassigned and entered by me.
     assert listed(admin) == [13]
     assert listed(ordinary) == [11, 12]
+    # Plain listing, no search: the same rule over every lead (seeded lead 1
+    # was entered by the admin and is unassigned).
+    assert everything(admin) == [1, 13]
+    assert everything(ordinary) == [11, 12]
     # Opening one lead keeps the record access rule.
     assert all(opened(admin, ident) for ident in (11, 12, 13))
     assert opened(ordinary, 13) and opened(ordinary, 12) and opened(ordinary, 11)
