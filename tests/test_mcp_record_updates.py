@@ -247,6 +247,31 @@ def test_listed_values_are_saved_with_the_web_forms_spelling(updater):
         assert db.get(Client, 1).type == 'Aerospace'
 
 
+def test_an_exact_web_choice_corrects_a_legacy_spelling(updater):
+    with updater.admin() as db:
+        db.get(Project, 1).project_status = 'COMPLETED'
+        db.commit()
+    raw = token(updater)
+    # The exact listed spelling wins over the record's case-equivalent legacy value.
+    proposed = propose(updater, raw, 'project', 1, {'project_status': 'completed'})
+    assert ['Project status', 'COMPLETED → completed'] in rows(proposed)
+    # Keeping the exact legacy value is a no-op, as on the web.
+    refused(propose(updater, raw, 'project', 1, {'project_status': 'COMPLETED'}), 'Nothing would change')
+
+
+def test_storage_limits_apply_to_the_saved_spelling(updater):
+    # 'ß' case-folds to 'ss': a 26-character input matches a 51-character configured choice,
+    # longer than the 50-character type column. The saved spelling is what must fit.
+    configured = 'SS' * 25 + 'X'
+    with updater.admin() as db:
+        db.get(Tenant, 1).config = {'businessTypes': [configured]}
+        db.commit()
+    raw = token(updater)
+    assert propose(updater, raw, 'client', 1, {'type': 'ß' * 25 + 'x'})['isError']
+    with updater.admin() as db:
+        assert db.query(AIWriteAction).count() == 0
+
+
 def test_a_cleared_project_value_is_reviewed_as_it_will_be_saved(updater):
     with updater.admin() as db:
         db.get(Project, 1).project_worth = 500
