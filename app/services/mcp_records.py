@@ -11,7 +11,7 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import and_, func, or_
 
 from app.models import Client, Contact, FollowUpStatus, Interaction, Lead, Project, User
-from app.services.access import interaction_access_filter, owned_record_filter, project_access_filter
+from app.services.access import interaction_access_filter, my_projects_filter, owned_record_filter, project_access_filter
 from app.services.base import TenantService
 from app.services.errors import RecordNotFound
 
@@ -145,7 +145,10 @@ class RecordReads(TenantService):
             raise ValueError('Invalid project status')
         rows = self._query(Project).filter(Project.deleted_at.is_(None), Project.archived_at.is_(None),
                                            project_access_filter(self.principal))
-        rows = rows.filter(Project.id == project_id) if project_id else rows.filter(Project.id > after_id)
+        # Opening one project keeps the record access rule; listing and search
+        # match the web Projects page.
+        rows = (rows.filter(Project.id == project_id) if project_id
+                else rows.filter(my_projects_filter(self.principal), Project.id > after_id))
         if status:
             rows = rows.filter(Project.project_status == status)
         match = _search(Project.project_name, query)
