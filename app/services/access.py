@@ -18,6 +18,56 @@ def owned_record_filter(model, principal: Principal, *, include_deleted=False):
     return and_(*predicates)
 
 
+def my_clients_filter(principal: Principal):
+    """The web Clients page: clients assigned to the user, plus unassigned
+    clients they entered. The same for every role, admins included."""
+    from app.models import Client
+
+    return and_(
+        Client.tenant_id == principal.tenant_id,
+        Client.deleted_at.is_(None),
+        or_(
+            Client.assigned_to == principal.user_id,
+            and_(Client.assigned_to.is_(None), Client.created_by == principal.user_id),
+        ),
+    )
+
+
+def my_projects_filter(principal: Principal):
+    """The web Projects page, for every role, admins included: projects
+    assigned to the user; unassigned projects whose client or lead is on the
+    user's own Clients or Leads page (assigned to them, or unassigned and
+    entered by them); and unassigned projects with no parent they entered.
+    Callers also apply project_access_filter."""
+    from app.models import Project, Client, Lead
+
+    def mine(model):
+        return or_(
+            model.assigned_to == principal.user_id,
+            and_(model.assigned_to.is_(None), model.created_by == principal.user_id),
+        )
+
+    return and_(
+        Project.tenant_id == principal.tenant_id,
+        Project.deleted_at.is_(None),
+        or_(
+            Project.assigned_to == principal.user_id,
+            and_(
+                Project.assigned_to.is_(None),
+                or_(
+                    and_(Project.client_id.isnot(None), Project.client.has(mine(Client))),
+                    and_(Project.lead_id.isnot(None), Project.lead.has(mine(Lead))),
+                    and_(
+                        Project.client_id.is_(None),
+                        Project.lead_id.is_(None),
+                        Project.created_by == principal.user_id,
+                    ),
+                ),
+            ),
+        ),
+    )
+
+
 def project_access_filter(principal):
     from app.models import Project, Client, Lead
 
