@@ -196,19 +196,55 @@ def test_listed_fields_take_the_web_forms_values(updater):
     assert kept['structuredContent']['status'] == 'pending'
 
 
-def test_a_proposal_made_before_a_rule_is_checked_again_at_approval(updater):
-    raw = token(updater)
-    proposed = propose(updater, raw, 'project', 1, {'project_name': 'Renamed'})
-    ident = proposed['structuredContent']['action_id']
-    with updater.admin() as db:
-        # Simulate a proposal saved by the earlier release, before the rule existed.
-        action = db.get(AIWriteAction, ident)
-        action.payload = {**action.payload, 'changes': {'project_status': None}, 'before': {'project_status': 'pending'}}
+def legacy_proposal(flow, user, payload):
+    """A pending update stored by an earlier release (proposals are immutable, so insert one)."""
+    from datetime import timedelta
+    raw, connection = token_for(flow, user, ALL)
+    ident = str(uuid4())
+    now = datetime.utcnow()
+    with flow.admin() as db:
+        db.add(AIWriteAction(id=ident, tenant_id=1, user_id=user, connection_id=connection,
+                             request_key=uuid4().hex, input_hash='legacy', kind='update_project',
+                             payload=payload, status='pending', created_at=now, expires_at=now + timedelta(minutes=10)))
         db.commit()
-    status = call(updater, raw, 'get_project_update', {'action_id': ident})
+    return raw, call(flow, raw, 'get_project_update', {'action_id': ident})
+
+
+def test_a_proposal_made_before_a_rule_is_checked_again_at_approval(updater):
+    raw, status = legacy_proposal(updater, 1, {
+        'project_id': 1, 'record_name': 'Private project 1', 'notes_mode': 'append',
+        'changes': {'project_status': None}, 'before': {'project_status': 'pending'}, 'display': {}})
     refused(approve(updater, raw, 'project', status), 'cannot be cleared')
     with updater.admin() as db:
         assert db.get(Project, 1).project_status == 'pending'
+
+
+def test_approval_refuses_a_proposal_whose_save_would_differ_from_its_review(updater):
+    with updater.admin() as db:
+        db.get(Project, 1).project_worth = 500
+        db.commit()
+    # Reviewed as "500.0 -> (empty)" by an earlier release, but the service would save 0.
+    raw, status = legacy_proposal(updater, 1, {
+        'project_id': 1, 'record_name': 'Private project 1', 'notes_mode': 'append',
+        'changes': {'project_worth': None}, 'before': {'project_worth': 500.0}, 'display': {}})
+    refused(approve(updater, raw, 'project', status), 'differs from what you reviewed')
+    with updater.admin() as db:
+        assert db.get(Project, 1).project_worth == 500
+
+
+def test_listed_values_are_saved_with_the_web_forms_spelling(updater):
+    with updater.admin() as db:
+        db.get(Tenant, 1).config = {'businessTypes': ['Aerospace']}
+        db.commit()
+    raw = token(updater)
+    proposed = propose(updater, raw, 'project', 1, {'project_status': 'COMPLETED', 'value_type': ' Monthly '})
+    assert ['Project status', 'pending → completed'] in rows(proposed)
+    approve(updater, raw, 'project', proposed)
+    approve(updater, raw, 'client', propose(updater, raw, 'client', 1, {'type': 'aerospace'}))
+    with updater.admin() as db:
+        project = db.get(Project, 1)
+        assert (project.project_status, project.value_type) == ('completed', 'monthly')
+        assert db.get(Client, 1).type == 'Aerospace'
 
 
 def test_a_cleared_project_value_is_reviewed_as_it_will_be_saved(updater):
