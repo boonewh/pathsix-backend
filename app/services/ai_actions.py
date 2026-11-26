@@ -106,9 +106,11 @@ class AIActionService(TenantService):
         row = self.action(ident)
         result = self.result(row)
         action = kind_of(row.kind)
-        # Stored fields only while the record is still accessible (access may
-        # have been removed since the proposal was prepared).
-        pending = row.status == 'pending' and row.expires_at > datetime.utcnow() and self.visible(row)
+        pending = row.status == 'pending' and row.expires_at > datetime.utcnow()
+        # Access may have been removed since the proposal was prepared: show
+        # nothing of it (and sign no approval), as the web would refuse the record.
+        if pending and not self.visible(row):
+            raise RecordNotFound('This record is no longer available to you. Nothing will be saved.')
         if pending:
             result[action.receipt_key] = row.payload
         result['presentation'] = action.presentation(row.payload if pending else None)
