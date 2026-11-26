@@ -156,3 +156,79 @@ def test_updating_needs_the_update_permission_and_kind_isolation(updater):
     raw = token(updater)
     proposed = propose(updater, raw, 'lead', 1, {'city': 'X'})
     assert call(updater, raw, 'get_contact_update', {'action_id': proposed['structuredContent']['action_id']})['isError']
+
+
+# Batch 1 of web parity (todo 95) ------------------------------------------------
+
+def refused(result, words):
+    assert result['isError'] and words in str(result), result
+
+
+def test_fields_the_web_form_always_fills_cannot_be_cleared(updater):
+    raw = token(updater)
+    refused(propose(updater, raw, 'project', 1, {'project_status': None}), 'cannot be cleared')
+    refused(propose(updater, raw, 'project', 1, {'project_status': '  '}), 'cannot be cleared')
+    refused(propose(updater, raw, 'project', 1, {'value_type': None}), 'cannot be cleared')
+    refused(propose(updater, raw, 'project', 1, {'value_type': 'weekly'}), 'must be one of')
+    refused(propose(updater, raw, 'interaction', 1, {'followup_status': None}), 'cannot be cleared')
+    refused(propose(updater, raw, 'lead', 1, {'lead_status': ''}), 'cannot be cleared')
+    refused(propose(updater, raw, 'client', 1, {'status': None}), 'cannot be cleared')
+    refused(propose(updater, raw, 'contact', 1, {'first_name': '   '}), 'cannot be cleared')
+    with updater.admin() as db:
+        assert db.query(AIWriteAction).count() == 0
+    # A listed value is still accepted.
+    assert propose(updater, raw, 'project', 1, {'value_type': 'monthly'})['structuredContent']['status'] == 'pending'
+
+
+def test_a_cleared_project_value_is_reviewed_as_it_will_be_saved(updater):
+    with updater.admin() as db:
+        db.get(Project, 1).project_worth = 500
+        db.commit()
+    raw = token(updater)
+    proposed = propose(updater, raw, 'project', 1, {'project_worth': None})
+    assert ['Project worth', '500.0 → 0'] in rows(proposed)
+    approve(updater, raw, 'project', proposed)
+    with updater.admin() as db:
+        assert db.get(Project, 1).project_worth == 0
+
+
+def test_interaction_phone_is_stored_as_typed_like_the_web(updater):
+    raw = token(updater)
+    proposed = propose(updater, raw, 'interaction', 1, {'phone': '(512) 555-0100'})
+    assert ['Phone', '(empty) → (512) 555-0100'] in rows(proposed)
+
+
+def test_a_pending_proposal_stops_showing_fields_once_access_is_lost(updater):
+    from test_mcp_lead_creation import preview
+    with updater.admin() as db:
+        db.get(Lead, 1).assigned_to = 3
+        db.commit()
+    ordinary = token(updater, user=3)
+    proposed = propose(updater, ordinary, 'lead', 1, {'notes': 'Private follow-up detail'})
+    ident = proposed['structuredContent']['action_id']
+    assert 'pathsix/review' in proposed['_meta']
+    status, body = preview(updater, ident, user=3)
+    assert status == 200 and body['lead']['changes']
+    with updater.admin() as db:
+        db.get(Lead, 1).assigned_to = 1   # Handed to someone else: user 3 can no longer open it.
+        db.commit()
+    refreshed = call(updater, ordinary, 'get_lead_update', {'action_id': ident})
+    assert 'pathsix/review' not in refreshed['_meta']
+    assert 'fields' not in refreshed['_meta']['pathsix/presentation']
+    assert 'Private follow-up detail' not in str(refreshed)
+    status, body = preview(updater, ident, user=3)
+    assert 'lead' not in body and 'Private follow-up detail' not in str(body)
+    assert approve(updater, ordinary, 'lead', proposed)['isError']
+
+
+def test_inline_assignment_email_is_tracked_until_sent(updater, monkeypatch):
+    from app.services import mcp_reads
+    sent = []
+    async def fake_send(**notification):
+        sent.append(notification['to_email'])
+    monkeypatch.setattr(email_utils, 'send_assignment_notification', fake_send)
+    raw = token(updater)
+    approve(updater, raw, 'client', propose(updater, raw, 'client', 1, {'assigned_to': 3}))
+    for _ in range(3):
+        updater.runner.run(__import__('asyncio').sleep(0))
+    assert sent == ['ordinary@example.test'] and not mcp_reads._DELIVERIES

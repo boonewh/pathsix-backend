@@ -97,11 +97,18 @@ class AIActionService(TenantService):
             result[action.receipt_key] = action.record(self.session, self.principal, row.result_id)
         return result
 
+    def visible(self, row):
+        """Whether the user can still open what a proposal is about."""
+        action = kind_of(row.kind)
+        return action.visible is None or action.visible(self.session, self.principal, row.payload)
+
     def preview(self, ident):
         row = self.action(ident)
         result = self.result(row)
         action = kind_of(row.kind)
-        pending = row.status == 'pending' and row.expires_at > datetime.utcnow()
+        # Stored fields only while the record is still accessible (access may
+        # have been removed since the proposal was prepared).
+        pending = row.status == 'pending' and row.expires_at > datetime.utcnow() and self.visible(row)
         if pending:
             result[action.receipt_key] = row.payload
         result['presentation'] = action.presentation(row.payload if pending else None)

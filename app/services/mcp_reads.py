@@ -10,6 +10,7 @@ from app.services.clients import ClientService
 from app.services.errors import RecordNotFound
 from app.services.leads import LeadService
 from app.services.mcp_records import RecordReads
+from app.services.projects import ProjectService
 from app.services.ai_actions import AIActionService, ActionConflict
 from app.services.ai_action_kinds import KINDS
 from app.services.ai_update_kinds import pending_notifications
@@ -116,7 +117,9 @@ def dispatch(db, principal, connection_id, name, args, *, review=None):
         return ClientService(db,principal).summaries(**args)
     if name == 'get_client':
         if set(args) != {'client_id'}: raise ValueError()
-        return RecordReads(db,principal).client_detail(args['client_id'])
+        detail = RecordReads(db,principal).client_detail(args['client_id'])
+        ClientService(db,principal).record_view(args['client_id'])  # As the web detail page does.
+        return detail
     reads = RecordReads(db,principal)
     if name == 'list_contacts':
         if set(args)-{'query','client_id','lead_id','after_id','limit'}: raise ValueError()
@@ -125,11 +128,13 @@ def dispatch(db, principal, connection_id, name, args, *, review=None):
         if set(args) != {'contact_id'}: raise ValueError()
         return {'contact':reads.contacts(contact_id=args['contact_id'],limit=1)['contacts'][0]}
     if name == 'list_projects':
-        if set(args)-{'query','status','after_id','limit'}: raise ValueError()
+        if set(args)-{'query','status','client_id','lead_id','after_id','limit'}: raise ValueError()
         return reads.projects(**args)
     if name == 'get_project':
         if set(args) != {'project_id'}: raise ValueError()
-        return {'project':reads.projects(project_id=args['project_id'],limit=1)['projects'][0]}
+        project = reads.projects(project_id=args['project_id'],limit=1)['projects'][0]
+        ProjectService(db,principal).record_view(args['project_id'])  # As the web detail page does.
+        return {'project':project}
     if name == 'list_interactions':
         if set(args)-{'client_id','lead_id','project_id','after_id','limit'}: raise ValueError()
         return reads.interactions(**args)
@@ -144,7 +149,9 @@ def dispatch(db, principal, connection_id, name, args, *, review=None):
         return LeadService(db,principal).summaries(**args)
     if name == 'get_lead':
         if set(args) != {'lead_id'} or args['lead_id'] is None: raise ValueError()
-        return {'lead':LeadService(db,principal).summaries(lead_id=args['lead_id'],limit=1)['leads'][0]}
+        lead = LeadService(db,principal).summaries(lead_id=args['lead_id'],limit=1)['leads'][0]
+        LeadService(db,principal).record_view(args['lead_id'])  # As the web detail page does.
+        return {'lead':lead}
     if name == 'get_lead_options':
         if args: raise ValueError()
         config = tenant_lead_config(db, principal.tenant_id)
@@ -174,6 +181,9 @@ def dispatch(db, principal, connection_id, name, args, *, review=None):
     return review.decide(service, connection_id, args)
 
 
+_DELIVERIES = set()  # Strong references: the event loop keeps only weak ones to tasks.
+
+
 def deliver_after_commit(notifications):
     """Send assignment notifications without blocking or failing the saved action."""
     if not notifications:
@@ -190,4 +200,6 @@ def deliver_after_commit(notifications):
     except RuntimeError:
         return
     for notification in notifications:
-        loop.create_task(send(notification))
+        task = loop.create_task(send(notification))
+        _DELIVERIES.add(task)
+        task.add_done_callback(_DELIVERIES.discard)
