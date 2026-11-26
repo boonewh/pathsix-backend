@@ -63,7 +63,7 @@ def tools():
               'after_id': AFTER, 'limit': LIMIT}, page('contacts', contact), 'contacts:read'),
         tool('get_contact', 'Read one accessible contact by ID, including its client or lead. ' + UNTRUSTED,
              {'contact_id': INTEGER}, shape({'contact': contact}, ['contact']), 'contacts:read', ['contact_id']),
-        tool('list_projects', 'Find accessible projects by name, optionally by status (pending, won or lost). ' + UNTRUSTED,
+        tool('list_projects', 'Find your projects by name, optionally by status (pending, won or lost), as on the Projects page: projects assigned to you, and unassigned projects whose client or lead is yours or that you entered without one. Others are not listed. ' + UNTRUSTED,
              {'query': {'type': 'string', 'maxLength': 100}, 'status': {'enum': ['pending', 'won', 'lost']},
               'after_id': AFTER, 'limit': LIMIT}, page('projects', project), 'projects:read'),
         tool('get_project', 'Read one accessible project by ID with its description, primary contact and notes. ' + UNTRUSTED,
