@@ -106,8 +106,9 @@ def _lead_statuses(session, principal):
 
 def _check_rules(entity, session, principal, record, changes):
     """What the web form allows: required fields are never cleared and listed
-    fields take a listed value (or the record's current one). Run when
-    preparing and again when saving, so proposals made earlier are covered."""
+    fields take a listed value (or the record's current one), saved with the
+    form's exact spelling. Returns the changes with that spelling."""
+    result = dict(changes)
     for key, val in changes.items():
         label = key.replace('_', ' ').capitalize()
         if key in entity.required and (val is None or (isinstance(val, str) and not val.strip())):
@@ -118,9 +119,16 @@ def _check_rules(entity, session, principal, record, changes):
         options = listed(session, principal) if callable(listed) else listed
         if not options:  # No list configured: the web form offers free text.
             continue
-        allowed = {str(option).casefold() for option in options} | {str(_plain(getattr(record, key))).casefold()}
-        if str(_plain(val)).strip().casefold() not in allowed:
+        wanted = str(_plain(val)).strip().casefold()
+        current = _plain(getattr(record, key))
+        if current is not None and str(current).casefold() == wanted:
+            result[key] = current  # The form keeps the record's own value selectable.
+            continue
+        match = next((option for option in options if str(option).casefold() == wanted), None)
+        if match is None:
             raise ActionConflict(f'{label} must be one of: ' + ', '.join(map(str, options)))
+        result[key] = match
+    return result
 
 
 def _project_values(session, principal, changes):
@@ -204,7 +212,7 @@ def _prepare(entity):
                 bound = getattr(getattr(column, 'type', None), 'length', None)
                 if bound and isinstance(val, str) and len(val) > bound:
                     raise ValueError('A field exceeds its storage limit')
-            _check_rules(entity, session, principal, record, validated)
+            validated = _check_rules(entity, session, principal, record, validated)
             if entity.normalize:
                 validated = entity.normalize(session, principal, validated)
             for key, val in validated.items():
@@ -242,7 +250,13 @@ def _execute(entity):
         if current != payload['before']:
             raise ActionConflict(f'This {entity.noun} changed after you reviewed it; prepare and review a new proposal')
         fields = {key: val for key, val in payload['changes'].items() if key != 'assigned_to'}
-        _check_rules(entity, session, principal, record, fields)  # Also proposals made before a rule existed.
+        # Approve only what was reviewed: the rules and normalization applied now
+        # must yield the reviewed values (covers proposals made before a rule).
+        effective = _check_rules(entity, session, principal, record, fields)
+        if entity.normalize:
+            effective = entity.normalize(session, principal, effective)
+        if effective != fields:
+            raise ActionConflict('What would be saved differs from what you reviewed; prepare and review a new proposal')
         if fields:
             entity.update(session, principal, ident, entity.schema.model_validate(fields))
         if 'assigned_to' in payload['changes']:
