@@ -8,15 +8,18 @@ A record is stranded when its lead is deleted and exactly one live client of the
 same tenant was made from that lead (clients.source_lead_id). It moves to that
 client. Leads deleted without becoming a client are ordinary deletions and are
 left alone. Archived projects move too, so they reappear correctly if restored.
+Child, lead and client must all belong to the same tenant.
 
 Dry run unless --apply. The admin login arrives on stdin and must match the
-target in database_targets.py. Nothing changes unless the records found are
-exactly the ones the owner reviewed, so data that changed since review stops
-the repair. Output holds record ids and counts only.
+target in database_targets.py. The reviewed plan names each record and its
+destination client (record:client). Nothing changes unless the plan found is
+exactly the reviewed one, and each write rechecks that its client is still the
+lead's only live conversion, so data that changed since review stops the
+repair. Output holds record ids and counts only.
 
     <admin-url helper> | flyctl ssh console --app <app> -C \\
         "python scripts/repair_converted_leads.py --target production \\
-         --expect-projects 1,2 --expect-contacts 3 --expect-interactions 4 [--apply]"
+         --expect-projects 1:9,2:9 --expect-contacts 3:9 --expect-interactions 4:9 [--apply]"
 """
 import argparse
 import json
@@ -38,37 +41,49 @@ CONVERTED = '''
     GROUP BY l.id, l.tenant_id
 '''
 STRANDED = {
-    'projects': 'SELECT p.id, p.lead_id FROM projects p WHERE p.lead_id = ANY(:leads) AND p.client_id IS NULL',
-    'contacts': 'SELECT k.id, k.lead_id FROM contacts k WHERE k.lead_id = ANY(:leads) AND k.client_id IS NULL',
-    'interactions': ('SELECT i.id, i.lead_id FROM interactions i WHERE i.lead_id = ANY(:leads) '
-                     'AND i.client_id IS NULL AND i.project_id IS NULL'),
+    'projects': ('SELECT x.id, x.lead_id, x.tenant_id FROM projects x '
+                 'WHERE x.lead_id = ANY(:leads) AND x.client_id IS NULL'),
+    'contacts': ('SELECT x.id, x.lead_id, x.tenant_id FROM contacts x '
+                 'WHERE x.lead_id = ANY(:leads) AND x.client_id IS NULL'),
+    'interactions': ('SELECT x.id, x.lead_id, x.tenant_id FROM interactions x WHERE x.lead_id = ANY(:leads) '
+                     'AND x.client_id IS NULL AND x.project_id IS NULL'),
 }
+# Each write rechecks that the client is still the lead's only live conversion.
+GUARD = ('AND tenant_id = :tenant AND (SELECT array_agg(c.id) FROM clients c JOIN leads l ON l.id = c.source_lead_id AND l.tenant_id = c.tenant_id AND l.deleted_at IS NOT NULL WHERE c.source_lead_id = :lead AND c.tenant_id = :tenant AND c.deleted_at IS NULL) = ARRAY[:client]')
 MOVE = {
     'projects': ('UPDATE projects SET lead_id = NULL, client_id = :client WHERE id = :id AND lead_id = :lead '
-                 'AND client_id IS NULL AND tenant_id = :tenant'),
+                 'AND client_id IS NULL ' + GUARD),
     'contacts': ('UPDATE contacts SET lead_id = NULL, client_id = :client WHERE id = :id AND lead_id = :lead '
-                 'AND client_id IS NULL AND tenant_id = :tenant'),
+                 'AND client_id IS NULL ' + GUARD),
     'interactions': ('UPDATE interactions SET lead_id = NULL, client_id = :client WHERE id = :id '
-                     'AND lead_id = :lead AND client_id IS NULL AND project_id IS NULL AND tenant_id = :tenant'),
+                     'AND lead_id = :lead AND client_id IS NULL AND project_id IS NULL ' + GUARD),
 }
 
 
-def ids(value):
-    return sorted({int(part) for part in value.split(',') if part.strip()}) if value else []
+def plan(value):
+    """'601:501,602:501' -> {601: 501, 602: 501} (record id: destination client id)."""
+    pairs = [part.split(':') for part in value.split(',') if part.strip()] if value else []
+    if any(len(pair) != 2 for pair in pairs):
+        raise argparse.ArgumentTypeError('Use record:client pairs, like 601:501')
+    return {int(record): int(client) for record, client in pairs}
 
 
 def repair(connection, expected, apply):
-    """expected: {'projects': [...], 'contacts': [...], 'interactions': [...]}."""
+    """expected: {'projects': {id: client}, 'contacts': {...}, 'interactions': {...}}."""
     converted = connection.execute(text(CONVERTED)).mappings().all()
     ambiguous = sorted(row['lead_id'] for row in converted if len(row['clients']) > 1)
     target = {row['lead_id']: (row['clients'][0], row['tenant_id'])
               for row in converted if len(row['clients']) == 1}
     found = {kind: connection.execute(text(sql), {'leads': list(target)}).all() for kind, sql in STRANDED.items()}
-    report = {kind: sorted(row.id for row in rows) for kind, rows in found.items()}
+    mismatched = sorted({row.lead_id for rows in found.values() for row in rows
+                         if row.tenant_id != target[row.lead_id][1]})
+    if mismatched:
+        raise SystemExit(f'Records on leads {mismatched} belong to another tenant; nothing changed.')
+    report = {kind: {row.id: target[row.lead_id][0] for row in rows} for kind, rows in found.items()}
     stuck = {kind: connection.execute(text(sql), {'leads': ambiguous}).all() for kind, sql in STRANDED.items()}
     if any(stuck.values()):
         raise SystemExit(f'Leads {ambiguous} have several live clients and stranded records; nothing changed.')
-    if report != {kind: sorted(expected.get(kind, [])) for kind in STRANDED}:
+    if report != {kind: dict(expected.get(kind, {})) for kind in STRANDED}:
         raise SystemExit(f'Found {report}, which differs from the reviewed {expected}; nothing changed.')
     changed = {kind: 0 for kind in STRANDED}
     if apply:
@@ -87,7 +102,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--target', choices=sorted(TARGETS), required=True)
     for kind in STRANDED:
-        parser.add_argument(f'--expect-{kind}', type=ids, default=[])
+        parser.add_argument(f'--expect-{kind}', type=plan, default={})
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args()
     expected = {kind: getattr(args, f'expect_{kind}') for kind in STRANDED}
@@ -98,7 +113,9 @@ def main():
             connection.execute(text('SET LOCAL search_path=public'))
             connection.execute(text("SET LOCAL lock_timeout='5s'"))
             result = repair(connection, expected, args.apply)
-        print(json.dumps({'target': args.target, 'applied': args.apply, **result}))
+        found = {kind: ','.join(f'{record}:{client}' for record, client in sorted(pairs.items()))
+                 for kind, pairs in result['found'].items()}
+        print(json.dumps({'target': args.target, 'applied': args.apply, **result, 'found': found}))
     finally:
         engine.dispose()
 
