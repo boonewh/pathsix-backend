@@ -202,6 +202,8 @@ def test_audit_failure_releases_no_data(oauth,monkeypatch):
     finally: event.remove(engine,'before_cursor_execute',fail)
     with oauth.admin() as db:
         assert db.query(AIToolAudit).count()==0 and db.query(AIConnection).one().last_used_at is None
+        from app.models import ActivityLog
+        assert db.query(ActivityLog).count()==0   # The viewed entry rolls back with the audit.
 
 
 def test_rate_limit_is_per_grant_and_uses_durable_audit(oauth,monkeypatch):

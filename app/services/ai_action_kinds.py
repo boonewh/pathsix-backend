@@ -59,6 +59,10 @@ class ActionKind:
     # describe(payload) -> [[label, value], ...] for kinds whose review needs
     # more than labelled payload fields (updates show before -> after).
     describe: Callable = None
+    # visible(session, principal, payload) -> whether the user can still open
+    # the record or parent the proposal is about. A pending proposal's stored
+    # fields are shown only while it is (as the web would show the record).
+    visible: Callable = None
 
     def presentation(self, payload=None):
         value = {'kind': self.name, 'noun': self.noun, 'title': self.title, 'confirm': self.confirm,
@@ -228,13 +232,25 @@ def _interaction_record(session, principal, result_id):
     return {'id': row.id, 'name': row.summary}
 
 
-def _record_kind(name, noun, title, confirm, done, labels, scopes, prepare, save, record, schema, excluded=()):
+def _parent_visible(check):
+    def visible(session, principal, payload):
+        try:
+            check(session, principal, payload)
+        except (RecordNotFound, PermissionError, ValueError):
+            return False
+        return True
+    return visible
+
+
+def _record_kind(name, noun, title, confirm, done, labels, scopes, prepare, save, record, schema, excluded=(),
+                 visible=None):
     return ActionKind(
         name=name, scopes=scopes, noun=noun, title=title, confirm=confirm, done=done, labels=labels,
         status_tool=f'get_{noun}_creation', decide_tool=f'decide_{noun}_creation',
         confirm_audit=f'confirm_{noun}_creation', cancel_audit=f'cancel_{noun}_creation',
         prepare=prepare, execute=_guarded(schema, prepare, save), record=record, receipt_key=noun,
-        prepare_tool=f'prepare_{noun}_creation', input_key=noun, input_schema=schema, excluded_inputs=excluded)
+        prepare_tool=f'prepare_{noun}_creation', input_key=noun, input_schema=schema, excluded_inputs=excluded,
+        visible=visible)
 
 
 CREATE_CONTACT = _record_kind(
@@ -242,7 +258,8 @@ CREATE_CONTACT = _record_kind(
     {'parent': 'For', 'first_name': 'First name', 'last_name': 'Last name', 'title': 'Title', 'email': 'Email',
      'phone': 'Phone', 'phone_label': 'Phone label', 'secondary_phone': 'Secondary phone',
      'secondary_phone_label': 'Secondary phone label', 'notes': 'Notes'},
-    ('contacts:read', 'contacts:create'), _prepare_contact, _save_contact, _contact_record, ContactCreateSchema)
+    ('contacts:read', 'contacts:create'), _prepare_contact, _save_contact, _contact_record, ContactCreateSchema,
+    visible=_parent_visible(lambda s, p, d: ContactService(s, p)._parent(d.get('client_id'), d.get('lead_id'))))
 
 CREATE_PROJECT = _record_kind(
     'create_project', 'project', 'Create this project?', 'Create project', 'Project created',
@@ -251,14 +268,18 @@ CREATE_PROJECT = _record_kind(
      'project_worth': 'Value', 'value_type': 'Value type', 'primary_contact_name': 'Primary contact',
      'primary_contact_title': 'Contact title', 'primary_contact_email': 'Contact email',
      'primary_contact_phone': 'Contact phone', 'notes': 'Notes'},
-    ('projects:read', 'projects:create'), _prepare_project, _save_project, _project_record, ProjectCreateSchema)
+    ('projects:read', 'projects:create'), _prepare_project, _save_project, _project_record, ProjectCreateSchema,
+    visible=_parent_visible(lambda s, p, d: ProjectService(s, p)._validate_parents(
+        {k: d.get(k) for k in ('client_id', 'lead_id')}, ('client_id', 'lead_id'), required=False)))
 
 CREATE_INTERACTION = _record_kind(
     'create_interaction', 'interaction', 'Log this interaction?', 'Log interaction', 'Interaction logged',
     {'parent': 'For', 'summary': 'Summary', 'contact_date': 'When', 'contact_person': 'Contact',
      'outcome': 'Outcome', 'follow_up': 'Follow up', 'email': 'Email', 'phone': 'Phone', 'notes': 'Notes'},
     ('interactions:read', 'interactions:create'), _prepare_interaction, _save_interaction,
-    _interaction_record, InteractionCreateSchema, INTERACTION_EXCLUDED)
+    _interaction_record, InteractionCreateSchema, INTERACTION_EXCLUDED,
+    visible=_parent_visible(lambda s, p, d: InteractionService(s, p)._validate_parents(
+        {k: d.get(k) for k in ('client_id', 'lead_id', 'project_id')}, ('client_id', 'lead_id', 'project_id'))))
 
 KINDS = {kind.name: kind for kind in (CREATE_LEAD, CREATE_CONTACT, CREATE_PROJECT, CREATE_INTERACTION)}
 
