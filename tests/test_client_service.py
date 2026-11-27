@@ -414,3 +414,10 @@ def test_one_client_per_lead_even_through_the_trash(crm):
         db.commit()
         with pytest.raises(ValueError, match="Another client"):
             service.restore(first)
+        db.rollback()
+    # Through the Trash page: a clear conflict, not a server error.
+    call, _, _ = crm
+    status, body = call("PUT", f"/api/clients/{first}/restore", user=3)
+    assert status == 409 and "Another client" in body
+    with admin_factory() as db:
+        assert db.get(Client, first).deleted_at is not None
