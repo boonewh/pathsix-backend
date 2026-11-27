@@ -4,7 +4,7 @@ from hashlib import sha256
 import json
 
 from itsdangerous import URLSafeTimedSerializer, BadSignature
-from sqlalchemy import update
+from sqlalchemy import select, update
 
 from app.models import Project, Interaction, Client, Lead
 from app.utils.project_archive_access import ARCHIVE_TENANT_ID, private_session
@@ -91,7 +91,13 @@ class ProjectArchiveService:
         return result
 
     def restore(self, project_id):
-        p = self.projects().filter(Project.id == project_id, Project.archived_at.isnot(None)).with_for_update().first()
+        found = self.projects().filter(Project.id == project_id, Project.archived_at.isnot(None)).first()
+        if found is not None and found.lead_id is not None:
+            # Lead before project, as lead conversion locks them: a restore and a
+            # conversion of its lead never interleave.
+            self.session.execute(select(Lead.id).where(
+                Lead.id == found.lead_id, Lead.tenant_id == ARCHIVE_TENANT_ID).with_for_update())
+        p = self.projects().filter(Project.id == project_id, Project.archived_at.isnot(None)).with_for_update().populate_existing().first()
         if p is None:
             return None
         history = [*(p.archive_history or []), {'action': 'restored', 'at': datetime.utcnow().isoformat() + 'Z', 'by': self.actor_id}]

@@ -14,7 +14,7 @@ from app.models import (
 from app.schemas.interactions import InteractionCreateSchema, InteractionUpdateSchema
 from app.services.base import TenantService
 from app.services.errors import RecordNotFound
-from app.services.access import interaction_access_filter
+from app.services.access import interaction_access_filter, owned_record_filter
 
 
 class InteractionService(TenantService):
@@ -231,9 +231,9 @@ class InteractionService(TenantService):
     def transfer(self, from_lead_id, to_client_id):
         client = self._require_record(Client, to_client_id)
         if (str(from_lead_id).isdigit() and client.source_lead_id == int(from_lead_id)
-                and client.converted_on is not None and self.session.query(Lead.id).filter(
-                    Lead.id == client.source_lead_id, Lead.tenant_id == self.principal.tenant_id,
-                    Lead.deleted_at.isnot(None)).first() is not None):
+                and client.converted_on is not None and self._query(Lead.id).filter(
+                    Lead.id == client.source_lead_id, Lead.deleted_at.isnot(None),
+                    owned_record_filter(Lead, self.principal, include_deleted=True)).first() is not None):
             # Creating the client already moved the converted lead's records; the
             # web conversion's own transfer step has nothing left to do.
             return {"success": True, "transferred": 0}
