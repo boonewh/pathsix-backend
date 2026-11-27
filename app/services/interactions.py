@@ -229,8 +229,15 @@ class InteractionService(TenantService):
         return {"message": "Interaction deleted"}
 
     def transfer(self, from_lead_id, to_client_id):
+        client = self._require_record(Client, to_client_id)
+        if (str(from_lead_id).isdigit() and client.source_lead_id == int(from_lead_id)
+                and client.converted_on is not None and self.session.query(Lead.id).filter(
+                    Lead.id == client.source_lead_id, Lead.tenant_id == self.principal.tenant_id,
+                    Lead.deleted_at.isnot(None)).first() is not None):
+            # Creating the client already moved the converted lead's records; the
+            # web conversion's own transfer step has nothing left to do.
+            return {"success": True, "transferred": 0}
         self._require_record(Lead, from_lead_id)
-        self._require_record(Client, to_client_id)
         interactions = (
             self._query(Interaction)
             .filter(

@@ -95,6 +95,15 @@ class ProjectArchiveService:
         if p is None:
             return None
         history = [*(p.archive_history or []), {'action': 'restored', 'at': datetime.utcnow().isoformat() + 'Z', 'by': self.actor_id}]
+        values = dict(archived_at=None, archived_by=None, archive_history=history, updated_at=Project.updated_at)
+        if p.lead_id is not None and p.client_id is None:
+            # Archived while its lead was converted: it follows the lead to its client,
+            # since a project on a deleted lead is hidden from everyone.
+            client = self.session.query(Client.id).join(Lead, Lead.id == Client.source_lead_id).filter(
+                Client.source_lead_id == p.lead_id, Client.tenant_id == ARCHIVE_TENANT_ID, Client.deleted_at.is_(None),
+                Lead.tenant_id == ARCHIVE_TENANT_ID, Lead.deleted_at.isnot(None)).order_by(Client.id).first()
+            if client is not None:
+                values.update(lead_id=None, client_id=client.id)
         self.session.execute(update(Project).where(Project.id == p.id, Project.tenant_id == ARCHIVE_TENANT_ID)
-            .values(archived_at=None, archived_by=None, archive_history=history, updated_at=Project.updated_at))
+            .values(**values))
         return {'id': p.id, 'restored_to': 'trash' if p.deleted_at else 'projects'}

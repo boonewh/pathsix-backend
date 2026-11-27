@@ -56,6 +56,10 @@ class ClientService(TenantService):
             ).with_for_update(of=Lead).first()
             if lead is None:
                 raise RecordNotFound("Related record not found")
+            if self.session.query(Client.id).filter(
+                    Client.tenant_id == self.principal.tenant_id, Client.source_lead_id == lead.id,
+                    Client.deleted_at.is_(None)).first() is not None:
+                raise ValueError("This lead was already converted")
         fields = data.model_dump()
         for field in ('phone', 'secondary_phone'):
             fields[field] = clean_phone_number(fields[field]) if fields[field] else None
