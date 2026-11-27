@@ -273,3 +273,61 @@ def test_conversion_keeps_type_status_and_origin_after_lead_is_deleted(crm):
         db.commit()
         assert service.detail(client_id)["status"] == "inactive"
         assert {r["id"]: r["status"] for r in service.list_mine()["clients"]}[client_id] == "inactive"
+
+
+def test_conversion_moves_the_leads_records_and_deletes_it_in_one_transaction(crm):
+    """Projects, contacts and interactions follow a converted lead to its client.
+
+    Left on the deleted lead, projects and contacts were hidden from everyone.
+    """
+    from app.models import Contact, Lead, Project
+    from app.schemas.clients import ClientCreateSchema
+    from app.services.interactions import InteractionService
+    from app.services.leads import LeadService
+    from app.services.projects import ProjectService
+    _, admin_factory, _ = crm
+    with admin_factory() as db:
+        db.add(Lead(id=41, tenant_id=1, created_by=3, name="Synthetic Lead Co", lead_status="qualified"))
+        db.flush()
+        db.add_all([Project(id=41, tenant_id=1, created_by=3, lead_id=41, project_name="Synthetic job",
+                            project_status="pending"),
+                    Contact(id=41, tenant_id=1, lead_id=41, first_name="Synthetic"),
+                    Interaction(id=41, tenant_id=1, lead_id=41, summary="Synthetic call")])
+        db.commit()
+        client_id = ClientService(db, ORDINARY).create(ClientCreateSchema(name="Synthetic Lead Co", source_lead_id=41))
+        db.commit()
+        lead = db.get(Lead, 41)
+        assert lead.deleted_at is not None and lead.lead_status == "won" and lead.converted_on is not None
+        assert (db.get(Project, 41).client_id, db.get(Project, 41).lead_id) == (client_id, None)
+        assert (db.get(Contact, 41).client_id, db.get(Contact, 41).lead_id) == (client_id, None)
+        assert (db.get(Interaction, 41).client_id, db.get(Interaction, 41).lead_id) == (client_id, None)
+        # The project stays visible to its owner under the new client.
+        assert 41 in [p["id"] for p in ProjectService(db, ORDINARY).list_mine()["projects"]]
+        # The web's later steps find nothing left to do and change nothing.
+        with pytest.raises(RecordNotFound):
+            InteractionService(db, ORDINARY).transfer(41, client_id)
+        db.rollback()
+        assert LeadService(db, ORDINARY).delete(41) is False
+        # A second conversion of the same lead is refused.
+        with pytest.raises(RecordNotFound):
+            ClientService(db, ORDINARY).create(ClientCreateSchema(name="Again", source_lead_id=41))
+
+
+def test_a_failed_conversion_leaves_the_lead_and_its_records_untouched(crm, monkeypatch):
+    from app.models import Lead, Project
+    from app.schemas.clients import ClientCreateSchema
+    _, admin_factory, _ = crm
+    with admin_factory() as db:
+        db.add(Lead(id=42, tenant_id=1, created_by=3, name="Synthetic Two", lead_status="qualified"))
+        db.flush()
+        db.add(Project(id=42, tenant_id=1, created_by=3, lead_id=42, project_name="Job two", project_status="pending"))
+        db.commit()
+
+        def broken(self, lead, client_id):
+            raise SQLAlchemyError("synthetic failure")
+        monkeypatch.setattr(ClientService, "_absorb_lead", broken)
+        with pytest.raises(SQLAlchemyError):
+            ClientService(db, ORDINARY).create(ClientCreateSchema(name="Synthetic Two", source_lead_id=42))
+        db.rollback()
+        assert db.get(Lead, 42).deleted_at is None and db.get(Project, 42).lead_id == 42
+        assert db.query(Client).filter_by(source_lead_id=42).count() == 0
