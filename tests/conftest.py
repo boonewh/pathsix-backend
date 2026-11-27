@@ -48,7 +48,7 @@ CORE_FILES = {
 }
 ISOLATION_FILES = {'test_isolation_proof.py', 'test_security_boundaries.py'}
 OPS_FILES = {'test_staging_lead_verification.py', 'test_upgrade_security.py', 'test_test_harness.py',
-             'test_database_targets.py', 'test_repair_parent_links.py'}
+             'test_database_targets.py', 'test_repair_parent_links.py', 'test_repair_converted_leads.py'}
 
 
 def tier(filename):
