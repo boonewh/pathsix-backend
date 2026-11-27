@@ -13,7 +13,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Callable
 
-from app.models import Client, Contact, Interaction, Lead, Project, User, storage_column
+from app.models import (CONTACT_COLUMNS, PROJECT_CONTACT_COLUMNS, Client, Contact, Interaction, Lead, Project,
+                        User, storage_column)
 from app.schemas.clients import ClientAssignSchema, ClientUpdateSchema
 from app.schemas.contacts import ContactUpdateSchema
 from app.schemas.interactions import InteractionUpdateSchema
@@ -265,6 +266,16 @@ def _execute(entity):
             raise ActionConflict('What would be saved differs from what you reviewed; prepare and review a new proposal')
         if fields:
             entity.update(session, principal, ident, entity.schema.model_validate(fields))
+            # Person fields are stored on contacts, and a project's person can resolve
+            # to an existing contact whose own details are kept. Save only what was
+            # reviewed: otherwise refuse, and the caller rolls the write back.
+            person = [key for key in fields if key in CONTACT_COLUMNS or key in PROJECT_CONTACT_COLUMNS]
+            if person:
+                session.flush()
+                saved = entity.get(session, principal, ident)
+                if any(_plain(getattr(saved, key)) != fields[key] for key in person):
+                    raise ActionConflict('That person already exists with other details, so what would be saved '
+                                         'differs from what you reviewed; prepare and review a new proposal')
         if 'assigned_to' in payload['changes']:
             notification = entity.assign(session, principal, ident, payload['changes']['assigned_to'])
             actor = session.query(User.email).filter(User.id == principal.user_id).scalar()

@@ -357,3 +357,26 @@ def test_inline_assignment_email_is_tracked_until_sent(updater, monkeypatch):
     for _ in range(3):
         updater.runner.run(asyncio.sleep(0))
     assert sent == ['ordinary@example.test'] and not mcp_reads._DELIVERIES
+
+
+def test_a_project_person_matching_an_existing_contact_saves_only_what_was_reviewed(updater):
+    from app.models import Contact
+    with updater.admin() as db:
+        db.get(Project, 1).client_id = 1
+        contact = db.get(Contact, 1)
+        contact.email, contact.title = 'synthetic.person@example.test', 'Owner'
+        db.commit()
+    raw = token(updater)
+    # Same email as the client's existing person, different title: the save would
+    # keep "Owner", which is not what the review shows.
+    proposed = propose(updater, raw, 'project', 1, {'primary_contact_email': 'synthetic.person@example.test',
+                                                    'primary_contact_title': 'Buyer'})
+    refused(approve(updater, raw, 'project', proposed), 'differs from what you reviewed')
+    with updater.admin() as db:
+        assert db.get(Project, 1).primary_contact_id is None
+        assert db.get(Contact, 1).title == 'Owner'
+    # Details that agree with the existing person are saved as reviewed.
+    proposed = propose(updater, raw, 'project', 1, {'primary_contact_email': 'synthetic.person@example.test'})
+    assert not approve(updater, raw, 'project', proposed)['isError']
+    with updater.admin() as db:
+        assert db.get(Project, 1).primary_contact_id == 1
