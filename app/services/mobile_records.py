@@ -257,10 +257,6 @@ def check_edit(entity, body):
 
 # Step 4 (F-17): lead conversion and assignment as mobile actions.
 ASSIGNABLE = {'clients': ClientAssignSchema, 'leads': LeadAssignSchema, 'projects': ProjectAssignSchema}
-# The lead fields a converted client takes, read from the locked lead when the
-# server applies the conversion (never from the phone's queued request).
-CONVERSION_FIELDS = ('name', 'contact_person', 'contact_title', 'email', 'phone', 'phone_label',
-                     'secondary_phone', 'secondary_phone_label', 'address', 'city', 'state', 'zip', 'notes')
 
 
 def check_convert(body):
@@ -379,16 +375,17 @@ class MobileRecordService:
             lead.converted_on = datetime.utcnow()
         lead.updated_at = datetime.utcnow()
         self.session.flush()
-        fields = {field: getattr(lead, field) for field in CONVERSION_FIELDS}
-        fields = {field: value for field, value in fields.items() if value not in (None, '')}
+        # The same minimal request as the web: ClientService.create copies the
+        # lead's stored details itself (legacy values the client form would reject
+        # are kept, not refused), takes its owner, moves its interactions,
+        # projects and contacts, and soft-deletes it, all in this transaction.
         try:
-            data = ClientCreateSchema(**fields, source_lead_id=lead.id)
+            data = ClientCreateSchema(name=lead.name, source_lead_id=lead.id)
+            client_id = ClientService(self.session, self.principal).create(data)
         except ValidationError as exc:
             raise InvalidMobileWrite(_validation_message(exc)) from None
-        # ClientService.create finishes the conversion in this transaction (as the
-        # web's does): the lead's interactions, projects and contacts move to the
-        # client and the lead is soft-deleted.
-        client_id = ClientService(self.session, self.principal).create(data)
+        except ValueError as exc:  # Such as a client from this lead in the trash.
+            raise InvalidMobileWrite(str(exc)) from None
         try:
             with self.session.begin_nested():
                 self.session.add(MobileRecordRef(tenant_id=tenant, ref=ref, entity='clients', record_id=client_id))
