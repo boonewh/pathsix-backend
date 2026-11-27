@@ -303,13 +303,15 @@ def test_conversion_moves_the_leads_records_and_deletes_it_in_one_transaction(cr
         assert (db.get(Interaction, 41).client_id, db.get(Interaction, 41).lead_id) == (client_id, None)
         # The project stays visible to its owner under the new client.
         assert 41 in [p["id"] for p in ProjectService(db, ORDINARY).list_mine()["projects"]]
-        # The web's later steps find nothing left to do and change nothing.
-        with pytest.raises(RecordNotFound):
-            InteractionService(db, ORDINARY).transfer(41, client_id)
-        db.rollback()
+        # The web's later steps (transfer, then delete) succeed with nothing left to do.
+        assert InteractionService(db, ORDINARY).transfer(41, client_id) == {"success": True, "transferred": 0}
         assert LeadService(db, ORDINARY).delete(41) is False
-        # A second conversion of the same lead is refused.
+        # A second conversion of the same lead is refused, even once it is restored.
         with pytest.raises(RecordNotFound):
+            ClientService(db, ORDINARY).create(ClientCreateSchema(name="Again", source_lead_id=41))
+        LeadService(db, ORDINARY).restore(41)
+        db.commit()
+        with pytest.raises(ValueError, match="already converted"):
             ClientService(db, ORDINARY).create(ClientCreateSchema(name="Again", source_lead_id=41))
 
 
@@ -323,11 +325,16 @@ def test_a_failed_conversion_leaves_the_lead_and_its_records_untouched(crm, monk
         db.add(Project(id=42, tenant_id=1, created_by=3, lead_id=42, project_name="Job two", project_status="pending"))
         db.commit()
 
+        absorb = ClientService._absorb_lead
+
         def broken(self, lead, client_id):
-            raise SQLAlchemyError("synthetic failure")
+            absorb(self, lead, client_id)  # Every move and the lead update are flushed...
+            raise SQLAlchemyError("synthetic failure")  # ...then the conversion fails.
         monkeypatch.setattr(ClientService, "_absorb_lead", broken)
         with pytest.raises(SQLAlchemyError):
             ClientService(db, ORDINARY).create(ClientCreateSchema(name="Synthetic Two", source_lead_id=42))
         db.rollback()
-        assert db.get(Lead, 42).deleted_at is None and db.get(Project, 42).lead_id == 42
+        lead = db.get(Lead, 42)
+        assert (lead.deleted_at, lead.lead_status, lead.converted_on) == (None, "qualified", None)
+        assert (db.get(Project, 42).lead_id, db.get(Project, 42).client_id) == (42, None)
         assert db.query(Client).filter_by(source_lead_id=42).count() == 0
