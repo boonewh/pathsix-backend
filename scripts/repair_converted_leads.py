@@ -68,17 +68,29 @@ def plan(value):
     return {int(record): int(client) for record, client in pairs}
 
 
-# Converted leads and their clients stay as found until the repair commits: a
-# client cannot be deleted, and conversion (which locks its lead) cannot add one.
-LOCK = '''
-    SELECT l.id FROM leads l JOIN clients c ON c.source_lead_id = l.id AND c.tenant_id = l.tenant_id
-    WHERE l.deleted_at IS NOT NULL ORDER BY l.id, c.id FOR UPDATE OF l, c
-'''
+def lock_reviewed(connection, expected):
+    """Lock the reviewed destination clients, their source leads and every client
+    made from those leads, by id, before anything is checked. Until commit no
+    such lead or client can be deleted, restored or converted again (conversion
+    locks its lead), so the checks below hold for the writes. Lead before client,
+    as conversion does. source_lead_id itself is never changed by the app."""
+    clients = sorted({client for pairs in expected.values() for client in pairs.values()})
+    if not clients:
+        return
+    leads = sorted(connection.execute(text(
+        'SELECT DISTINCT source_lead_id FROM clients WHERE id = ANY(:clients) AND source_lead_id IS NOT NULL'),
+        {'clients': clients}).scalars())
+    connection.execute(text('SELECT id FROM leads WHERE id = ANY(:leads) ORDER BY id FOR UPDATE'), {'leads': leads})
+    connection.execute(text('SELECT id FROM clients WHERE id = ANY(:clients) OR source_lead_id = ANY(:leads) '
+                            'ORDER BY id FOR UPDATE'), {'clients': clients, 'leads': leads})
 
 
 def repair(connection, expected, apply):
-    """expected: {'projects': {id: client}, 'contacts': {...}, 'interactions': {...}}."""
-    connection.execute(text(LOCK))
+    """expected: {'projects': {id: client}, 'contacts': {...}, 'interactions': {...}}.
+
+    The plan found must equal the reviewed one, so every lead and client it uses
+    was locked by lock_reviewed before discovery ran."""
+    lock_reviewed(connection, expected)
     converted = connection.execute(text(CONVERTED)).mappings().all()
     ambiguous = sorted(row['lead_id'] for row in converted if len(row['clients']) > 1)
     target = {row['lead_id']: (row['clients'][0], row['tenant_id'])

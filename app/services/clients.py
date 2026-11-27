@@ -12,6 +12,11 @@ from app.services.access import my_clients_filter, owned_record_filter
 from app.utils.phone_utils import clean_phone_number
 from app.services.errors import RecordNotFound
 
+# The lead details a converted client takes when the conversion does not send
+# them (the web sends only some: title, phone labels and the second phone were lost).
+LEAD_DETAILS = ('contact_person', 'contact_title', 'email', 'phone', 'phone_label', 'secondary_phone',
+                'secondary_phone_label', 'address', 'city', 'state', 'zip', 'notes')
+
 
 class ClientService(TenantService):
     def summaries(self, *, after_id=0, limit=20, client_id=None):
@@ -71,6 +76,14 @@ class ClientService(TenantService):
                 fields['type'] = lead.type
             if 'status' not in data.model_fields_set:
                 fields['status'] = 'active'
+            for field in LEAD_DETAILS:
+                if field not in data.model_fields_set and getattr(lead, field) not in (None, ''):
+                    fields[field] = getattr(lead, field)
+            # Whoever had the lead keeps it as a client: its assignee, or the person
+            # who entered it when someone else (such as an admin) converts it.
+            # Otherwise the rep loses the client and the projects that move to it.
+            owner = lead.assigned_to or (lead.created_by if lead.created_by != self.principal.user_id else None)
+            fields['assigned_to'] = owner
         person = {field: fields.pop(field) for field in CONTACT_COLUMNS if field in fields} if data.source_lead_id else {}
         client = Client(**fields, tenant_id=self.principal.tenant_id,
                         created_by=self.principal.user_id,
