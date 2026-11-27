@@ -364,8 +364,10 @@ def test_conversion_keeps_every_lead_detail_and_its_owner(crm):
         assert (client.contact_title, client.phone_label, client.secondary_phone, client.secondary_phone_label) == (
             "Owner", "mobile", "5125550101", "office")
         assert client.email is None  # Sent explicitly: kept as sent.
-        # The rep who entered the lead owns the client and still sees the moved project.
+        # The rep who entered the lead owns the client.
         assert client.assigned_to == 3
+    # A session serves one identity: the rep checks in their own session.
+    with admin_factory() as db:
         assert client_id in [c["id"] for c in ClientService(db, ORDINARY).list_mine()["clients"]]
         assert 43 in [p["id"] for p in ProjectService(db, ORDINARY).list_mine()["projects"]]
 
@@ -380,6 +382,8 @@ def test_conversion_by_the_leads_own_rep_or_of_an_assigned_lead(crm):
                     Lead(id=45, tenant_id=1, created_by=1, assigned_to=3, name="Assigned lead", lead_status="qualified")])
         db.commit()
         own = ClientService(db, ORDINARY).create(ClientCreateSchema(name="Own lead", source_lead_id=44))
+        db.commit()
+    with admin_factory() as db:  # One identity per session.
         assigned = ClientService(db, admin).create(ClientCreateSchema(name="Assigned lead", source_lead_id=45))
         db.commit()
         assert db.get(Client, own).assigned_to is None and db.get(Client, own).created_by == 3
