@@ -15,7 +15,7 @@ from app.schemas.interactions import InteractionCreateSchema, InteractionUpdateS
 from app.services.base import TenantService
 from app.services.errors import RecordNotFound
 from app.utils.tombstones import bury
-from app.services.access import interaction_access_filter
+from app.services.access import interaction_access_filter, owned_record_filter
 
 
 class InteractionService(TenantService):
@@ -231,8 +231,15 @@ class InteractionService(TenantService):
         return {"message": "Interaction deleted"}
 
     def transfer(self, from_lead_id, to_client_id):
+        client = self._require_record(Client, to_client_id)
+        if (str(from_lead_id).isdigit() and client.source_lead_id == int(from_lead_id)
+                and client.converted_on is not None and self._query(Lead.id).filter(
+                    Lead.id == client.source_lead_id, Lead.deleted_at.isnot(None),
+                    owned_record_filter(Lead, self.principal, include_deleted=True)).first() is not None):
+            # Creating the client already moved the converted lead's records; the
+            # web conversion's own transfer step has nothing left to do.
+            return {"success": True, "transferred": 0}
         self._require_record(Lead, from_lead_id)
-        self._require_record(Client, to_client_id)
         interactions = (
             self._query(Interaction)
             .filter(

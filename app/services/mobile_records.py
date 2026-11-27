@@ -385,16 +385,10 @@ class MobileRecordService:
             data = ClientCreateSchema(**fields, source_lead_id=lead.id)
         except ValidationError as exc:
             raise InvalidMobileWrite(_validation_message(exc)) from None
+        # ClientService.create finishes the conversion in this transaction (as the
+        # web's does): the lead's interactions, projects and contacts move to the
+        # client and the lead is soft-deleted.
         client_id = ClientService(self.session, self.principal).create(data)
-        InteractionService(self.session, self.principal).transfer(lead.id, client_id)
-        projects = (self.session.query(Project)
-                    .filter(Project.tenant_id == tenant, Project.lead_id == lead.id)
-                    .with_for_update(of=Project).all())
-        for project in projects:
-            project.lead_id = None
-            project.client_id = client_id
-        self.session.flush()
-        LeadService(self.session, self.principal).delete(lead.id)
         try:
             with self.session.begin_nested():
                 self.session.add(MobileRecordRef(tenant_id=tenant, ref=ref, entity='clients', record_id=client_id))

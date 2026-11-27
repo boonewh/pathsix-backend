@@ -132,6 +132,28 @@ def test_restore_preserves_trash_state_and_links(archive):
         assert [e['action'] for e in db.get(Project, 1).archive_history] == ['archived', 'restored']
 
 
+def test_a_project_archived_on_a_converted_lead_is_restored_to_its_client(archive):
+    """Conversion cannot move an archived (read-only) project; restoring it does."""
+    from sqlalchemy import text
+    call, factory, _ = archive
+    preview_and_archive(call)
+    now = datetime(2026, 11, 1)
+    with factory() as db:
+        db.add(Lead(id=50, tenant_id=1, created_by=1, name='Converted lead', lead_status='won',
+                    converted_on=now, deleted_at=now))
+        db.flush()
+        db.add(Client(id=50, tenant_id=1, created_by=1, name='Converted client', source_lead_id=50, converted_on=now))
+        db.flush()
+        # As left by the old web conversion, before the fix (Core update: archived rows are read-only to the ORM).
+        db.execute(text('UPDATE projects SET client_id = NULL, lead_id = 50 WHERE id = 1'))
+        db.commit()
+    status, body = call('POST', '/api/owner/project-archive/1/restore', user=2)
+    assert status == 200, body
+    with factory() as db:
+        project = db.get(Project, 1)
+        assert (project.client_id, project.lead_id, project.archived_at) == (50, None, None)
+
+
 def test_preview_is_bound_to_owner_contents_and_confirmation(archive):
     call, factory, _ = archive
     status, body = call('GET', '/api/owner/project-archive/preview', user=4)

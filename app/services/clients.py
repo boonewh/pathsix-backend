@@ -5,7 +5,7 @@ must roll back. Detail reads are pure; web activity logging is a separate method
 """
 from datetime import datetime, timedelta
 from sqlalchemy import and_, or_, func
-from app.models import Client, Lead, Contact, Interaction, User, ActivityLog, ActivityType, CONTACT_COLUMNS
+from app.models import Client, Lead, Contact, Interaction, Project, User, ActivityLog, ActivityType, CONTACT_COLUMNS
 from app.schemas.clients import ClientCreateSchema, ClientUpdateSchema, ClientAssignSchema
 from app.services.base import TenantService
 from app.services.access import my_clients_filter, owned_record_filter
@@ -50,11 +50,16 @@ class ClientService(TenantService):
         if data.source_lead_id is not None:
             if data.source_lead_id < 1:
                 raise ValueError("Invalid source lead ID")
+            # Locked: two conversions of one lead cannot both proceed.
             lead = self._query(Lead).filter(
                 Lead.id == data.source_lead_id, owned_record_filter(Lead, self.principal),
-            ).first()
+            ).with_for_update(of=Lead).first()
             if lead is None:
                 raise RecordNotFound("Related record not found")
+            if self.session.query(Client.id).filter(
+                    Client.tenant_id == self.principal.tenant_id, Client.source_lead_id == lead.id,
+                    Client.deleted_at.is_(None)).first() is not None:
+                raise ValueError("This lead was already converted")
         fields = data.model_dump()
         for field in ('phone', 'secondary_phone'):
             fields[field] = clean_phone_number(fields[field]) if fields[field] else None
@@ -74,6 +79,8 @@ class ClientService(TenantService):
         if data.source_lead_id:
             self._take_lead_contacts(client, lead, person)
         self.session.flush()
+        if data.source_lead_id is not None:
+            self._absorb_lead(lead, client.id)
         return client.id
 
     def _take_lead_contacts(self, client, lead, person):
@@ -95,6 +102,31 @@ class ClientService(TenantService):
             if primary is None or not getattr(client, field):
                 setattr(client, field, value)
                 primary = client.primary_contact_row
+
+    def _absorb_lead(self, lead, client_id):
+        """Finish a lead conversion in the client's own transaction.
+
+        The lead is marked won, its interactions, projects and contacts move to
+        the new client, and the lead is soft-deleted. Projects and contacts left
+        on a deleted lead would be hidden from everyone. The web's separate
+        transfer and delete calls that follow then have nothing left to do.
+        """
+        tenant, now = self.principal.tenant_id, datetime.utcnow()
+        for interaction in self._query(Interaction).filter(
+                Interaction.tenant_id == tenant, Interaction.lead_id == lead.id,
+                Interaction.client_id.is_(None), Interaction.project_id.is_(None)):
+            interaction.lead_id, interaction.client_id = None, client_id
+        for project in self._query(Project).filter(Project.tenant_id == tenant, Project.lead_id == lead.id):
+            project.lead_id, project.client_id = None, client_id
+        for contact in self._query(Contact).filter(Contact.tenant_id == tenant, Contact.lead_id == lead.id):
+            contact.lead_id, contact.client_id = None, client_id
+        # The conversion report counts leads whose status is exactly 'won' with a
+        # converted_on (reports.py).
+        lead.lead_status = 'won'
+        lead.converted_on = lead.converted_on or now
+        lead.updated_at = now
+        lead.deleted_at, lead.deleted_by = now, self.principal.user_id
+        self.session.flush()
 
     def update(self, client_id, data: ClientUpdateSchema):
         if not isinstance(data, ClientUpdateSchema):

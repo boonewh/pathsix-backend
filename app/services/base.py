@@ -60,11 +60,12 @@ class TenantService:
             or int(record_id) < 1
         ):
             raise ValueError("Invalid relationship ID")
-        record = (
-            self._query(model)
-            .filter(model.id == int(record_id), model.deleted_at.is_(None))
-            .first()
-        )
+        query = self._query(model).filter(model.id == int(record_id), model.deleted_at.is_(None))
+        if model.__name__ == "Lead":
+            # Serialized with lead conversion (ClientService.create locks the lead):
+            # a record is never attached to a lead that conversion has just deleted.
+            query = query.with_for_update(read=True, of=model)
+        record = query.first()
         if not self._can_access(record):
             raise RecordNotFound("Related record not found")
         return record

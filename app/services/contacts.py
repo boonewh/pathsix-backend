@@ -24,8 +24,10 @@ class ContactService:
         model, value = (Client, client_id) if client_id is not None else (Lead, lead_id)
         if isinstance(value, bool) or not str(value).isdigit() or int(value) < 1:
             raise ValueError("Invalid relationship ID")
-        if self.session.query(model).filter(model.id == int(value),
-                owned_record_filter(model, self.principal)).first() is None:
+        query = self.session.query(model).filter(model.id == int(value), owned_record_filter(model, self.principal))
+        if model is Lead:
+            query = query.with_for_update(read=True, of=Lead)  # Serialized with lead conversion.
+        if query.first() is None:
             raise RecordNotFound("Related record not found")
         return model, int(value)
 
