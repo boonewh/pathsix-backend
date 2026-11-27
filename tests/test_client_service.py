@@ -338,3 +338,49 @@ def test_a_failed_conversion_leaves_the_lead_and_its_records_untouched(crm, monk
         assert (lead.deleted_at, lead.lead_status, lead.converted_on) == (None, "qualified", None)
         assert (db.get(Project, 42).lead_id, db.get(Project, 42).client_id) == (42, None)
         assert db.query(Client).filter_by(source_lead_id=42).count() == 0
+
+
+def test_conversion_keeps_every_lead_detail_and_its_owner(crm):
+    """The web sends only some lead fields; the rest come from the lead. An admin
+    converting a rep's lead leaves the rep owning the client and its projects."""
+    from app.models import Lead, Project
+    from app.schemas.clients import ClientCreateSchema
+    from app.services.projects import ProjectService
+    _, admin_factory, _ = crm
+    admin = Principal(1, 1, frozenset({"admin"}))
+    with admin_factory() as db:
+        db.add(Lead(id=43, tenant_id=1, created_by=3, name="Synthetic Detail Co", contact_person="Pat Example",
+                    contact_title="Owner", phone="5125550100", phone_label="mobile", secondary_phone="5125550101",
+                    secondary_phone_label="office", city="Austin", lead_status="qualified"))
+        db.flush()
+        db.add(Project(id=43, tenant_id=1, created_by=3, lead_id=43, project_name="Rep job", project_status="pending"))
+        db.commit()
+        # What the web sends: no title, phone labels or second phone.
+        client_id = ClientService(db, admin).create(ClientCreateSchema(
+            name="Synthetic Detail Co", contact_person="Pat Example", phone="5125550100", email=None,
+            city="Austin", source_lead_id=43))
+        db.commit()
+        client = db.get(Client, client_id)
+        assert (client.contact_title, client.phone_label, client.secondary_phone, client.secondary_phone_label) == (
+            "Owner", "mobile", "5125550101", "office")
+        assert client.email is None  # Sent explicitly: kept as sent.
+        # The rep who entered the lead owns the client and still sees the moved project.
+        assert client.assigned_to == 3
+        assert client_id in [c["id"] for c in ClientService(db, ORDINARY).list_mine()["clients"]]
+        assert 43 in [p["id"] for p in ProjectService(db, ORDINARY).list_mine()["projects"]]
+
+
+def test_conversion_by_the_leads_own_rep_or_of_an_assigned_lead(crm):
+    from app.models import Lead
+    from app.schemas.clients import ClientCreateSchema
+    _, admin_factory, _ = crm
+    admin = Principal(1, 1, frozenset({"admin"}))
+    with admin_factory() as db:
+        db.add_all([Lead(id=44, tenant_id=1, created_by=3, name="Own lead", lead_status="qualified"),
+                    Lead(id=45, tenant_id=1, created_by=1, assigned_to=3, name="Assigned lead", lead_status="qualified")])
+        db.commit()
+        own = ClientService(db, ORDINARY).create(ClientCreateSchema(name="Own lead", source_lead_id=44))
+        assigned = ClientService(db, admin).create(ClientCreateSchema(name="Assigned lead", source_lead_id=45))
+        db.commit()
+        assert db.get(Client, own).assigned_to is None and db.get(Client, own).created_by == 3
+        assert db.get(Client, assigned).assigned_to == 3
