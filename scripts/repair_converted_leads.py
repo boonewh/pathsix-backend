@@ -68,8 +68,17 @@ def plan(value):
     return {int(record): int(client) for record, client in pairs}
 
 
+# Converted leads and their clients stay as found until the repair commits: a
+# client cannot be deleted, and conversion (which locks its lead) cannot add one.
+LOCK = '''
+    SELECT l.id FROM leads l JOIN clients c ON c.source_lead_id = l.id AND c.tenant_id = l.tenant_id
+    WHERE l.deleted_at IS NOT NULL ORDER BY l.id, c.id FOR UPDATE OF l, c
+'''
+
+
 def repair(connection, expected, apply):
     """expected: {'projects': {id: client}, 'contacts': {...}, 'interactions': {...}}."""
+    connection.execute(text(LOCK))
     converted = connection.execute(text(CONVERTED)).mappings().all()
     ambiguous = sorted(row['lead_id'] for row in converted if len(row['clients']) > 1)
     target = {row['lead_id']: (row['clients'][0], row['tenant_id'])
