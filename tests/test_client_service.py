@@ -273,3 +273,151 @@ def test_conversion_keeps_type_status_and_origin_after_lead_is_deleted(crm):
         db.commit()
         assert service.detail(client_id)["status"] == "inactive"
         assert {r["id"]: r["status"] for r in service.list_mine()["clients"]}[client_id] == "inactive"
+
+
+def test_conversion_moves_the_leads_records_and_deletes_it_in_one_transaction(crm):
+    """Projects, contacts and interactions follow a converted lead to its client.
+
+    Left on the deleted lead, projects and contacts were hidden from everyone.
+    """
+    from app.models import Contact, Lead, Project
+    from app.schemas.clients import ClientCreateSchema
+    from app.services.interactions import InteractionService
+    from app.services.leads import LeadService
+    from app.services.projects import ProjectService
+    _, admin_factory, _ = crm
+    with admin_factory() as db:
+        db.add(Lead(id=41, tenant_id=1, created_by=3, name="Synthetic Lead Co", lead_status="qualified"))
+        db.flush()
+        db.add_all([Project(id=41, tenant_id=1, created_by=3, lead_id=41, project_name="Synthetic job",
+                            project_status="pending"),
+                    Contact(id=41, tenant_id=1, lead_id=41, first_name="Synthetic"),
+                    Interaction(id=41, tenant_id=1, lead_id=41, summary="Synthetic call")])
+        db.commit()
+        client_id = ClientService(db, ORDINARY).create(ClientCreateSchema(name="Synthetic Lead Co", source_lead_id=41))
+        db.commit()
+        lead = db.get(Lead, 41)
+        assert lead.deleted_at is not None and lead.lead_status == "won" and lead.converted_on is not None
+        assert (db.get(Project, 41).client_id, db.get(Project, 41).lead_id) == (client_id, None)
+        assert (db.get(Contact, 41).client_id, db.get(Contact, 41).lead_id) == (client_id, None)
+        assert (db.get(Interaction, 41).client_id, db.get(Interaction, 41).lead_id) == (client_id, None)
+        # The project stays visible to its owner under the new client.
+        assert 41 in [p["id"] for p in ProjectService(db, ORDINARY).list_mine()["projects"]]
+        # The web's later steps (transfer, then delete) succeed with nothing left to do.
+        assert InteractionService(db, ORDINARY).transfer(41, client_id) == {"success": True, "transferred": 0}
+        assert LeadService(db, ORDINARY).delete(41) is False
+        # A second conversion of the same lead is refused, even once it is restored.
+        with pytest.raises(RecordNotFound):
+            ClientService(db, ORDINARY).create(ClientCreateSchema(name="Again", source_lead_id=41))
+        LeadService(db, ORDINARY).restore(41)
+        db.commit()
+        with pytest.raises(ValueError, match="already converted"):
+            ClientService(db, ORDINARY).create(ClientCreateSchema(name="Again", source_lead_id=41))
+
+
+def test_a_failed_conversion_leaves_the_lead_and_its_records_untouched(crm, monkeypatch):
+    from app.models import Lead, Project
+    from app.schemas.clients import ClientCreateSchema
+    _, admin_factory, _ = crm
+    with admin_factory() as db:
+        db.add(Lead(id=42, tenant_id=1, created_by=3, name="Synthetic Two", lead_status="qualified"))
+        db.flush()
+        db.add(Project(id=42, tenant_id=1, created_by=3, lead_id=42, project_name="Job two", project_status="pending"))
+        db.commit()
+
+        absorb = ClientService._absorb_lead
+
+        def broken(self, lead, client_id):
+            absorb(self, lead, client_id)  # Every move and the lead update are flushed...
+            raise SQLAlchemyError("synthetic failure")  # ...then the conversion fails.
+        monkeypatch.setattr(ClientService, "_absorb_lead", broken)
+        with pytest.raises(SQLAlchemyError):
+            ClientService(db, ORDINARY).create(ClientCreateSchema(name="Synthetic Two", source_lead_id=42))
+        db.rollback()
+        lead = db.get(Lead, 42)
+        assert (lead.deleted_at, lead.lead_status, lead.converted_on) == (None, "qualified", None)
+        assert (db.get(Project, 42).lead_id, db.get(Project, 42).client_id) == (42, None)
+        assert db.query(Client).filter_by(source_lead_id=42).count() == 0
+
+
+def test_conversion_keeps_every_lead_detail_and_its_owner(crm):
+    """The web sends only some lead fields; the rest come from the lead. An admin
+    converting a rep's lead leaves the rep owning the client and its projects."""
+    from app.models import Lead, Project
+    from app.schemas.clients import ClientCreateSchema
+    from app.services.projects import ProjectService
+    _, admin_factory, _ = crm
+    admin = Principal(1, 1, frozenset({"admin"}))
+    with admin_factory() as db:
+        db.add(Lead(id=43, tenant_id=1, created_by=3, name="Synthetic Detail Co", contact_person="Pat Example",
+                    contact_title="Owner", phone="5125550100", phone_label="mobile", secondary_phone="5125550101",
+                    secondary_phone_label="office", city="Austin", lead_status="qualified"))
+        db.flush()
+        db.add(Project(id=43, tenant_id=1, created_by=3, lead_id=43, project_name="Rep job", project_status="pending"))
+        db.commit()
+        # What the web sends: no title, phone labels or second phone.
+        client_id = ClientService(db, admin).create(ClientCreateSchema(
+            name="Synthetic Detail Co", contact_person="Pat Example", phone="5125550100", email=None,
+            city="Austin", source_lead_id=43))
+        db.commit()
+        client = db.get(Client, client_id)
+        assert (client.contact_title, client.phone_label, client.secondary_phone, client.secondary_phone_label) == (
+            "Owner", "mobile", "5125550101", "office")
+        assert client.email is None  # Sent explicitly: kept as sent.
+        # The rep who entered the lead owns the client.
+        assert client.assigned_to == 3
+    # A session serves one identity: the rep checks in their own session.
+    with admin_factory() as db:
+        assert client_id in [c["id"] for c in ClientService(db, ORDINARY).list_mine()["clients"]]
+        assert 43 in [p["id"] for p in ProjectService(db, ORDINARY).list_mine()["projects"]]
+
+
+def test_conversion_by_the_leads_own_rep_or_of_an_assigned_lead(crm):
+    from app.models import Lead
+    from app.schemas.clients import ClientCreateSchema
+    _, admin_factory, _ = crm
+    admin = Principal(1, 1, frozenset({"admin"}))
+    with admin_factory() as db:
+        db.add_all([Lead(id=44, tenant_id=1, created_by=3, name="Own lead", lead_status="qualified"),
+                    Lead(id=45, tenant_id=1, created_by=1, assigned_to=3, name="Assigned lead", lead_status="qualified")])
+        db.commit()
+        own = ClientService(db, ORDINARY).create(ClientCreateSchema(name="Own lead", source_lead_id=44))
+        db.commit()
+    with admin_factory() as db:  # One identity per session.
+        assigned = ClientService(db, admin).create(ClientCreateSchema(name="Assigned lead", source_lead_id=45))
+        db.commit()
+        assert db.get(Client, own).assigned_to is None and db.get(Client, own).created_by == 3
+        assert db.get(Client, assigned).assigned_to == 3
+
+
+def test_one_client_per_lead_even_through_the_trash(crm):
+    from app.models import Lead
+    from app.schemas.clients import ClientCreateSchema
+    from app.services.leads import LeadService
+    _, admin_factory, _ = crm
+    with admin_factory() as db:
+        db.add(Lead(id=46, tenant_id=1, created_by=3, name="Renamed later", lead_status="qualified"))
+        db.commit()
+        service = ClientService(db, ORDINARY)
+        # The page loaded an older name; the client takes the lead's current one.
+        first = service.create(ClientCreateSchema(name="Stale page name", source_lead_id=46))
+        db.commit()
+        assert db.get(Client, first).name == "Renamed later"
+        service.delete(first)
+        LeadService(db, ORDINARY).restore(46)
+        db.commit()
+        with pytest.raises(ValueError, match="restore its client from the trash"):
+            service.create(ClientCreateSchema(name="Renamed later", source_lead_id=46))
+        db.rollback()
+        # A legacy duplicate cannot be restored next to a live client from the same lead.
+        db.add(Client(id=460, tenant_id=1, created_by=3, name="Legacy duplicate", source_lead_id=46))
+        db.commit()
+        with pytest.raises(ValueError, match="Another client"):
+            service.restore(first)
+        db.rollback()
+    # Through the Trash page: a clear conflict, not a server error.
+    call, _, _ = crm
+    status, body = call("PUT", f"/api/clients/{first}/restore", user=3)
+    assert status == 409 and "Another client" in body
+    with admin_factory() as db:
+        assert db.get(Client, first).deleted_at is not None

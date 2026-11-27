@@ -169,6 +169,9 @@ async def restore_client(client_id):
             return jsonify({"message": "Client restored successfully"})
         except RecordNotFound as exc:
             return jsonify({"error": str(exc)}), 404
+        except ValueError as exc:  # Another live client was made from the same lead.
+            session.rollback()
+            return jsonify({"error": str(exc)}), 409
 
 
 @clients_bp.route("/<int:client_id>/purge", methods=["DELETE"])
