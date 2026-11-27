@@ -8,7 +8,7 @@ from sqlalchemy import and_, or_, func
 from app.models import Client, Lead, Contact, Interaction, User, ActivityLog, ActivityType, CONTACT_COLUMNS
 from app.schemas.clients import ClientCreateSchema, ClientUpdateSchema, ClientAssignSchema
 from app.services.base import TenantService
-from app.services.access import owned_record_filter
+from app.services.access import my_clients_filter, owned_record_filter
 from app.utils.phone_utils import clean_phone_number
 from app.services.errors import RecordNotFound
 
@@ -20,11 +20,12 @@ class ClientService(TenantService):
                 or type(limit) is not int or not 1 <= limit <= 50
                 or (client_id is not None and (type(client_id) is not int or not 1 <= client_id <= 2147483647))):
             raise ValueError('Invalid client selection')
-        query = self._query(Client).filter(owned_record_filter(Client, self.principal))
+        # Opening one client keeps the record access rule; listing matches the
+        # web Clients page.
         if client_id is not None:
-            query = query.filter(Client.id == client_id)
+            query = self._query(Client).filter(owned_record_filter(Client, self.principal), Client.id == client_id)
         else:
-            query = query.filter(Client.id > after_id)
+            query = self._query(Client).filter(my_clients_filter(self.principal), Client.id > after_id)
         # Truncate at the database boundary, before constructing a response.
         rows = query.with_entities(Client.id, func.substr(Client.name,1,200).label('name'),
             func.substr(Client.city,1,100).label('city'), func.substr(Client.state,1,50).label('state'),
@@ -168,11 +169,7 @@ class ClientService(TenantService):
     def list_mine(self, page=1, per_page=20, sort_order="newest", activity_filter="all",
                   client_type=None):
         # Preserve My Clients: assignment takes precedence over creation, even for admins.
-        query = self._query(Client).filter(
-            Client.deleted_at.is_(None),
-            or_(Client.assigned_to == self.principal.user_id,
-                and_(Client.assigned_to.is_(None), Client.created_by == self.principal.user_id)),
-        )
+        query = self._query(Client).filter(my_clients_filter(self.principal))
         # Count per type over the same visible clients, ignoring the type filter
         # and paging, so the Accounts page can show real totals.
         type_counts = {

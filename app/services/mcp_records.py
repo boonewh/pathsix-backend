@@ -11,7 +11,7 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import and_, func, or_
 
 from app.models import Client, Contact, FollowUpStatus, Interaction, Lead, Project, User
-from app.services.access import interaction_access_filter, owned_record_filter, project_access_filter
+from app.services.access import interaction_access_filter, my_projects_filter, owned_record_filter, project_access_filter
 from app.services.base import TenantService
 from app.services.errors import RecordNotFound
 
@@ -139,14 +139,30 @@ class RecordReads(TenantService):
                     item[kind + '_name'] = names.get(kind, {}).get(item[kind + '_id'])
 
     # Projects --------------------------------------------------------------
-    def projects(self, *, query='', status=None, project_id=None, after_id=0, limit=20):
-        project_id = _ident(project_id)
+    def projects(self, *, query='', status=None, client_id=None, lead_id=None, project_id=None, after_id=0, limit=20):
+        project_id, client_id, lead_id = _ident(project_id), _ident(client_id), _ident(lead_id)
         _page(after_id, limit)
-        if status is not None and status not in ('pending', 'won', 'lost'):
+        # Any stored status, as the web Projects page filter accepts (column is 20 characters).
+        if status is not None and (not isinstance(status, str) or not status.strip() or len(status) > 20):
             raise ValueError('Invalid project status')
+        status = status.strip() if status else None
+        if client_id and lead_id:
+            raise ValueError('Choose a client or a lead, not both')
         rows = self._query(Project).filter(Project.deleted_at.is_(None), Project.archived_at.is_(None),
                                            project_access_filter(self.principal))
-        rows = rows.filter(Project.id == project_id) if project_id else rows.filter(Project.id > after_id)
+        # Opening one project keeps the record access rule. One client's or
+        # lead's projects follow the web detail pages (by_client/by_lead): the
+        # parent must be accessible, then every accessible project under it.
+        # Otherwise listing and search match the web Projects page.
+        if project_id:
+            rows = rows.filter(Project.id == project_id)
+        elif client_id or lead_id:
+            model, ident = (Client, client_id) if client_id else (Lead, lead_id)
+            self._require_parent(model, ident)
+            column = Project.client_id if client_id else Project.lead_id
+            rows = rows.filter(column == ident, Project.id > after_id)
+        else:
+            rows = rows.filter(my_projects_filter(self.principal), Project.id > after_id)
         if status:
             rows = rows.filter(Project.project_status == status)
         match = _search(Project.project_name, query)

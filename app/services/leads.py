@@ -15,6 +15,20 @@ from app.utils.phone_utils import clean_phone_number
 from app.services.errors import RecordNotFound
 
 
+def my_leads_filter(principal: Principal):
+    """The web Leads page: leads assigned to the user, plus unassigned leads
+    they entered. The same for every role, admins included (admins list
+    everyone's leads only through the admin listing)."""
+    return and_(
+        Lead.tenant_id == principal.tenant_id,
+        Lead.deleted_at == None,
+        or_(
+            Lead.assigned_to == principal.user_id,
+            and_(Lead.assigned_to == None, Lead.created_by == principal.user_id),
+        ),
+    )
+
+
 class LeadService:
     def __init__(self, session, principal: Principal):
         if not isinstance(principal, Principal):
@@ -31,11 +45,12 @@ class LeadService:
                 or not 0 <= after_id <= 2147483647 or type(limit) is not int or not 1 <= limit <= 50
                 or (lead_id is not None and (type(lead_id) is not int or not 1 <= lead_id <= 2147483647))):
             raise ValueError('Invalid lead selection')
-        rows = self.session.query(Lead).filter(owned_record_filter(Lead, self.principal))
+        # Opening one lead keeps the record access rule; listing and searching
+        # match the web Leads page.
         if lead_id is not None:
-            rows = rows.filter(Lead.id == lead_id)
+            rows = self.session.query(Lead).filter(owned_record_filter(Lead, self.principal), Lead.id == lead_id)
         else:
-            rows = rows.filter(Lead.id > after_id)
+            rows = self.session.query(Lead).filter(my_leads_filter(self.principal), Lead.id > after_id)
         if query.strip():
             literal = query.strip().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
             rows = rows.filter(Lead.name.ilike('%'+literal+'%', escape='\\'))
@@ -149,17 +164,7 @@ class LeadService:
         if sort_order not in ["newest", "oldest", "alphabetical"]:
             sort_order = "newest"
 
-        query = self.session.query(Lead).filter(
-            Lead.tenant_id == self.principal.tenant_id,
-            Lead.deleted_at == None,
-            or_(
-                Lead.assigned_to == self.principal.user_id,
-                and_(
-                    Lead.assigned_to == None,
-                    Lead.created_by == self.principal.user_id
-                )
-            )
-        )
+        query = self.session.query(Lead).filter(my_leads_filter(self.principal))
 
         # Count per status over the same visible leads, ignoring the status
         # filter and paging, so the Leads page can show real totals.

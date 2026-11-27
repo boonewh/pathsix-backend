@@ -13,7 +13,7 @@ from sqlalchemy.orm import joinedload
 from sqlalchemy import or_, and_, func
 from app.services.base import TenantService
 from app.services.errors import RecordNotFound
-from app.services.access import owned_record_filter, project_access_filter
+from app.services.access import my_projects_filter, owned_record_filter, project_access_filter
 
 
 class ProjectService(TenantService):
@@ -28,53 +28,7 @@ class ProjectService(TenantService):
                 joinedload(Project.lead),
                 joinedload(Project.assigned_user),
             )
-            .filter(
-                Project.tenant_id == self.principal.tenant_id,
-                Project.deleted_at == None,
-            )
-            .filter(
-                or_(
-                    Project.assigned_to == self.principal.user_id,
-                    and_(
-                        Project.assigned_to == None,
-                        or_(
-                            and_(
-                                Project.client_id != None,
-                                or_(
-                                    Project.client.has(
-                                        Client.assigned_to == self.principal.user_id
-                                    ),
-                                    and_(
-                                        Project.client.has(Client.assigned_to == None),
-                                        Project.client.has(
-                                            Client.created_by == self.principal.user_id
-                                        ),
-                                    ),
-                                ),
-                            ),
-                            and_(
-                                Project.lead_id != None,
-                                or_(
-                                    Project.lead.has(
-                                        Lead.assigned_to == self.principal.user_id
-                                    ),
-                                    and_(
-                                        Project.lead.has(Lead.assigned_to == None),
-                                        Project.lead.has(
-                                            Lead.created_by == self.principal.user_id
-                                        ),
-                                    ),
-                                ),
-                            ),
-                            and_(
-                                Project.client_id == None,
-                                Project.lead_id == None,
-                                Project.created_by == self.principal.user_id,
-                            ),
-                        ),
-                    ),
-                )
-            )
+            .filter(my_projects_filter(self.principal))
         )
         query = query.filter(project_access_filter(self.principal))
         # Count per status over the same visible projects, ignoring the status

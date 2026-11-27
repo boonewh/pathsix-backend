@@ -25,7 +25,8 @@ class ActionReview:
     def present(self, service, connection_id, receipt):
         row = service.action(receipt['action_id'], connection_id=connection_id)
         receipt = service.result(row)
-        pending = receipt['status'] == 'pending'
+        # Stored fields only while the record is still accessible.
+        pending = receipt['status'] == 'pending' and service.visible(row)
         # Wording and labels for any action kind; cards keep it after the decision.
         meta = {'pathsix/presentation': kind_of(row.kind).presentation(row.payload if pending else None)}
         if pending:

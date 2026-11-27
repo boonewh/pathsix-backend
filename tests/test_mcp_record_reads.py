@@ -2,7 +2,8 @@
 from datetime import datetime
 import pytest
 from sqlalchemy import text
-from app.models import AIClient, Client, Contact, FollowUpStatus, Interaction, Project
+from app.models import AIClient, Client, Contact, FollowUpStatus, Interaction, Lead, Project
+from app.services.principal import Principal
 from test_security_boundaries import crm
 from test_mcp_reads import oauth, token_for, call
 
@@ -62,6 +63,58 @@ def test_projects_hide_archived_other_tenants_and_inaccessible_parent_names(read
         db.commit()
     assert tool(reads, 'get_project', {'project_id': 9}, user=3)['isError']
     assert ok(tool(reads, 'list_projects', {}, user=3))['projects'] == []
+
+
+def test_client_and_project_lists_match_the_web_pages_for_every_role(reads):
+    # User 1 is an admin, user 3 an ordinary user, both in tenant 1. Seeded:
+    # client 1 and project 1, entered by the admin and unassigned.
+    with reads.admin() as db:
+        db.add_all([
+            Client(id=21, tenant_id=1, created_by=3, name='Vis client entered by ordinary'),
+            Client(id=22, tenant_id=1, created_by=1, assigned_to=3, name='Vis client handed to ordinary'),
+            Client(id=23, tenant_id=1, created_by=3, assigned_to=1, name='Vis client handed to admin'),
+            Client(id=24, tenant_id=1, created_by=1, assigned_to=1, name='Vis client removed', deleted_at=datetime.utcnow()),
+            Lead(id=41, tenant_id=1, created_by=3, name='Vis lead entered by ordinary'),
+        ])
+        db.flush()
+        db.add_all([
+            Project(id=31, tenant_id=1, created_by=1, assigned_to=3, client_id=1, project_name='Vis assigned to ordinary', project_status='pending'),
+            Project(id=32, tenant_id=1, created_by=3, client_id=23, project_name='Vis under client handed to admin', project_status='pending'),
+            Project(id=33, tenant_id=1, created_by=1, lead_id=41, project_name='Vis under ordinary lead', project_status='pending'),
+            Project(id=34, tenant_id=1, created_by=3, project_name='Vis standalone by ordinary', project_status='pending'),
+            Project(id=35, tenant_id=1, created_by=1, project_name='Vis standalone by admin', project_status='won'),
+            Project(id=36, tenant_id=1, created_by=1, client_id=22, project_name='Vis under client handed to ordinary', project_status='pending'),
+        ])
+        db.commit()
+
+    def ids(result, key):
+        return [row['id'] for row in ok(result)[key]]
+
+    # Clients: plain listing (the connector has no client search).
+    assert ids(tool(reads, 'list_clients', {}, user=1), 'clients') == [1, 23]
+    assert ids(tool(reads, 'list_clients', {}, user=3), 'clients') == [21, 22]
+    # Projects: plain listing, search and status filter.
+    assert ids(tool(reads, 'list_projects', {}, user=1), 'projects') == [1, 32, 35]
+    assert ids(tool(reads, 'list_projects', {}, user=3), 'projects') == [31, 33, 34, 36]
+    assert ids(tool(reads, 'list_projects', {'query': 'Vis'}, user=1), 'projects') == [32, 35]
+    assert ids(tool(reads, 'list_projects', {'query': 'Vis'}, user=3), 'projects') == [31, 33, 34, 36]
+    assert ids(tool(reads, 'list_projects', {'query': 'Vis', 'status': 'won'}, user=1), 'projects') == [35]
+    # Opening one record keeps the record access rule.
+    assert all(not tool(reads, 'get_client', {'client_id': ident}, user=1).get('isError') for ident in (21, 22))
+    assert not tool(reads, 'get_client', {'client_id': 23}, user=3).get('isError')
+    assert tool(reads, 'get_client', {'client_id': 24}, user=1)['isError']
+    assert not tool(reads, 'get_project', {'project_id': 32}, user=3).get('isError')
+    assert not tool(reads, 'get_project', {'project_id': 36}, user=1).get('isError')
+    # The same sets as the web Clients and Projects pages.
+    from app.services.clients import ClientService
+    from app.services.projects import ProjectService
+    for user, roles in ((1, ['admin']), (3, [])):
+        principal = Principal(user_id=user, tenant_id=1, roles=roles)
+        with reads.admin() as db:
+            web_clients = sorted(row['id'] for row in ClientService(db, principal).list_mine(per_page=200)['clients'])
+            web_projects = sorted(row['id'] for row in ProjectService(db, principal).list_mine(per_page=200)['projects'])
+        assert web_clients == ids(tool(reads, 'list_clients', {'limit': 50}, user=user), 'clients')
+        assert web_projects == ids(tool(reads, 'list_projects', {'limit': 50}, user=user), 'projects')
 
 
 def test_interactions_need_one_accessible_parent(reads):
@@ -124,3 +177,54 @@ def test_new_reads_need_their_own_permission(reads):
     assert result['isError']
     challenge = result['_meta']['mcp/www_authenticate'][0]
     assert 'insufficient_scope' in challenge and 'contacts:read' in challenge and 'clients:read' in challenge
+
+
+# Batch 1 of web parity (todo 95) ------------------------------------------------
+
+def test_detail_reads_log_viewed_activity_like_the_web_pages(reads):
+    from app.models import ActivityLog, ActivityType, AIToolAudit
+    with reads.admin() as db:
+        db.get(AIClient, 'pilot').allowed_scopes = ALL + ['leads:read']
+        db.commit()
+    ok(tool(reads, 'get_client', {'client_id': 1}))
+    ok(tool(reads, 'get_lead', {'lead_id': 1}, scopes=ALL + ['leads:read']))
+    ok(tool(reads, 'get_project', {'project_id': 1}))
+    assert tool(reads, 'get_client', {'client_id': 2})['isError']   # Another company: nothing logged.
+    with reads.admin() as db:
+        viewed = sorted((row.entity_type, row.entity_id, row.user_id) for row in
+                        db.query(ActivityLog).filter_by(action=ActivityType.viewed))
+        assert viewed == [('client', 1, 1), ('lead', 1, 1), ('project', 1, 1)]
+        assert db.query(AIToolAudit).filter_by(tool='get_client').count() == 2   # Connector audit kept.
+
+
+def test_projects_of_one_client_or_lead_follow_the_detail_pages(reads):
+    with reads.admin() as db:
+        db.add_all([
+            Project(id=51, tenant_id=1, created_by=3, assigned_to=3, client_id=1, project_name='Client job for ordinary', project_status='active'),
+            Project(id=52, tenant_id=1, created_by=1, lead_id=1, project_name='Lead job', project_status='completed'),
+        ])
+        db.commit()
+    ids = lambda result: [row['id'] for row in ok(result)['projects']]
+    # The admin's Projects page omits project 51 (assigned to someone else); the client's page shows it.
+    assert 51 not in ids(tool(reads, 'list_projects', {}))
+    assert ids(tool(reads, 'list_projects', {'client_id': 1})) == [51]
+    assert ids(tool(reads, 'list_projects', {'lead_id': 1})) == [52]
+    # Statuses are whatever the CRM stores, as the web filter accepts.
+    assert ids(tool(reads, 'list_projects', {'lead_id': 1, 'status': 'completed'})) == [52]
+    assert ids(tool(reads, 'list_projects', {'client_id': 1, 'status': 'active'})) == [51]
+    assert tool(reads, 'list_projects', {'client_id': 1, 'lead_id': 1})['isError']
+    # A parent the user cannot open is refused, as on the web.
+    assert tool(reads, 'list_projects', {'client_id': 1}, user=3)['isError']
+    assert tool(reads, 'list_projects', {'client_id': 2})['isError']
+
+
+def test_admin_schedule_is_company_wide_like_the_web_calendar(reads):
+    with reads.admin() as db:
+        db.add(Client(id=61, tenant_id=1, created_by=3, assigned_to=3, name='Ordinary client'))
+        db.flush()
+        db.add(Interaction(id=62, tenant_id=1, client_id=61, summary='Ordinary follow-up', follow_up=datetime(2026, 9, 10)))
+        db.commit()
+    day = {'start_date': '2026-09-10', 'end_date': '2026-09-10'}
+    admin = sorted(row['id'] for row in ok(tool(reads, 'get_schedule', day))['follow_ups'])
+    ordinary = sorted(row['id'] for row in ok(tool(reads, 'get_schedule', day, user=3))['follow_ups'])
+    assert admin == [1, 62] and ordinary == [62]
