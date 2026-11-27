@@ -384,3 +384,29 @@ def test_conversion_by_the_leads_own_rep_or_of_an_assigned_lead(crm):
         db.commit()
         assert db.get(Client, own).assigned_to is None and db.get(Client, own).created_by == 3
         assert db.get(Client, assigned).assigned_to == 3
+
+
+def test_one_client_per_lead_even_through_the_trash(crm):
+    from app.models import Lead
+    from app.schemas.clients import ClientCreateSchema
+    from app.services.leads import LeadService
+    _, admin_factory, _ = crm
+    with admin_factory() as db:
+        db.add(Lead(id=46, tenant_id=1, created_by=3, name="Renamed later", lead_status="qualified"))
+        db.commit()
+        service = ClientService(db, ORDINARY)
+        # The page loaded an older name; the client takes the lead's current one.
+        first = service.create(ClientCreateSchema(name="Stale page name", source_lead_id=46))
+        db.commit()
+        assert db.get(Client, first).name == "Renamed later"
+        service.delete(first)
+        LeadService(db, ORDINARY).restore(46)
+        db.commit()
+        with pytest.raises(ValueError, match="restore its client from the trash"):
+            service.create(ClientCreateSchema(name="Renamed later", source_lead_id=46))
+        db.rollback()
+        # A legacy duplicate cannot be restored next to a live client from the same lead.
+        db.add(Client(id=460, tenant_id=1, created_by=3, name="Legacy duplicate", source_lead_id=46))
+        db.commit()
+        with pytest.raises(ValueError, match="Another client"):
+            service.restore(first)

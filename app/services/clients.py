@@ -61,10 +61,13 @@ class ClientService(TenantService):
             ).with_for_update(of=Lead).first()
             if lead is None:
                 raise RecordNotFound("Related record not found")
-            if self.session.query(Client.id).filter(
-                    Client.tenant_id == self.principal.tenant_id, Client.source_lead_id == lead.id,
-                    Client.deleted_at.is_(None)).first() is not None:
-                raise ValueError("This lead was already converted")
+            # One client per lead, counting the trash: restoring a trashed client
+            # must never leave two clients made from one lead.
+            earlier = self.session.query(Client.deleted_at).filter(
+                Client.tenant_id == self.principal.tenant_id, Client.source_lead_id == lead.id).first()
+            if earlier is not None:
+                raise ValueError("This lead was already converted" if earlier.deleted_at is None else
+                                 "This lead was already converted; restore its client from the trash instead")
         fields = data.model_dump()
         for field in ('phone', 'secondary_phone'):
             fields[field] = clean_phone_number(fields[field]) if fields[field] else None
@@ -76,6 +79,7 @@ class ClientService(TenantService):
                 fields['type'] = lead.type
             if 'status' not in data.model_fields_set:
                 fields['status'] = 'active'
+            fields['name'] = lead.name  # The lead as it is now, not as a page loaded it.
             for field in LEAD_DETAILS:
                 if field not in data.model_fields_set and getattr(lead, field) not in (None, ''):
                     fields[field] = getattr(lead, field)
@@ -149,6 +153,14 @@ class ClientService(TenantService):
         client = self._get(client_id, include_deleted=True)
         if client.deleted_at is None:
             raise RecordNotFound("Client not found or not deleted")
+        if client.source_lead_id is not None:
+            # Lead first, as conversion locks it; then no other live client from it.
+            self.session.query(Lead.id).filter(Lead.id == client.source_lead_id,
+                                               Lead.tenant_id == self.principal.tenant_id).with_for_update().first()
+            if self.session.query(Client.id).filter(
+                    Client.tenant_id == self.principal.tenant_id, Client.source_lead_id == client.source_lead_id,
+                    Client.id != client.id, Client.deleted_at.is_(None)).first() is not None:
+                raise ValueError("Another client was already made from this lead")
         client.deleted_at = None
         client.deleted_by = None
         self.session.flush()
